@@ -9,6 +9,14 @@ M4 - FPS Weapon Animations Pack (v.1)
 Tiếng súng M4 (sounds\m4_shot.wav, dựng từ sounds\source\m4_shot_original.wav bằng tools\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
   Do chủ dự án cung cấp. Tác giả / nguồn / giấy phép: CHƯA GHI, cần chủ dự án điền trước khi phát hành.
 
+Shader (thư mục shaders\)
+  viewmodel.vert: phần skin bộ xương trên GPU (p3d_TransformTable + transform_weight / transform_index + cờ F_hardware_skinning) theo mẫu của
+    panda3d-simplepbr, tác giả Mitchell Stokes, giấy phép BSD-3-Clause, https://github.com/Moguri/panda3d-simplepbr (đã có sẵn trong .venv). Phần ánh sáng tự viết.
+  world.vert: khung truyền toạ độ / UV theo unlit_with_fog_shader của Ursina (MIT), https://github.com/pokepetter/ursina. Phần đèn, sương mù, nhiễu mặt đất tự viết.
+  Đã xem và KHÔNG dùng: "3D Game Shaders For Beginners" của lettier (kho không có file giấy phép nên không sao chép mã), panda3d-simplepbr nguyên bộ (đường ống PBR + hậu xử lý toàn màn hình, nặng với máy này, chưa đo),
+  FXAA của Ursina (làm bầu trời xám phẳng khi có vùng vẽ súng riêng).
+Texture của tia lửa đầu nòng, tracer, nhiễu mặt đất và lớp tối góc màn hình: tự sinh bằng mã lúc khởi động, không có tài nguyên ngoài.
+
 Chưa dùng ở phiên này: Animated FPS hands (rifle animation pack) của Cransh
   (https://sketchfab.com/ccransh), CC-BY 4.0. Nếu dùng thì phải ghi công ở đây và trong game.
 

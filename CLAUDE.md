@@ -9,8 +9,12 @@
   `.venv\Scripts\python.exe -X utf8 tools\g1_selftest.py` (di chuyển), `tools\g2_selftest.py` (bắn: nhịp, độ rơi từng bia, đạn, hit marker, lỗ)
   `tools\g3_selftest.py` (recoil, độ tản theo trạng thái, bloom, tâm ngắm so với phép chiếu thật, kick súng trên màn hình),
   `tools\g4_selftest.py` (ADS, đường ngắm trùng tâm, thở/bob/lag chuột, quán tính nhảy/ngồi, tư thế chạy, sprint-to-fire)
-  và `tools\audio_selftest.py` (BẬT tiếng, kiểm trình phát thật và số lần phát; các selftest khác tắt tiếng bằng `create_game(sound=False)`)
-- Công cụ dựng/đo: `tools\prep_sound.py` (dựng `sounds\m4_shot.wav` từ file gốc), `tools\g4_ads_align.py` (đo điểm ngắm của súng, in tư thế ADS)
+  `tools\g5_selftest.py` (rút súng, nạp hai kiểu, huỷ nạp, logic đạn, tia lửa, tracer; 69 mục)
+  và `tools\audio_selftest.py` (BẬT tiếng, kiểm trình phát thật và số lần phát; các selftest khác tắt tiếng bằng `create_game(sound=False)`).
+  Các selftest G1–G4 gọi `create_game(draw=False)` để khỏi chờ 1 s rút súng; `create_game(effects=False, look=False)` tắt tia lửa/tracer và shader thế giới (để đo)
+- Công cụ dựng/đo: `tools\prep_sound.py` (dựng `sounds\m4_shot.wav` từ file gốc), `tools\g4_ads_align.py` (đo điểm ngắm của súng, in tư thế ADS),
+  `tools\g5_reload_probe.py` (đo từng khung của clip nạp: băng rời / vào chỗ, bolt), `tools\g5_muzzle_align.py` (đo miệng nòng),
+  `tools\g5_perf.py <biến thể>` (FPS lúc đứng yên so với lúc nạp, tắt từng thứ để tìm thủ phạm: base / noblend / cpuskin / noview / nolook / nofx / nohud)
 - Test (toán thuần + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest`
 - Công cụ G0: `tools\g0_view.py` (chụp ảnh tư thế), `tools\g0_timing.py` (đo clip + FPS), `tools\g0_motion.py`
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15)
@@ -21,8 +25,9 @@ main.py  run.bat  requirements.txt  pytest.ini  CLAUDE.md  CREDITS.txt  PROMPT_P
 fps/                     gói mã nguồn (import dạng `from fps.core.movement import ...`)
   app.py                 Game, create_game() (dựng tất cả; tools gọi lại hàm này), main()
   weapon_data.py         MỌI thông số (dataclass)
-  core/                  toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring
-  game/                  phần ghép Ursina/Panda: player, combat, targets, viewmodel, shooting_range, hud, gltf_patch
+  core/                  toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring, sway, handling (nạp/rút súng), fx (tia lửa/tracer)
+  game/                  phần ghép Ursina/Panda: player, combat, targets, viewmodel, shooting_range, hud, gltf_patch, gun_audio, effects, look, shaders
+shaders/                 GLSL: viewmodel.vert|frag (súng + tay, skin trên GPU), world.vert|frag (thế giới: đèn, sương mù, nhiễu mặt đất)
 guns/  sounds/           tài nguyên (glb; wav, trong sounds/source là file gốc)
 tests/  tools/  docs/    pytest; công cụ + bài kiểm tra bằng game thật; ghi chú các giai đoạn
 shots/                   ảnh chụp của các bài kiểm tra (gitignore)
@@ -51,7 +56,7 @@ shots/                   ảnh chụp của các bài kiểm tra (gitignore)
   bind, vì đỉnh mesh là toạ độ tuyệt đối. Muốn biết vị trí thật thì dùng `getTightBounds`.
 - `Mag2` và hai viên đạn là đồ của clip reload: ngoài reload chúng lơ lửng bên dưới/phải súng. Ẩn chúng khi không reload.
 - Cẳng tay trái có vân da xoáy (da bị xoắn quanh trục): đặc tính của asset, chỉ lộ một mẩu ở mép dưới-trái màn hình.
-- Không có normal map, không PBR (đường vẽ cố định của Panda). Muốn đẹp hơn thì cần simplepbr; chưa làm.
+- Không có normal map, không PBR. Từ G5 súng + tay vẽ bằng shader riêng `shaders/viewmodel.*` (xem mục G5), không còn đường cố định của Panda.
 
 ## Ursina/Windows
 - `Ursina(vsync=False)` một mình KHÔNG tắt vsync. Muốn đo FPS thật: `loadPrcFileData('', 'sync-video 0')` trước `Ursina()`.
@@ -68,7 +73,7 @@ shots/                   ảnh chụp của các bài kiểm tra (gitignore)
 - Camera thế giới là `camera` của Ursina gắn vào `player.camera_pivot`; FOV ngang 80 (`PlayerParams.fov`). Recoil camera (G3) cộng vào pivot.
 - Chuột: `mouse.velocity` của Ursina (đơn vị = chiều cao cửa sổ), nhân `mouse_sensitivity` độ/đơn vị. Khi `mouse.locked` mới nhìn.
 - Độ sâu thế giới: near 0.1, far 10000 (mặc định Ursina) đủ cho 200 m. Vật nằm sát đất (vạch) dùng `set_depth_offset(1)`, không nâng lên.
-- Kiểu `Entity` mới của Ursina dùng shader không đèn (màu phẳng); chỉ viewmodel có đèn.
+- Kiểu `Entity` mới của Ursina 8.3 dùng `unlit_with_fog_shader` (màu phẳng); từ G5 vật thể trường bắn/bia/lỗ đạn dùng `shaders/world.*` (đèn + sương mù), xem mục G5.
 - KHÔNG bật MSAA: trên Intel UHD 620 của máy này mọi mức MSAA kéo FPS từ ~140 xuống ~20.
 - Vạch ngang làn mảnh hơn một điểm ảnh ở ≥ 100 m nên đứt nét: chỉ vạch tới 50 m, xa hơn dùng cột (G6 thêm biển chữ).
 - Đã đo ở G1 (vsync tắt, 1280x720): trung bình 126 FPS, 1% thấp nhất 84. Khung lưu ảnh chụp rất chậm: loại khỏi số đo.
@@ -84,7 +89,7 @@ shots/                   ảnh chụp của các bài kiểm tra (gitignore)
 - Bia: `targets.LAYOUT` xen kẽ hai bên làn, bia xa to dần, cao tối thiểu 1,9 m (phủ tầm mắt 1,62 m). KHÔNG đặt hai bia cùng trục x: bia gần che bia xa.
 - Lỗ đạn: bể `max_holes` tạo sẵn lúc khởi động (tạo `Entity` giữa lúc bắn gây khựng ~10 ms), quay theo pháp tuyến (`ballistics.decal_rotation`),
   cỡ to dần theo khoảng cách (lỗ thật 5,56 mm không nhìn thấy). Gắn vào `target.root` (không scale) để bia chạy ở G6 mang lỗ theo.
-- Phím tạm: `R` nạp đầy băng từ dự trữ ngay lập tức (G5 thay bằng reload có animation). `B` đổi tự động / bắn đơn. Không bắn khi chuột đã nhả (Esc).
+- Phím: `R` nạp đạn (G5), `B` đổi tự động / bắn đơn. Không bắn khi chuột đã nhả (Esc).
 - Chữ (`hud.py`): `setup_fonts()` dùng Segoe UI Semilight có sẵn trong Windows (đủ dấu tiếng Việt), độ phân giải font = cỡ chữ trên màn hình x2, mỗi dòng có bóng
   đen lệch 1 px (`UiText`). Font mặc định của Ursina (OpenSans Regular qua shader SDF ở 1080p) bị dày và nhoè khi thu nhỏ: ĐỪNG quay lại dùng `Text(...)` trần.
   Chữ mảnh dưới ~14 px luôn mờ: cỡ chữ HUD không xuống dưới `scale=0.75`. Mọi chữ mới của game đi qua `UiText`.
@@ -124,3 +129,33 @@ shots/                   ảnh chụp của các bài kiểm tra (gitignore)
   (trình phát thật không phải âm câm, độ dài, số lần phát, trạng thái PLAYING); CREDITS ghi rõ nguồn/giấy phép tiếng súng CHƯA có.
 - Git/Windows: cây làm việc dùng CRLF (autocrlf), cảnh báo "LF will be replaced by CRLF" vô hại; script thay chuỗi trên file `.py` phải chuẩn hoá `\r\n` -> `\n` trước (đã vấp khi dọn cấu trúc).
 - Đã đo ở G4 (vsync tắt, 1280x720, cả kịch bản): trung bình 95 FPS, 1% thấp nhất 70, khung chậm nhất 18 ms.
+
+## Rút súng, nạp đạn, tia lửa, tracer, shader (G5)
+- Logic nạp/rút súng thuần: `core/handling.py` (READY / DRAW / RELOAD), số liệu ở `weapon_data.ReloadData` + `Clip.swap`/`Clip.settle`. Clip chạy theo đồng hồ Panda (`actor.play` + nội suy khung `setBlend(frameBlend=True)`),
+  logic nhận `time.dt` THẬT (không cắt 50 ms) nên hai bên khớp; `Handling.drain()` đưa sự kiện (start/swap/done/cancel) sang `Viewmodel.on_event`.
+- Đo bằng `tools\g5_reload_probe.py` (đừng đoán lại): băng mới vào chỗ ở khung **61** (Reload, 2,0 s) và **172** (Reload_Empty, 2,03 s); đạn đổi đúng lúc đó, huỷ trước mốc thì đạn y nguyên. Tổng 3,63 s / 3,77 s (`ReloadData.speed` nhân tốc độ).
+  Một băng duy nhất (Mag1) rút ra rồi ấn lại; `Mag2` và viên đạn thứ hai không bao giờ tới gần súng trong clip nào (vẫn ẩn). Khung đầu của Reload_Empty có bolt khoá sau (BoltCatch 18 cm, Bolt 6 cm) nên đó chính là tư thế "băng cạn":
+  `Viewmodel.animate` trộn 0,04 s sang khung 111 khi băng về 0 (bolt khoá ngay phát cuối), không cần clip riêng. Draw bắt đầu ở khung đầu tiên của game (không phải lúc dựng), 1,0 s, không bắn/ngắm/nạp được.
+- Luật: băng cạn + bóp cò (hoặc R) -> Reload_Empty; hết sạch đạn thì không làm gì (HUD "HẾT ĐẠN"); R lúc chạy bị bỏ (chờ `sprint_amount` về 0); chạy nước rút cắt nạp (`ReloadData.sprint_cancels`); nạp luôn kéo súng ra khỏi ADS
+  (`Player.ads_blocked`, vào lại ADS tự động khi xong nếu còn giữ chuột phải); cú bóp lúc đang nạp bị bỏ (khác sprint-to-fire: ở đó được nhớ).
+- Huỷ nạp: clip đứng yên tại khung hiện tại rồi trượt về tư thế sẵn sàng 0,18 s bằng `enableBlend` + `setControlEffect` (hai AnimControl khác nhau: clip bị huỷ và `Draw` ở khung cuối). Huỷ Reload_Empty trước mốc thì tư thế sẵn sàng có bolt đóng
+  rồi 0,04 s sau mới khoá lại (không dùng chung được một AnimControl cho cả hai).
+- Clip nạp được dựng cho góc nhìn rộng: tay trái và băng đạn nằm dưới mép màn hình ở FOV súng 70 (kể cả lúc nghỉ). Khi nạp FOV súng mở 88 và súng nhích lên 4 cm (`ReloadData.view_fov/view_pose`, trộn 0,25 s). Phải TẮT XONG ở `Clip.settle`
+  (88 / 206) chứ không phải hết clip: đoạn cuối clip chỉ là ngón tay xếp lại, để nguyên thì súng đứng cao thêm ~0,6 s sau khi nạp xong (lỗi đã gặp).
+- **FPS lúc nạp (lỗi đã gặp)**: nội suy khung làm bộ xương đổi MỌI khung nên Panda skin lại 2 875 đỉnh bàn tay trên CPU mỗi khung (đo `animate_vertices`: 1,28 ms). Đo xen kẽ trung vị khung hình: cách cũ đứng yên 10,0 -> nạp 13,2 ms (-24% FPS);
+  skin trên GPU 10,1 -> ~10,5 ms. Hiện `shaders/viewmodel.vert` skin bằng `p3d_TransformTable` + `transform_weight/index` (mẫu từ panda3d-simplepbr) với cờ `ShaderAttrib.F_hardware_skinning`, đặt riêng cho mesh có cột `transform_blend`;
+  mesh cứng của súng dùng biến thể không skin. Đừng bỏ shader này mà quay lại đường cố định.
+- Tia lửa + tracer: `game/effects.py`, số liệu `FlashData`/`TracerData`, toán `core/fx.py`. Miệng nòng (0,0677, -0,0752, 0,7326) trong hệ camera lúc nghỉ (`GunData.muzzle`, đo bằng `g5_muzzle_align`).
+  Tia lửa vẽ trong cảnh súng (ngôi sao + hai tấm dọc nòng, trộn cộng) kèm đèn điểm đưa vào shader súng; ngắm thì nhỏ còn 35%. Tracer bám viên đạn THẬT (cùng vị trí, độ rơi), cứ 3 viên một vệt, viên đầu của loạt luôn có,
+  xuất phát từ miệng nòng rồi hội tụ về đường đạn từ mắt trong 18 m (`Tracer.offset`, `convergence`); hệ số `lens_ratio` bù chênh FOV thế giới/FOV súng để điểm xuất phát trùng miệng nòng trên màn hình (kiểm ở selftest < 4 px).
+  Đạn bay xa dọc hướng nhìn thì vệt co lại thành chấm: thêm chấm sáng 20 px ở đầu vệt. Màu phải bão hoà (cam), trắng chìm vào mặt đường và bầu trời vì trộn cộng.
+- BẪY Panda/Ursina: `CardMaker` dựng thẻ trong mặt phẳng **XY** (pháp tuyến +z) vì Ursina dùng hệ y-up, không phải XZ như tài liệu Panda. Đặt thẻ bằng `set_mat` tường minh (hàng 0 = ảnh trục ngang, hàng 1 = ảnh trục dọc, hàng 2 = pháp tuyến).
+  Đầu vào shader riêng của vật thể Ursina (`camera_world_position`, `fog_color`... từ `unlit_with_fog_shader`) ĐÈ lên đầu vào đặt ở `render`: uniform của shader mình phải có tiền tố riêng (`look_`), không thì thấy giá trị 0.
+  Uniform đổi mỗi khung (đèn tia lửa, vị trí camera) đưa bằng mảng `PTA_LVecBase3f` sửa tại chỗ; gọi lại `set_shader_input` mỗi khung làm đổi trạng thái vẽ của cả cây cảnh.
+- Shader thế giới `shaders/world.*` (áp bằng `Entity.shader` trong `game/look.py`): đèn nửa cầu + mặt trời (pháp tuyến lấy từ đạo hàm vị trí nên không cần mesh có normal), nhiễu giá trị hai tỉ lệ trên mặt nằm ngang (mờ dần 40-160 m),
+  sương mù exp 0,0032 hoà vào màu chân trời (0,75, 0,84, 0,87), lớp tối góc màn hình. Chi phí đo được ~0,2 ms/khung (trong nhiễu của máy). Số liệu ở `weapon_data.LookData`.
+  KHÔNG dùng FXAA của Ursina (`camera.shader = fxaa_shader`): bầu trời thành xám phẳng khi có vùng vẽ súng riêng; MSAA vẫn cấm.
+- Đạn chia bước <= 1/120 s khi dò va chạm (`MAX_BULLET_STEP`): trước đây một khung treo 40 ms làm điểm trúng lệch tới `g*dt^2/8` = 3 mm ở 10 m (g2_selftest bắt được).
+- CHƯA GIẢI QUYẾT: phát bắn ĐẦU TIÊN của phiên có một khung ~40 ms (các phát sau 8-13 ms). Chỉ xảy ra khi tia lửa/tracer được cập nhật thật (tắt `Effects.update` thì hết). Đã thử: `prepare_scene`, vẽ thử nút vài khung lúc dựng
+  (giảm khung thứ hai từ 25 xuống 10 ms), chạy thử đường mã, thay billboard bằng ma trận, PTA cho đèn, đóng băng bộ gom rác: không hết. Giờ chỉ còn một lần mỗi phiên.
+- Đã đo ở G5 (vsync tắt, 1280x720, cả kịch bản g5_selftest): trung bình 85 FPS, 1% thấp nhất 59; bắn liên thanh có tia lửa + tracer không tụt đáng kể.

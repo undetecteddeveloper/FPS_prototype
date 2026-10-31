@@ -36,10 +36,17 @@ class Clip:
     anim: str
     start: int
     end: int       # khung CUỐI hợp lệ (khung N của clip có N khung bị bao về 0, nên không dùng N)
+    swap: int = None   # khung băng mới vào chỗ (đo bằng tools/g5_reload_probe.py); chỉ clip reload có
+    settle: int = None  # khung mà súng, băng đạn và bolt đã về chỗ: phần còn lại của clip chỉ là bàn tay xếp lại ngón (góc nhìn nạp tắt xong ở khung này)
 
     @property
     def duration(self) -> float:
         return (self.end - self.start) / 30.0
+
+    @property
+    def swap_time(self) -> float:
+        """Giây (tính theo clip, tốc độ 1) kể từ đầu clip tới lúc thay băng; None nếu không có."""
+        return None if self.swap is None else (self.swap - self.start) / 30.0
 
 
 @dataclass
@@ -122,6 +129,67 @@ class SwayData:
     ads_multiplier: float = 0.2
 
 
+@dataclass
+class ReloadData:
+    """Rút súng (Draw) và nạp đạn (Reload / Reload_Empty). Thời gian lấy từ clip của file, nhân với `speed`."""
+    speed: float = 1.0                    # nhân tốc độ clip reload: 1 = đúng clip gốc (3,6 s còn đạn / 3,8 s cạn); 1,5 thì ~2,4 s / 2,5 s
+    draw_speed: float = 1.0
+    sprint_cancels: bool = True           # chạy nước rút cắt reload (kiểu CoD); False: vẫn nạp tiếp, tư thế chạy chồng lên
+    cancel_blend: float = 0.18            # s: súng trượt từ tư thế đang nạp về tư thế sẵn sàng khi huỷ
+    bolt_lock_blend: float = 0.04         # s: bolt giật về sau (khoá nòng) khi bắn phát cuối của băng
+    # Clip nạp được dựng cho góc nhìn rộng hơn: tay trái và băng đạn nằm dưới mép màn hình ở FOV hông (70). Khi nạp, FOV riêng của súng
+    # mở rộng và súng nhích lên, trộn vào/ra trong `view_blend` giây (đo bằng ảnh chụp tools/g5_selftest.py)
+    view_fov: float = 88.0
+    view_pose: tuple = (-0.03, 0.04, 0.0, 0.0, 0.0, 0.0)   # (x phải, y lên, z ra trước, pitch lên, yaw phải, roll phải), m và độ
+    view_blend: float = 0.25
+
+
+@dataclass
+class ViewLightData:
+    """Ánh sáng riêng cho súng + tay (shader shaders/viewmodel.*). Không gian nhìn của camera súng: x phải, y lên, z về phía người xem."""
+    sun_dir: tuple = (-0.40, 0.75, 0.52)  # hướng TỚI mặt trời: từ trên, hơi trái, hơi phía sau camera
+    sun_color: tuple = (0.80, 0.77, 0.70)
+    sky_color: tuple = (0.50, 0.54, 0.60)  # ánh sáng môi trường từ phía trên
+    ground_color: tuple = (0.30, 0.29, 0.26)  # từ phía dưới (nảy từ mặt đất)
+    specular: float = 0.30                # độ bóng kim loại (vệt sáng của mặt trời)
+    rim: float = 0.22                     # viền sáng ở mép vật thể
+
+
+@dataclass
+class FlashData:
+    """Tia lửa đầu nòng (vẽ trong cảnh súng): ngôi sao hướng về camera + hai tấm chéo dọc nòng + đèn điểm chiếu sáng súng và tay.
+    Mỗi phát quay ngẫu nhiên và đổi cỡ chút ít; sống `life` giây rồi tắt dần (ở 750 phát/phút các phát chồng nhau sẽ thành chớp liên tục)."""
+    life: float = 0.055                   # s
+    size: float = 0.21                    # m: đường kính ngôi sao (trong cảnh súng, miệng nòng cách mắt 0,73 m)
+    size_jitter: float = 0.25             # +- tỉ lệ cỡ ngẫu nhiên mỗi phát
+    length: float = 0.20                  # m: dài hai tấm chéo dọc nòng
+    width: float = 0.07                   # m: rộng hai tấm chéo
+    forward: float = 0.025                # m: nhích ra trước miệng nòng cho khỏi chìm vào bộ giảm giật
+    color: tuple = (1.0, 0.86, 0.52)
+    ads_scale: float = 0.35               # khi ngắm hẳn, tia lửa chỉ còn ngần này cỡ (không che đường ngắm)
+    light_color: tuple = (1.0, 0.62, 0.28)
+    light_power: float = 1.5              # nhân vào màu đèn lúc sáng nhất
+    light_attenuation: tuple = (1.0, 0.0, 40.0)   # hằng, tuyến tính, bậc hai theo mét: sáng tới ~0,3 m quanh nòng
+
+
+@dataclass
+class TracerData:
+    """Tracer: vệt sáng đi theo viên đạn thật (cùng vị trí, cùng độ rơi), xuất phát từ miệng nòng rồi hội tụ về đường đạn từ mắt."""
+    every: int = 3                        # cứ mấy viên có một tracer (1 = mọi viên); viên đầu tiên của loạt luôn có
+    burst_reset: float = 0.30             # ngừng bắn lâu hơn mức này (s) thì loạt mới: đếm lại từ viên đầu
+    max_range: float = 600.0              # m: đạn đi quá xa thì vệt dừng theo (đạn bay lên trời vẫn sống 3 s, không cần vệt đuổi theo)
+    length: float = 7.0                   # m: vệt dài (đạn 500 m/s đi ~8 m mỗi khung 60 FPS, ngắn hơn thì thành chấm rời)
+    width: float = 0.05                   # m: rộng ở gần
+    min_pixels: float = 2.2               # rộng tối thiểu trên màn hình (ở xa tracer mảnh dưới 1 điểm ảnh sẽ nhấp nháy)
+    glow_pixels: float = 20.0             # đầu vệt có một chấm sáng hướng về camera, cỡ này trên màn hình (đạn bay xa dọc hướng nhìn thì vệt co lại thành chấm)
+    glow_color: tuple = (1.0, 0.62, 0.18)
+    blend_distance: float = 18.0          # m: đi bao xa thì vệt đã hết lệch khỏi đường đạn thật (lệch = miệng nòng so với mắt)
+    head_color: tuple = (1.0, 0.86, 0.45)   # trộn cộng lên nền sáng nên cần màu bão hoà, trắng sẽ chìm vào mặt đường và bầu trời
+    tail_color: tuple = (1.0, 0.36, 0.06)
+    intensity: float = 1.0
+    pool: int = 16                        # số vệt tối đa cùng lúc
+
+
 # Mẫu recoil 30 phát của M4: mỗi phát (lên, phải) độ. Hay lên, trôi phải, lắc nhẹ sang trái giữa băng.
 M4_PATTERN = (
     (0.42, 0.04), (0.40, 0.08), (0.38, 0.11), (0.37, 0.14), (0.36, 0.16),
@@ -144,11 +212,16 @@ class GunData:
     accuracy: AccuracyData = field(default_factory=AccuracyData)
     kick: GunKickData = field(default_factory=GunKickData)
     sway: SwayData = field(default_factory=SwayData)
+    reload: ReloadData = field(default_factory=ReloadData)
+    view_light: ViewLightData = field(default_factory=ViewLightData)
+    flash: FlashData = field(default_factory=FlashData)
+    tracer: TracerData = field(default_factory=TracerData)
     # ngắm (ADS)
     ads_time: float = 0.25                # s để vào / ra
     ads_fov: float = 65.0                 # FOV ngang của thế giới khi ngắm hẳn
     ads_sights: tuple = None              # (tâm vòng ngắm sau, đỉnh cột ngắm trước) trong hệ camera lúc nghỉ, KHÔNG tính hip_offset
     ads_eye_relief: float = 0.18          # m: vòng ngắm sau cách mắt bao xa khi ngắm (xa hơn: vòng nhỏ hơn, che ít hơn)
+    muzzle: tuple = None                  # miệng nòng trong hệ camera lúc nghỉ như ads_sights (đo bằng tools/g5_muzzle_align.py)
     # chạy nước rút
     sprint_in_time: float = 0.20          # s để hạ súng vào tư thế chạy
     sprint_out_time: float = 0.25         # s để đưa súng lên lại; trong lúc này chưa bắn được (sprint-to-fire)
@@ -177,8 +250,9 @@ M4 = GunData(
     glb='guns/m4_-_fps_weapon_animations_pack_v.1.glb',
     credit='M4: BarcodeGames (CC-BY 4.0)',
     clips={
-        'reload': Clip('Reload', 1, 110),
-        'reload_empty': Clip('Reload_Empty', 111, 224),
+        # swap = khung băng mới vào chỗ (còn đạn: băng cũ rút ra rồi băng mới ấn vào lúc 2,0 s; cạn: 2,03 s, bolt nhả ở khung 190)
+        'reload': Clip('Reload', 1, 110, swap=61, settle=88),
+        'reload_empty': Clip('Reload_Empty', 111, 224, swap=172, settle=206),
         'fire': Clip('Fire', 226, 249),
         'holster': Clip('Holster', 251, 268),
         'draw': Clip('Draw', 269, 299),
@@ -186,6 +260,7 @@ M4 = GunData(
     recoil=RecoilData(pattern=M4_PATTERN),
     # đo bằng đỉnh mô hình (tools/g4_ads_align.py): tâm vòng ngắm sau và đỉnh cột ngắm trước
     ads_sights=((0.0678, -0.0074, 0.1556), (0.0678, -0.0069, 0.5622)),
+    muzzle=(0.0677, -0.0752, 0.7326),
     shot_sound='sounds/m4_shot.wav',
 )
 
@@ -202,7 +277,21 @@ class FeedbackParams:
 
 
 @dataclass
+class LookData:
+    """Giao diện hình ảnh của thế giới (shader shaders/world.*) và lớp phủ màn hình. Hướng tính trong thế giới (y lên, z ra trước)."""
+    sun_dir: tuple = (0.40, 0.72, -0.56)  # hướng TỚI mặt trời: từ trên, từ phía sau lưng người chơi (mặt bia hướng về người chơi được chiếu sáng)
+    sun_color: tuple = (0.68, 0.62, 0.48)
+    sky_color: tuple = (0.66, 0.72, 0.80)     # ánh sáng môi trường từ trời
+    ground_color: tuple = (0.46, 0.43, 0.38)  # từ đất nảy lên
+    fog_color: tuple = (0.75, 0.84, 0.87)     # màu chân trời (khớp ảnh trời)
+    fog_density: float = 0.0032               # exp: ~46% ở 200 m, ~85% ở 600 m
+    detail_strength: float = 0.55             # độ sâu của nhiễu trên mặt đất (0 = tắt)
+    vignette: float = 0.30                    # độ tối ở góc màn hình (0 = tắt)
+
+
+@dataclass
 class GameParams:
     player: PlayerParams = field(default_factory=PlayerParams)
     gun: GunData = field(default_factory=lambda: M4)
     feedback: FeedbackParams = field(default_factory=FeedbackParams)
+    look: LookData = field(default_factory=LookData)

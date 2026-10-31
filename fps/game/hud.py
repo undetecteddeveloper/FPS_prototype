@@ -10,9 +10,12 @@ from pathlib import Path
 
 from ursina import Entity, Text, application, camera, color, window
 
+from fps.core.handling import Phase
 from fps.core.spread import crosshair_gap
 
 FONT_FILE = 'segoeuisl.ttf'
+LOW_AMMO = 5                  # băng còn ngần này viên trở xuống thì số đạn đỏ và nhắc nạp
+RELOAD_BAR_WIDTH = 0.16       # đơn vị UI
 SHADOW_ALPHA = 0.55
 CROSSHAIR_MIN_GAP = 0.008     # đơn vị UI (chiều cao cửa sổ = 1)
 CROSSHAIR_LEN = 0.014
@@ -77,6 +80,13 @@ class Hud:
 
         self.ammo = UiText('', br + (-0.02, 0.012), origin=(0.5, -0.5), scale=1.0)
         self.mode = UiText('', br + (-0.022, 0.085), origin=(0.5, -0.5), scale=0.95, tint=faint)
+        # nhắc nạp đạn / hết đạn, và thanh tiến độ nạp
+        self.prompt = UiText('', br + (-0.022, 0.126), origin=(0.5, -0.5), scale=0.95)
+        bar_x = br.x - 0.022
+        self.reload_bar_back = Entity(parent=ui, model='quad', origin=(0.5, 0), color=color.rgba(1, 1, 1, 0),
+                                      position=(bar_x, br.y + 0.119), scale=(RELOAD_BAR_WIDTH, 0.004))
+        self.reload_bar = Entity(parent=ui, model='quad', origin=(0.5, 0), color=color.rgba(1, 1, 1, 0), z=-0.001,
+                                 position=(bar_x, br.y + 0.119), scale=(0.0001, 0.004))
 
         # tâm ngắm động: bốn vạch dạt ra theo độ tản; ẩn dần khi ngắm (ADS)
         self.gap = CROSSHAIR_MIN_GAP
@@ -118,9 +128,26 @@ class Hud:
             self._elapsed = 0.0
 
         w = combat.weapon
+        h = combat.handling
         self.ammo.text = f'<scale:2.6>{w.mag}<scale:1.2>  /  {w.reserve}'
-        self.ammo.main.color = color.rgb(1, 0.45, 0.4) if w.mag <= 5 else color.white
+        self.ammo.main.color = color.rgb(1, 0.45, 0.4) if w.mag <= LOW_AMMO else color.white
         self.mode.text = 'TỰ ĐỘNG' if w.auto else 'BẮN ĐƠN'
+
+        reloading = h.phase is Phase.RELOAD
+        if reloading:
+            self.prompt.text, tint = 'ĐANG NẠP ĐẠN', color.white
+        elif w.out_of_ammo:
+            self.prompt.text, tint = 'HẾT ĐẠN', color.rgb(1, 0.4, 0.35)
+        elif w.mag == 0:
+            self.prompt.text, tint = 'BẤM R ĐỂ NẠP ĐẠN', color.rgb(1, 0.7, 0.3)
+        elif w.mag <= LOW_AMMO and w.can_reload:
+            self.prompt.text, tint = 'R  NẠP ĐẠN', color.rgb(1, 0.85, 0.5)
+        else:
+            self.prompt.text, tint = '', color.white
+        self.prompt.main.color = tint
+        self.reload_bar_back.color = color.rgba(1, 1, 1, 0.25 if reloading else 0)
+        self.reload_bar.color = color.rgba(1, 1, 1, 0.9 if reloading else 0)
+        self.reload_bar.scale_x = max(RELOAD_BAR_WIDTH * h.progress, 0.0001)
 
         self._update_crosshair(dt, combat.spread_now, combat.player.ads_amount)
 

@@ -23,8 +23,17 @@ class Weapon:
     def toggle_mode(self):
         self.auto = not self.auto
 
-    def refill(self):
-        """TẠM THỜI tới G5 (reload có animation): nạp đầy băng từ số đạn dự trữ."""
+    @property
+    def can_reload(self) -> bool:
+        return self.mag < self.mag_size and self.reserve > 0
+
+    @property
+    def out_of_ammo(self) -> bool:
+        return self.mag == 0 and self.reserve == 0
+
+    def load_magazine(self) -> int:
+        """Đổ đạn từ dự trữ vào băng cho đầy (đúng lúc băng mới vào chỗ). Trả về số viên nạp.
+        Đạn là một kho chung: băng cũ còn bao nhiêu viên thì vẫn tính (tổng mag + reserve không đổi)."""
         take = min(self.mag_size - self.mag, self.reserve)
         self.mag += take
         self.reserve -= take

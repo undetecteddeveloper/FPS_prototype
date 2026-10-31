@@ -27,7 +27,7 @@ from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between, crosshair_gap  # noqa: E402
 from fps.weapon_data import M4_PATTERN  # noqa: E402
 
-game = create_game(vsync=False, sound=False)
+game = create_game(vsync=False, sound=False, draw=False)
 player, combat, hud, viewmodel = game.player, game.combat, game.hud, game.viewmodel
 gun = game.params.gun
 acc = gun.accuracy

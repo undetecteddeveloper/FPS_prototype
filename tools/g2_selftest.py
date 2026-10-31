@@ -19,7 +19,7 @@ from ursina import Entity, application, held_keys, mouse, time  # noqa: E402
 from fps.core.ballistics import GROUND, drop_at_distance  # noqa: E402
 from fps.game.targets import Target  # noqa: E402
 
-game = create_game(vsync=False, sound=False)
+game = create_game(vsync=False, sound=False, draw=False)
 player, combat = game.player, game.combat
 gun = game.params.gun
 mouse.locked = False                      # không giữ con trỏ của người dùng
@@ -217,7 +217,8 @@ class Script(Entity):
         check('bắn hết băng 30 viên: đúng 30 phát', combat.shots_fired - fired0, 30, combat.shots_fired - fired0 == 30)
         check('băng hết, giữ chuột vẫn không bắn thêm', combat.weapon.mag, 0, combat.weapon.mag == 0)
         held_keys['left mouse'] = 0
-        taken = combat.weapon.refill()
+        combat.handling.cancel()                      # giữ cò khi băng cạn đã tự nạp (G5): ở đây chỉ kiểm phép đếm đạn
+        taken = combat.weapon.load_magazine()
         check('nạp lại: lấy 30 từ dự trữ', f'{combat.weapon.mag}/{combat.weapon.reserve} (lấy {taken})', '30/120 (lấy 30)',
               (combat.weapon.mag, combat.weapon.reserve, taken) == (30, 120, 30))
         yield from self.wait(3.2)

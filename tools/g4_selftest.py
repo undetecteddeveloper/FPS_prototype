@@ -26,7 +26,7 @@ from fps.core.movement import MoveState  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.sway import ads_target_for  # noqa: E402
 
-game = create_game(vsync=False, sound=False)
+game = create_game(vsync=False, sound=False, draw=False)
 player, combat, viewmodel = game.player, game.combat, game.viewmodel
 gun = game.params.gun
 pp = game.params.player

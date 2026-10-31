@@ -4,12 +4,14 @@
 Mỗi phát bắn: lấy độ tản HIỆN TẠI (trước khi phát này cộng bloom) -> bắn -> cộng bloom, recoil camera, kick súng.
 Mỗi khung hình mỗi viên đạn đi một đoạn rồi dò va chạm trên cả đoạn (swept), không phụ thuộc FPS.
 """
+import math
 import random
 from dataclasses import dataclass
 
 from ursina import color, held_keys, mouse
 
 from fps.core.ballistics import advance, distance_between, first_hit
+from fps.core.handling import Handling, Phase
 from fps.core.movement import MoveState
 from fps.core.recoil import CameraRecoil, GunKick
 from fps.core.spread import Accuracy, random_in_cone
@@ -18,16 +20,19 @@ from fps.core.weapon import Weapon
 from fps.weapon_data import GameParams
 
 DUST_TINT = color.rgba(1.0, 0.92, 0.8, 0.85)
+MAX_BULLET_STEP = 1.0 / 120.0      # s: bước dò va chạm lớn nhất của đạn (sai số dây cung g*dt^2/8 = 0,15 mm)
 
 
 class Bullet:
-    __slots__ = ('origin', 'pos', 'vel', 'age')
+    __slots__ = ('origin', 'pos', 'vel', 'age', 'alive', 'end_pos')
 
     def __init__(self, origin, vel):
         self.origin = origin
         self.pos = origin
         self.vel = vel
         self.age = 0.0
+        self.alive = True                # False khi trúng hoặc quá hạn; `end_pos` là điểm cuối (cho tracer)
+        self.end_pos = origin
 
 
 @dataclass
@@ -51,7 +56,7 @@ class ShotInfo:
 
 class Combat:
     def __init__(self, params: GameParams, player, targets: list, static_boxes: list, rng: random.Random = None,
-                 audio=None):
+                 audio=None, fx=None):
         self.gun = params.gun
         self.fb = params.feedback
         self.player = player
@@ -59,7 +64,10 @@ class Combat:
         self.static_boxes = static_boxes           # [(lo, hi, owner)]
         self.rng = rng or random.Random()
         self.audio = audio                         # GunAudio hoặc None (tắt tiếng)
+        self.fx = fx                               # Effects (tia lửa đầu nòng, tracer) hoặc None
         self.weapon = Weapon(self.gun)
+        self.handling = Handling(self.gun, self.weapon)     # rút súng / nạp đạn
+        self.reload_requested = False                       # vừa bấm R
         self.accuracy = Accuracy(self.gun.accuracy)
         self.recoil = CameraRecoil(self.gun.recoil, self.rng)
         self.gun_kick = GunKick(self.gun.kick, self.rng)
@@ -76,8 +84,26 @@ class Combat:
         self.shots_fired = 0
         self.target_hits = 0
 
+    def request_reload(self):
+        """Phím R. Có hiệu lực ở khung kế tiếp nếu nạp được (xem `_update_handling`)."""
+        self.reload_requested = True
+
+    def _update_handling(self, trigger: bool, mouse_ok: bool, real_dt: float):
+        """Nạp đạn: tiến clip, chạy nước rút cắt reload, bắt đầu nạp (phím R, hoặc bóp cò khi băng cạn)."""
+        h, r = self.handling, self.gun.reload
+        h.update(real_dt)
+        sprinting = r.sprint_cancels and self.player.sprint_amount > 0
+        if h.phase is Phase.RELOAD and sprinting:
+            h.cancel()
+        wants = self.reload_requested or (mouse_ok and (trigger or self.pressed) and self.weapon.mag == 0)
+        self.reload_requested = False
+        if wants and not sprinting:                    # đang chạy thì chưa nạp: tư thế chạy chưa hạ hẳn là chưa dứt
+            h.start_reload()
+        self.player.ads_blocked = h.busy
+
     # --- mỗi khung hình ---
-    def update(self, dt: float):
+    def update(self, dt: float, real_dt: float = None):
+        """`dt` đã cắt ở 50 ms cho vật lý; `real_dt` là thời gian thật của khung (cho clip nạp đạn chạy theo đồng hồ Panda)."""
         for t in self.targets:
             t.update(dt)
         self.hit_marker_left = max(0.0, self.hit_marker_left - dt)
@@ -87,11 +113,13 @@ class Combat:
 
         mouse_ok = mouse.locked or not self.require_locked_mouse
         trigger = bool(held_keys['left mouse']) and mouse_ok
-        ready = mouse_ok and self.player.can_fire      # đang hạ súng sau khi chạy (sprint-to-fire) thì chưa bắn được
+        self._update_handling(trigger, mouse_ok, dt if real_dt is None else real_dt)
+        # đang hạ súng sau khi chạy (sprint-to-fire) hoặc đang nạp / rút súng thì chưa bắn được
+        ready = mouse_ok and self.player.can_fire and self.handling.can_fire
         held = trigger and ready
         pressed = self.pressed and ready
-        if ready or not trigger:
-            self.pressed = False                       # còn giữ cò mà súng chưa sẵn sàng: nhớ cú bóp để bắn khi sẵn sàng
+        if ready or not trigger or self.handling.busy:
+            self.pressed = False                       # còn giữ cò mà súng chưa sẵn sàng vì chạy: nhớ cú bóp để bắn khi sẵn sàng (nạp thì bỏ)
         self.accuracy.update(dt)
         ages = self.weapon.update(dt, held, pressed)
         if ages:
@@ -111,6 +139,8 @@ class Combat:
         if up or right:
             self.player.kick_view(up, right)       # sau khi bắn: phát này đã đi theo hướng nhìn trước cú giật
         self.gun_kick.update(dt)
+        if self.fx:
+            self.fx.update(dt)
         self.spread_now = self.accuracy.angle(self.player.state, self.player.ads_amount)
 
     def _boxes(self) -> list:
@@ -120,6 +150,8 @@ class Combat:
         speed = self.gun.muzzle_velocity
         bullet = Bullet(origin, tuple(c * speed for c in direction))
         self.shots_fired += 1
+        if self.fx:
+            self.fx.on_shot(bullet, self.player.ads_amount)
         if self._advance(bullet, age, self._boxes()):
             self.bullets.append(bullet)
 
@@ -130,15 +162,25 @@ class Combat:
         self.bullets = [b for b in self.bullets if self._advance(b, dt, boxes)]
 
     def _advance(self, bullet: Bullet, dt: float, boxes: list) -> bool:
-        """Đẩy đạn đi dt giây. Trả về False nếu đạn hết (trúng gì đó hoặc quá hạn)."""
-        new_pos, new_vel = advance(bullet.pos, bullet.vel, self.gun.bullet_gravity, dt)
-        hit = first_hit(bullet.pos, new_pos, boxes)
-        if hit:
-            self._on_hit(bullet, hit)
-            return False
-        bullet.pos, bullet.vel = new_pos, new_vel
+        """Đẩy đạn đi dt giây. Trả về False nếu đạn hết (trúng gì đó hoặc quá hạn).
+
+        Chia nhỏ khung dài thành các bước <= MAX_BULLET_STEP: điểm trúng dò trên dây cung của từng bước nên lệch tối đa g*dt^2/8 so với
+        cung thật; khung treo 40 ms (vd. khung đầu tiên hiện tia lửa) cho lệch 2-3 mm ở 10 m nếu không chia."""
+        steps = max(1, math.ceil(dt / MAX_BULLET_STEP - 1e-9))
+        step = dt / steps
+        for _ in range(steps):
+            new_pos, new_vel = advance(bullet.pos, bullet.vel, self.gun.bullet_gravity, step)
+            hit = first_hit(bullet.pos, new_pos, boxes)
+            if hit:
+                bullet.alive, bullet.end_pos = False, hit.point
+                self._on_hit(bullet, hit)
+                return False
+            bullet.pos, bullet.vel = new_pos, new_vel
         bullet.age += dt
-        return bullet.age < self.gun.bullet_lifetime
+        if bullet.age >= self.gun.bullet_lifetime:
+            bullet.alive, bullet.end_pos = False, bullet.pos
+            return False
+        return True
 
     # --- phản hồi ---
     def _on_hit(self, bullet: Bullet, hit):

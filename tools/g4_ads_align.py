@@ -23,7 +23,7 @@ REAR_Z, REAR_MIN_Y = (0.14, 0.17), -0.0135          # vòng ngắm sau của M4:
 FRONT_Z, FRONT_MIN_Y = (0.55, 0.58), -0.0095        # cột ngắm trước, nằm giữa hai cánh che ở x = tâm vòng sau ± 6 mm
 FRONT_POST_HALF_WIDTH = 0.0015
 
-game = create_game(vsync=False)
+game = create_game(vsync=False, draw=False)
 mouse.locked = False
 vm = game.viewmodel
 gun = game.params.gun

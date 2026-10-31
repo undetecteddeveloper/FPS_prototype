@@ -13,8 +13,10 @@ from panda3d.core import Filename, loadPrcFileData  # noqa: E402
 from ursina import Entity, Ursina, application, mouse, time, window  # noqa: E402
 
 from fps.game.combat import Combat  # noqa: E402
+from fps.game.effects import Effects  # noqa: E402
 from fps.game.gun_audio import GunAudio  # noqa: E402
 from fps.game.hud import Hud, setup_fonts  # noqa: E402
+from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
 from fps.game.shooting_range import WALK_BOUNDS, build_range  # noqa: E402
 from fps.core.sway import Sway, ads_target_for  # noqa: E402
@@ -26,25 +28,37 @@ from fps.weapon_data import GameParams  # noqa: E402
 class Game(Entity):
     """Gom các phần lại và chạy vòng lặp mỗi khung hình."""
 
-    def __init__(self, params: GameParams, quit_after: float = 0.0, sound: bool = True):
+    def __init__(self, params: GameParams, quit_after: float = 0.0, sound: bool = True, draw: bool = True,
+                 effects: bool = True, look: bool = True):
         super().__init__()
         self.params = params
         self.quit_after = quit_after
         self._age = 0.0
+        self._draw_pending = draw         # rút súng ở khung đầu tiên (không phải lúc dựng: nạp mô hình làm khung đầu rất dài)
         self.world = build_range()
         self.targets = build_targets(params.feedback)
         self.player = Player(params.player, WALK_BOUNDS, params.gun)
         self.audio = GunAudio(params.gun, ROOT) if sound and params.gun.shot_sound else None
-        self.combat = Combat(params, self.player, self.targets, self.world['colliders'], audio=self.audio)
-        self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.viewmodel = Viewmodel(params.gun, ROOT)
+        self.fx = Effects(params.gun, self.viewmodel) if effects else None
+        self.combat = Combat(params, self.player, self.targets, self.world['colliders'], audio=self.audio, fx=self.fx)
+        self.look = WorldLook(params.look, self.world, self.targets, self.combat.decals) if look else None
+        self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.hud = Hud(params.gun.credit)
 
     def update(self):
-        # thứ tự cố định: người chơi (nhìn/đi) -> bắn (dùng hướng nhìn vừa cập nhật) -> sway -> súng -> HUD
+        # thứ tự cố định: người chơi (nhìn/đi) -> bắn + nạp (dùng hướng nhìn vừa cập nhật) -> animation tay -> sway -> súng -> HUD
         dt = time.dt
         self.player.tick()
-        self.combat.update(min(dt, 0.05))
+        if self.look:
+            self.look.update()
+        self.combat.update(min(dt, 0.05), dt)
+        if self._draw_pending:
+            self._draw_pending = False
+            self.combat.handling.start_draw()
+        for event in self.combat.handling.drain():
+            self.viewmodel.on_event(event)
+        self.viewmodel.animate(dt, self.combat.weapon.mag == 0)
         sway_pose = self.sway.update(min(dt, 0.05), self.player.sway_input())
         self.viewmodel.update(self.combat.gun_kick.pose, sway_pose)
         self.hud.update(dt, self.combat)
@@ -60,11 +74,11 @@ class Game(Entity):
         elif key == 'b':
             self.combat.weapon.toggle_mode()
         elif key == 'r':
-            self.combat.weapon.refill()       # tạm thời: reload có animation làm ở G5
+            self.combat.request_reload()
 
 
 def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, quit_after: float = 0.0,
-                sound: bool = True) -> Game:
+                sound: bool = True, draw: bool = True, effects: bool = True, look: bool = True) -> Game:
     # Ursina(vsync=False) một mình không tắt được vsync; phải đặt thẳng cấu hình Panda
     loadPrcFileData('', f'sync-video {int(vsync)}')
     icon = Path(ursina.__file__).parent / 'textures' / 'ursina.ico'   # tuyệt đối, nếu không Ursina tìm trong thư mục game
@@ -73,7 +87,7 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     application.asset_folder = ROOT
     window.fps_counter.enabled = False
     setup_fonts()
-    game = Game(GameParams(), quit_after, sound)
+    game = Game(GameParams(), quit_after, sound, draw, effects, look)
     game.app = app
     return game
 

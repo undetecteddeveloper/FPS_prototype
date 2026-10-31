@@ -83,14 +83,24 @@ def test_single_fire_respects_rpm():
     assert len(w.update(1 / 240, False, True)) == 0          # bóp lại sau 4 ms: chưa tới nhịp
 
 
-def test_refill_takes_from_reserve():
+def test_load_magazine_takes_from_reserve():
     w = Weapon(M4)
     run(w, 1.0, 60)
     fired = 30 - w.mag
     assert fired > 0
-    assert w.refill() == fired
+    assert w.can_reload
+    assert w.load_magazine() == fired
     assert w.mag == 30 and w.reserve == 150 - fired
+    assert not w.can_reload                                 # băng đầy rồi
     w.reserve = 5
     w.mag = 0
-    assert w.refill() == 5 and w.mag == 5 and w.reserve == 0
-    assert w.refill() == 0
+    assert w.load_magazine() == 5 and w.mag == 5 and w.reserve == 0
+    assert w.load_magazine() == 0
+
+
+def test_out_of_ammo_only_when_both_are_empty():
+    w = Weapon(M4)
+    w.mag, w.reserve = 0, 3
+    assert not w.out_of_ammo and w.can_reload
+    w.reserve = 0
+    assert w.out_of_ammo and not w.can_reload

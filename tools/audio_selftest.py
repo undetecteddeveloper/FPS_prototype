@@ -17,7 +17,7 @@ from main import create_game  # noqa: E402
 from panda3d.core import AudioSound  # noqa: E402
 from ursina import Entity, application, held_keys, mouse, time  # noqa: E402
 
-game = create_game(vsync=False, sound=True)
+game = create_game(vsync=False, sound=True, draw=False)
 combat, audio = game.combat, game.audio
 base = application.base
 mouse.locked = False
