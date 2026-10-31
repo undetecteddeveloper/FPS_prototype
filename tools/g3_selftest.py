@@ -21,11 +21,11 @@ from main import create_game  # noqa: E402
 from panda3d.core import Filename, Point2, Point3  # noqa: E402
 from ursina import Entity, application, camera, held_keys, mouse, time  # noqa: E402
 
-from hud import CROSSHAIR_LEN  # noqa: E402
-from movement import MoveState, aim_direction  # noqa: E402
-from recoil import CameraRecoil, GunKick  # noqa: E402
-from spread import angle_between, crosshair_gap  # noqa: E402
-from weapon_data import M4_PATTERN  # noqa: E402
+from fps.game.hud import CROSSHAIR_LEN  # noqa: E402
+from fps.core.movement import MoveState, aim_direction  # noqa: E402
+from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
+from fps.core.spread import angle_between, crosshair_gap  # noqa: E402
+from fps.weapon_data import M4_PATTERN  # noqa: E402
 
 game = create_game(vsync=False)
 player, combat, hud, viewmodel = game.player, game.combat, game.hud, game.viewmodel

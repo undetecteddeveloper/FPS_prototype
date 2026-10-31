@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from ballistics import (GROUND, advance, drop_at_distance, first_hit, hole_size, segment_vs_aabb,
+from fps.core.ballistics import (GROUND, advance, drop_at_distance, first_hit, hole_size, segment_vs_aabb,
                         segment_vs_ground)
 
 V, G = 500.0, 9.81
@@ -105,7 +105,7 @@ def test_hole_grows_with_distance():
 
 
 def test_decal_rotation_covers_all_axis_normals():
-    from ballistics import decal_rotation
+    from fps.core.ballistics import decal_rotation
     assert decal_rotation((0, 0, -1)) == (0, 0, 0)          # mặt bia quay về phía người bắn
     assert decal_rotation((0, 0, 1)) == (0, 180, 0)
     assert decal_rotation((-1, 0, 0)) == (0, 90, 0)

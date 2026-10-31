@@ -2,9 +2,9 @@ import math
 
 import pytest
 
-from movement import (MoveState, apply_look, clamp_to_bounds, resolve_state, step_horizontal_velocity, step_toward,
+from fps.core.movement import (MoveState, apply_look, clamp_to_bounds, resolve_state, step_horizontal_velocity, step_toward,
                       step_vertical, target_speed, wants_sprint, wish_direction)
-from weapon_data import PlayerParams
+from fps.weapon_data import PlayerParams
 
 P = PlayerParams()
 
@@ -124,7 +124,7 @@ def test_jump_apex_does_not_depend_on_fps(fps):
 
 
 def test_aim_direction():
-    from movement import aim_direction
+    from fps.core.movement import aim_direction
     assert aim_direction(0, 0) == pytest.approx((0, 0, 1))
     assert aim_direction(90, 0) == pytest.approx((1, 0, 0))
     assert aim_direction(0, 90) == pytest.approx((0, -1, 0), abs=1e-9)      # cúi xuống

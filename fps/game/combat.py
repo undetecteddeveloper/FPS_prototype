@@ -9,13 +9,13 @@ from dataclasses import dataclass
 
 from ursina import color, held_keys, mouse
 
-from ballistics import advance, distance_between, first_hit
-from movement import MoveState
-from recoil import CameraRecoil, GunKick
-from spread import Accuracy, random_in_cone
-from targets import HoleDecals, Target
-from weapon import Weapon
-from weapon_data import GameParams
+from fps.core.ballistics import advance, distance_between, first_hit
+from fps.core.movement import MoveState
+from fps.core.recoil import CameraRecoil, GunKick
+from fps.core.spread import Accuracy, random_in_cone
+from fps.game.targets import HoleDecals, Target
+from fps.core.weapon import Weapon
+from fps.weapon_data import GameParams
 
 DUST_TINT = color.rgba(1.0, 0.92, 0.8, 0.85)
 

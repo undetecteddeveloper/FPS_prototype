@@ -16,8 +16,8 @@ from main import create_game  # noqa: E402
 from panda3d.core import Filename  # noqa: E402
 from ursina import Entity, application, held_keys, mouse, time  # noqa: E402
 
-from ballistics import GROUND, drop_at_distance  # noqa: E402
-from targets import Target  # noqa: E402
+from fps.core.ballistics import GROUND, drop_at_distance  # noqa: E402
+from fps.game.targets import Target  # noqa: E402
 
 game = create_game(vsync=False)
 player, combat = game.player, game.combat

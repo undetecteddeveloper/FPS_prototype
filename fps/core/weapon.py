@@ -6,7 +6,7 @@ trí đạn không bị lượng tử hoá theo khung hình và nhịp bắn tru
 """
 from collections import deque
 
-from weapon_data import GunData
+from fps.weapon_data import GunData
 
 
 class Weapon:

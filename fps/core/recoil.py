@@ -9,8 +9,8 @@ Góc: "lên" và "phải" dương, tính bằng độ. Mọi số nằm trong we
 import math
 import random
 
-from spring import Spring, impulse_gain
-from weapon_data import GunKickData, RecoilData
+from fps.core.spring import Spring, impulse_gain
+from fps.weapon_data import GunKickData, RecoilData
 
 
 class CameraRecoil:

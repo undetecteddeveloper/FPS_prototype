@@ -14,7 +14,7 @@ loadPrcFileData('', 'audio-library-name null')
 from direct.actor.Actor import Actor
 from direct.showbase.ShowBase import ShowBase
 
-import gltf_patch
+from fps.game import gltf_patch
 
 gltf_patch.apply()
 base = ShowBase()

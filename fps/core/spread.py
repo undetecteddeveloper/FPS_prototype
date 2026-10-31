@@ -6,8 +6,8 @@ nên phát bắn lúc đang vào ADS tản theo mức hiện tại của ADS.
 """
 import math
 
-from movement import MoveState
-from weapon_data import AccuracyData
+from fps.core.movement import MoveState
+from fps.weapon_data import AccuracyData
 
 MOVING = (MoveState.WALK, MoveState.CROUCH_WALK, MoveState.SPRINT)
 CROUCHING = (MoveState.CROUCH_IDLE, MoveState.CROUCH_WALK)

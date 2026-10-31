@@ -12,18 +12,31 @@
 - Công cụ G0: `tools\g0_view.py` (chụp ảnh tư thế), `tools\g0_timing.py` (đo clip + FPS), `tools\g0_motion.py`
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15)
 
+## Cấu trúc thư mục
+```
+main.py  run.bat  requirements.txt  pytest.ini  CLAUDE.md  CREDITS.txt  PROMPT_PHIEN_THI_CONG.md   <- root: chỉ cửa vào + cấu hình + tài liệu
+fps/                     gói mã nguồn (import dạng `from fps.core.movement import ...`)
+  app.py                 Game, create_game() (dựng tất cả; tools gọi lại hàm này), main()
+  weapon_data.py         MỌI thông số (dataclass)
+  core/                  toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring
+  game/                  phần ghép Ursina/Panda: player, combat, targets, viewmodel, shooting_range, hud, gltf_patch
+guns/  sounds/           tài nguyên (glb; wav, trong sounds/source là file gốc)
+tests/  tools/  docs/    pytest; công cụ + bài kiểm tra bằng game thật; ghi chú các giai đoạn
+shots/                   ảnh chụp của các bài kiểm tra (gitignore)
+```
+- `fps/game/__init__.py` để TRỐNG có chủ đích: `fps.game.gltf_patch` phải nạp được trước khi import ursina.
+  `main.py` ở root chỉ re-export `create_game`, `main` (các tools gọi `from main import create_game`).
+
 ## Quy ước
-- Mọi thông số súng/recoil/spread/sway nằm trong `weapon_data.py` (dataclass). Không rải số ra module khác.
-- Module: `weapon_data.py` (mọi số), toán thuần không import ursina và có pytest: `movement.py`, `ballistics.py` (đạn, va chạm), `weapon.py`
-  (nhịp bắn, đạn), `recoil.py` (recoil camera + kick súng), `spread.py` (độ tản, bloom, hình nón, tâm ngắm), `spring.py` (lò xo giảm chấn); phần ghép Ursina: `player.py`, `combat.py`, `targets.py`, `viewmodel.py`, `shooting_range.py`, `hud.py`,
-  `main.py` (`create_game()` dựng tất cả; tools gọi lại hàm này). Toán mới thì tách ra module thuần để pytest được.
+- Mọi thông số súng/recoil/spread/sway nằm trong `fps/weapon_data.py` (dataclass). Không rải số ra module khác.
+- Toán mới thì tách ra `fps/core/` (không import ursina) để pytest được; chỉ phần cần Ursina/Panda mới vào `fps/game/`.
 - Thứ tự mỗi khung hình cố định trong `Game.update`: `player.tick()` -> `combat.update()` -> `viewmodel.update()` -> `hud.update()`.
   Đừng để từng đối tượng tự `update` riêng (thứ tự Ursina không đảm bảo, bắn sẽ dùng hướng nhìn của khung trước).
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi trong console.
 - Commit trên nhánh `dev`. Chỉ push khi người dùng nói. `guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
 
 ## Nạp M4 (bẫy đã trả giá ở G0, đừng làm lại)
-- LUÔN `import gltf_patch; gltf_patch.apply()` trước khi tạo `Ursina()` hay nạp glb. `panda3d-gltf 1.3.0` nạp sai file này theo
+- LUÔN `from fps.game import gltf_patch; gltf_patch.apply()` trước khi tạo `Ursina()` hay nạp glb (`fps/app.py` và các tools đã làm). `panda3d-gltf 1.3.0` nạp sai file này theo
   6 cách (xem docstring `gltf_patch.py`). `tests\test_gltf_load.py` bắt từng lỗi; đổi phiên bản thư viện thì chạy lại.
 - Mô hình tính bằng **cm**, quay mặt về −Z. Đặt dưới `Entity(scale=0.01, rotation_y=180)`. Mắt (khớp `FPS_Camera_j_01`) ở
   (−0.011, 1.539, −0.101) trong hệ của Entity đó; súng cách mắt ~10 cm xuống, ~22 cm ra trước, lệch phải ~7 cm.

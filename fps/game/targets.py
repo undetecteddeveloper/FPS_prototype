@@ -5,8 +5,8 @@ Lỗ đạn là `quad` dán lên mặt trúng, tái dùng vòng tròn trong mộ
 from PIL import Image, ImageDraw
 from ursina import Entity, Texture, color, lerp, scene
 
-from ballistics import decal_rotation, hole_size
-from weapon_data import FeedbackParams
+from fps.core.ballistics import decal_rotation, hole_size
+from fps.weapon_data import FeedbackParams
 
 TARGET_THICKNESS = 0.06
 TARGET_BASE_WIDTH = 0.6

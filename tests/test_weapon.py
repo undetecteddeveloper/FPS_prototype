@@ -1,7 +1,7 @@
 import pytest
 
-from weapon import Weapon
-from weapon_data import M4
+from fps.core.weapon import Weapon
+from fps.weapon_data import M4
 
 
 def run(w, seconds, fps, held=True):

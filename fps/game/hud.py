@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ursina import Entity, Text, application, camera, color, window
 
-from spread import crosshair_gap
+from fps.core.spread import crosshair_gap
 
 FONT_FILE = 'segoeuisl.ttf'
 SHADOW_ALPHA = 0.55

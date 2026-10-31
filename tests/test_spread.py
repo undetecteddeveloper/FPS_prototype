@@ -3,9 +3,9 @@ import random
 
 import pytest
 
-from movement import MoveState
-from spread import Accuracy, angle_between, crosshair_gap, random_in_cone
-from weapon_data import AccuracyData
+from fps.core.movement import MoveState
+from fps.core.spread import Accuracy, angle_between, crosshair_gap, random_in_cone
+from fps.weapon_data import AccuracyData
 
 S = MoveState
 

@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from panda3d.core import Filename, GeomVertexReader, Thread, loadPrcFileData
 
-import gltf_patch
-from weapon_data import M4
+from fps.game import gltf_patch
+from fps.weapon_data import M4
 
 GLB = Path(__file__).resolve().parent.parent / M4.glb
 

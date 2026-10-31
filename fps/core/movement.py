@@ -6,7 +6,7 @@ Trạng thái di chuyển là NGUỒN DUY NHẤT cho tốc độ, spread và swa
 import math
 from enum import Enum
 
-from weapon_data import PlayerParams
+from fps.weapon_data import PlayerParams
 
 
 class MoveState(Enum):

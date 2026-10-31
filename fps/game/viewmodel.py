@@ -15,7 +15,7 @@ from panda3d.core import (AmbientLight, Camera, DirectionalLight, Filename, Node
                           Vec3)
 from ursina import application, window
 
-from weapon_data import GunData
+from fps.weapon_data import GunData
 
 
 class Viewmodel:

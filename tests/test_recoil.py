@@ -2,8 +2,8 @@ import random
 
 import pytest
 
-from recoil import CameraRecoil, GunKick
-from weapon_data import M4, M4_PATTERN, GunKickData, RecoilData
+from fps.core.recoil import CameraRecoil, GunKick
+from fps.weapon_data import M4, M4_PATTERN, GunKickData, RecoilData
 
 PATTERN_UP = sum(u for u, _ in M4_PATTERN)
 PATTERN_RIGHT = sum(r for _, r in M4_PATTERN)

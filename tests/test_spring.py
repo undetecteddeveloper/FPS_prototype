@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from spring import Spring, impulse_gain
+from fps.core.spring import Spring, impulse_gain
 
 
 def peak_of(omega, zeta, dt, seconds=1.0):

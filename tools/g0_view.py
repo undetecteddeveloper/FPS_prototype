@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.stdout.reconfigure(encoding='utf-8')
 
-import gltf_patch
+from fps.game import gltf_patch
 
 gltf_patch.apply()
 

@@ -8,9 +8,9 @@ import math
 
 from ursina import Entity, camera, held_keys, mouse, time
 
-from movement import (MoveState, aim_direction, apply_look, clamp_to_bounds, resolve_state,
+from fps.core.movement import (MoveState, aim_direction, apply_look, clamp_to_bounds, resolve_state,
                       step_horizontal_velocity, step_toward, step_vertical, target_speed, wants_sprint, wish_direction)
-from weapon_data import PlayerParams
+from fps.weapon_data import PlayerParams
 
 MAX_DT = 0.05   # sau một cú giật (nạp, cửa sổ kéo) không để vật lý nhảy một bước quá lớn
 
