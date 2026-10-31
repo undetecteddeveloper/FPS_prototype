@@ -24,6 +24,9 @@ player, combat = game.player, game.combat
 gun = game.params.gun
 mouse.locked = False                      # không giữ con trỏ của người dùng
 combat.require_locked_mouse = False       # cho phép bắn dù chuột không bị bắt (chỉ trong bài kiểm tra)
+# G3 thêm độ tản và recoil. G2 đo độ rơi của đạn nên tắt độ tản (g3_selftest.py kiểm tra riêng phần đó)
+for _name in ('stand', 'walk', 'sprint', 'air', 'ads', 'ads_move', 'bloom_per_shot'):
+    setattr(gun.accuracy, _name, 0.0)
 
 results = []
 frame_dts = []

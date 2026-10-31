@@ -1,19 +1,24 @@
-"""HUD: FPS, tâm ngắm, số đạn, chế độ bắn, hit marker, khoảng cách bia vừa trúng, ghi công.
+"""HUD: FPS, tâm ngắm động (giãn theo độ tản, ẩn khi ngắm), số đạn, chế độ bắn, hit marker, khoảng cách bia vừa trúng, ghi công.
 
 Font: Segoe UI Semilight có sẵn trong Windows (đủ dấu tiếng Việt), mảnh và sắc hơn OpenSans mặc định của
 Ursina. Mỗi dòng chữ có một bản sao đen dịch 1 px làm bóng để đọc được trên nền trời sáng.
 Không có font đó thì giữ font mặc định.
 """
+import math
 import os
 from pathlib import Path
 
 from ursina import Entity, Text, application, camera, color, window
 
+from spread import crosshair_gap
+
 FONT_FILE = 'segoeuisl.ttf'
 SHADOW_ALPHA = 0.55
-CROSSHAIR_GAP = 0.012
+CROSSHAIR_MIN_GAP = 0.008     # đơn vị UI (chiều cao cửa sổ = 1)
 CROSSHAIR_LEN = 0.014
 CROSSHAIR_THICK = 0.0025
+CROSSHAIR_ALPHA = 0.85
+CROSSHAIR_SMOOTH = 25.0       # 1/s: vạch trượt về khoảng mới, không giật khi đổi trạng thái
 
 
 def setup_fonts():
@@ -59,7 +64,7 @@ class UiText:
 
 
 class Hud:
-    def __init__(self, credit: str):
+    def __init__(self, credit: str, fov: float):
         ui = camera.ui
         tl, bl, br = window.top_left, window.bottom_left, window.bottom_right
         faint = color.rgba(1, 1, 1, 0.75)
@@ -73,15 +78,15 @@ class Hud:
         self.ammo = UiText('', br + (-0.02, 0.012), origin=(0.5, -0.5), scale=1.0)
         self.mode = UiText('', br + (-0.022, 0.085), origin=(0.5, -0.5), scale=0.95, tint=faint)
 
-        self.crosshair = []
-        for dx, dy, w, h in (
-            (-(CROSSHAIR_GAP + CROSSHAIR_LEN / 2), 0, CROSSHAIR_LEN, CROSSHAIR_THICK),
-            (CROSSHAIR_GAP + CROSSHAIR_LEN / 2, 0, CROSSHAIR_LEN, CROSSHAIR_THICK),
-            (0, CROSSHAIR_GAP + CROSSHAIR_LEN / 2, CROSSHAIR_THICK, CROSSHAIR_LEN),
-            (0, -(CROSSHAIR_GAP + CROSSHAIR_LEN / 2), CROSSHAIR_THICK, CROSSHAIR_LEN),
-        ):
-            self.crosshair.append(Entity(parent=ui, model='quad', color=color.rgba(1, 1, 1, 0.85),
-                                         position=(dx, dy), scale=(w, h)))
+        # tâm ngắm động: bốn vạch dạt ra theo độ tản; ẩn dần khi ngắm (ADS)
+        self.fov = fov
+        self.gap = CROSSHAIR_MIN_GAP
+        self.crosshair = []     # (entity, hướng x, hướng y)
+        for ux, uy in ((-1, 0), (1, 0), (0, 1), (0, -1)):
+            w, h = (CROSSHAIR_LEN, CROSSHAIR_THICK) if ux else (CROSSHAIR_THICK, CROSSHAIR_LEN)
+            self.crosshair.append((Entity(parent=ui, model='quad', color=color.rgba(1, 1, 1, CROSSHAIR_ALPHA),
+                                          scale=(w, h)), ux, uy))
+        self._update_crosshair(1.0, 2.0, 0.0, snap=True)
 
         # hit marker: bốn vạch chéo quanh tâm
         self.hit_marker = []
@@ -95,6 +100,16 @@ class Hud:
         self._frames = 0
         self._elapsed = 0.0
 
+    def _update_crosshair(self, dt: float, spread: float, ads_amount: float, snap: bool = False):
+        vfov_half_tan = math.tan(math.radians(self.fov / 2)) / window.aspect_ratio
+        target = max(CROSSHAIR_MIN_GAP, crosshair_gap(spread, vfov_half_tan))
+        self.gap = target if snap else self.gap + (target - self.gap) * (1.0 - math.exp(-dt * CROSSHAIR_SMOOTH))
+        tint = color.rgba(1, 1, 1, CROSSHAIR_ALPHA * (1.0 - ads_amount))
+        for entity, ux, uy in self.crosshair:
+            d = self.gap + CROSSHAIR_LEN / 2
+            entity.position = (ux * d, uy * d)
+            entity.color = tint
+
     def update(self, dt: float, combat):
         self._frames += 1
         self._elapsed += dt
@@ -107,6 +122,8 @@ class Hud:
         self.ammo.text = f'<scale:2.6>{w.mag}<scale:1.2>  /  {w.reserve}'
         self.ammo.main.color = color.rgb(1, 0.45, 0.4) if w.mag <= 5 else color.white
         self.mode.text = 'TỰ ĐỘNG' if w.auto else 'BẮN ĐƠN'
+
+        self._update_crosshair(dt, combat.spread_now, combat.player.ads_amount)
 
         a = combat.hit_marker_alpha
         for e in self.hit_marker:

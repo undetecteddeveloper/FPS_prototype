@@ -107,8 +107,15 @@ class Viewmodel:
         for node in self.reload_props:
             node.show() if visible else node.hide()
 
-    def update(self):
+    def update(self, kick: tuple = (0, 0, 0, 0, 0, 0)):
+        """kick = (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải), mét và độ (GunKick.pose).
+        G4 sẽ cộng thêm sway/bob/ADS vào cùng nút `sway`.
+
+        BẪY dấu (đã đo bằng tools/g3_selftest.py): `set_hpr` THÔ của nút trong đồ thị súng này khác `Entity.rotation`
+        của Ursina ở thế giới: h dương quay súng sang TRÁI, p dương ngóc nòng LÊN, r dương nghiêng PHẢI."""
         self._sync_lens()
+        x, y, z, pitch_up, yaw_right, roll_right = kick
+        self.sway.set_pos_hpr(x, y, z, -yaw_right, pitch_up, roll_right)
 
     def destroy(self):
         base = application.base

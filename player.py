@@ -1,6 +1,7 @@
 """Người chơi: bộ điều khiển tự viết (FirstPersonController của Ursina không có đủ trạng thái).
 
 `state` (MoveState) là nguồn duy nhất cho tốc độ; spread (G3) và sway (G4) cũng đọc từ đây.
+Recoil camera (G3) đi vào qua `kick_view`.
 Phím: WASD đi, Shift chạy nước rút (giữ), Ctrl hoặc C ngồi (giữ), Space nhảy, chuột nhìn.
 """
 import math
@@ -29,6 +30,7 @@ class Player(Entity):
         self.crouching = False
         self.sprinting = False
         self.ads = False                      # G4 sẽ gán; ở đây luôn False
+        self.ads_amount = 0.0                 # 0 = hông .. 1 = ngắm hẳn; G4 sẽ gán. Độ tản (spread.py) nội suy theo số này
         self.eye_height = params.eye_height_stand
         self.state = MoveState.IDLE
 
@@ -54,7 +56,7 @@ class Player(Entity):
         return math.hypot(self.vx, self.vz)
 
     def aim_ray(self) -> tuple:
-        """(gốc, hướng) của tia ngắm: từ mắt, theo hướng nhìn. G3 sẽ cộng recoil và độ tản vào đây."""
+        """(gốc, hướng) của tia ngắm: từ mắt, theo hướng nhìn (đã gồm recoil camera). Độ tản cộng thêm ở Combat."""
         return (self.x, self.y + self.eye_height, self.z), aim_direction(self.yaw, self.pitch)
 
     # --- vòng lặp (Game.update gọi, để thứ tự cập nhật rõ ràng: người chơi -> bắn -> súng -> HUD) ---
@@ -65,6 +67,15 @@ class Player(Entity):
 
     def look(self, dx: float, dy: float):
         self.yaw, self.pitch = apply_look(self.yaw, self.pitch, dx, dy, self.p.mouse_sensitivity, self.p.pitch_limit)
+        self._apply_view()
+
+    def kick_view(self, up: float, right: float):
+        """Recoil camera: lệch góc nhìn (độ). Cộng thẳng vào yaw/pitch nên người chơi phải kéo chuột bù."""
+        self.yaw = (self.yaw + right) % 360.0
+        self.pitch = min(max(self.pitch - up, -self.p.pitch_limit), self.p.pitch_limit)
+        self._apply_view()
+
+    def _apply_view(self):
         self.rotation_y = self.yaw
         self.camera_pivot.rotation_x = self.pitch
 

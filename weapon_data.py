@@ -38,12 +38,67 @@ class Clip:
 
 
 @dataclass
+class RecoilData:
+    """Recoil của CAMERA: mẫu theo từng phát, người chơi tự kéo chuột bù. Góc tính bằng độ."""
+    pattern: tuple                        # ((lên, phải), ...) cho từng phát; quá cuối mẫu thì giữ bước cuối
+    noise: float = 0.10                   # mỗi bước nhân (1 ± noise), ngẫu nhiên độc lập cho lên và phải
+    pattern_reset_time: float = 0.35      # nghỉ bắn lâu hơn mức này thì phát kế quay về đầu mẫu
+    kick_time: float = 0.025              # hằng số thời gian (s) làm mượt cú giật: camera không nhảy cục trong một khung
+    recovery: float = 0.3                 # phần cú giật tự hồi về sau khi ngừng bắn (0 = không hồi, 1 = hồi hết)
+    recovery_delay: float = 0.12          # ngừng bắn bao lâu thì bắt đầu hồi
+    recovery_time: float = 0.18           # hằng số thời gian (s) của đường hồi
+
+
+@dataclass
+class AccuracyData:
+    """Độ tản đạn: nửa góc hình nón (độ) = nền theo trạng thái + bloom cộng dồn."""
+    stand: float = 2.0
+    walk: float = 3.5
+    sprint: float = 4.5
+    air: float = 6.0                      # nhảy / rơi
+    crouch_multiplier: float = 0.7        # nhân vào nền khi ngồi
+    ads: float = 0.1                      # ngắm, đứng yên
+    ads_move: float = 0.6                 # ngắm, đang đi
+    bloom_per_shot: float = 0.25
+    bloom_max: float = 4.0
+    bloom_recovery: float = 6.0           # độ/giây
+    bloom_recovery_delay: float = 0.15    # s sau phát cuối mới bắt đầu hồi; không có thì ở 750 phát/phút hồi (0,48° mỗi nhịp) triệt tiêu bloom (0,25° mỗi phát)
+    ads_bloom_multiplier: float = 0.05    # khi ngắm hẳn, bloom chỉ còn ngần này tác dụng
+
+
+@dataclass
+class GunKickData:
+    """Kick của SÚNG trên màn hình: lò xo giảm chấn, mỗi phát đẩy một xung. Nhỏ và nhanh hơn recoil camera.
+
+    Các mảng là (x phải, y lên, z ra trước, pitch ngóc lên, yaw sang phải, roll nghiêng phải); mét và độ.
+    `peak` = độ lệch đỉnh của MỘT phát đơn lẻ; `random` = biên độ ngẫu nhiên ± cộng vào mỗi phát."""
+    omega: float = 38.0                   # rad/s, tần số riêng (chu kỳ ~0,17 s)
+    zeta: float = 0.55                    # <1 thì súng nảy nhẹ trước khi yên
+    peak: tuple = (0.0, 0.004, -0.022, 1.6, 0.0, 0.0)
+    random: tuple = (0.002, 0.001, 0.003, 0.4, 0.4, 0.9)
+
+
+# Mẫu recoil 30 phát của M4: mỗi phát (lên, phải) độ. Hay lên, trôi phải, lắc nhẹ sang trái giữa băng.
+M4_PATTERN = (
+    (0.42, 0.04), (0.40, 0.08), (0.38, 0.11), (0.37, 0.14), (0.36, 0.16),
+    (0.35, 0.17), (0.34, 0.18), (0.33, 0.17), (0.32, 0.15), (0.31, 0.12),
+    (0.30, 0.08), (0.30, 0.04), (0.29, 0.00), (0.29, -0.04), (0.28, -0.08),
+    (0.28, -0.10), (0.27, -0.08), (0.27, -0.04), (0.26, 0.02), (0.26, 0.08),
+    (0.26, 0.14), (0.25, 0.18), (0.25, 0.19), (0.25, 0.17), (0.24, 0.14),
+    (0.24, 0.09), (0.24, 0.04), (0.23, 0.00), (0.23, 0.05), (0.23, 0.10),
+)
+
+
+@dataclass
 class GunData:
     """Dữ liệu một khẩu súng. Thêm súng thứ hai = thêm một GunData, không sửa logic."""
     name: str
     glb: str
     credit: str
     clips: dict
+    recoil: RecoilData                    # mỗi súng có mẫu recoil riêng (xem M4 bên dưới)
+    accuracy: AccuracyData = field(default_factory=AccuracyData)
+    kick: GunKickData = field(default_factory=GunKickData)
     eye_joint: str = 'FPS_Camera_j_01'    # khớp mà góc nhìn gốc của animation đặt camera vào
     model_scale: float = 0.01             # file tính bằng cm
     view_fov: float = 70.0                # FOV ngang riêng của camera vẽ súng (>75 thì lộ cẳng tay trái bị xoắn da)
@@ -70,6 +125,7 @@ M4 = GunData(
         'holster': Clip('Holster', 251, 268),
         'draw': Clip('Draw', 269, 299),
     },
+    recoil=RecoilData(pattern=M4_PATTERN),
 )
 
 

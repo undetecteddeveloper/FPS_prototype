@@ -39,14 +39,14 @@ class Game(Entity):
         self.player = Player(params.player, WALK_BOUNDS)
         self.combat = Combat(params, self.player, self.targets, self.world['colliders'])
         self.viewmodel = Viewmodel(params.gun, ROOT)
-        self.hud = Hud(params.gun.credit)
+        self.hud = Hud(params.gun.credit, params.player.fov)
 
     def update(self):
         # thứ tự cố định: người chơi (nhìn/đi) -> bắn (dùng hướng nhìn vừa cập nhật) -> súng -> HUD
         dt = time.dt
         self.player.tick()
         self.combat.update(min(dt, 0.05))
-        self.viewmodel.update()
+        self.viewmodel.update(self.combat.gun_kick.pose)
         self.hud.update(dt, self.combat)
         self._age += time.dt
         if self.quit_after and self._age >= self.quit_after:

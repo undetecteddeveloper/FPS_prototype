@@ -1,13 +1,18 @@
 """Ghép việc bắn lại: cò súng -> phát bắn -> viên đạn bay -> dò va chạm -> phản hồi (hit marker, nháy bia, lỗ đạn).
 
-Đạn xuất phát từ vị trí mắt, theo hướng nhìn (G3 sẽ cộng độ tản vào hướng này).
+Đạn xuất phát từ vị trí mắt, theo hướng nhìn (đã gồm recoil camera) cộng một độ lệch ngẫu nhiên trong hình nón tản.
+Mỗi phát bắn: lấy độ tản HIỆN TẠI (trước khi phát này cộng bloom) -> bắn -> cộng bloom, recoil camera, kick súng.
 Mỗi khung hình mỗi viên đạn đi một đoạn rồi dò va chạm trên cả đoạn (swept), không phụ thuộc FPS.
 """
+import random
 from dataclasses import dataclass
 
 from ursina import color, held_keys, mouse
 
 from ballistics import advance, distance_between, first_hit
+from movement import MoveState
+from recoil import CameraRecoil, GunKick
+from spread import Accuracy, random_in_cone
 from targets import HoleDecals, Target
 from weapon import Weapon
 from weapon_data import GameParams
@@ -35,14 +40,29 @@ class Impact:
     origin: tuple
 
 
+@dataclass
+class ShotInfo:
+    """Phát bắn gần nhất (để HUD và kiểm tra đọc)."""
+    view_dir: tuple         # hướng nhìn lúc bắn (tâm hình nón)
+    direction: tuple        # hướng viên đạn thật sự đi
+    spread: float           # nửa góc hình nón (độ) đã dùng
+    state: MoveState
+
+
 class Combat:
-    def __init__(self, params: GameParams, player, targets: list, static_boxes: list):
+    def __init__(self, params: GameParams, player, targets: list, static_boxes: list, rng: random.Random = None):
         self.gun = params.gun
         self.fb = params.feedback
         self.player = player
         self.targets = targets
         self.static_boxes = static_boxes           # [(lo, hi, owner)]
+        self.rng = rng or random.Random()
         self.weapon = Weapon(self.gun)
+        self.accuracy = Accuracy(self.gun.accuracy)
+        self.recoil = CameraRecoil(self.gun.recoil, self.rng)
+        self.gun_kick = GunKick(self.gun.kick, self.rng)
+        self.spread_now = self.accuracy.angle(player.state, player.ads_amount)   # cho tâm ngắm động
+        self.last_shot = None
         self.decals = HoleDecals(self.fb)
         self.bullets = []
         self.pressed = False                       # vừa bóp cò (sự kiện nhấn chuột, dùng cho bắn đơn)
@@ -67,11 +87,24 @@ class Combat:
         held = bool(held_keys['left mouse']) and can_shoot
         pressed = self.pressed and can_shoot
         self.pressed = False
+        self.accuracy.update(dt)
         ages = self.weapon.update(dt, held, pressed)
         if ages:
-            origin, direction = self.player.aim_ray()
+            origin, view_dir = self.player.aim_ray()
             for age in ages:
+                state, ads = self.player.state, self.player.ads_amount
+                spread = self.accuracy.angle(state, ads)
+                direction = random_in_cone(view_dir, spread, self.rng)
+                self.last_shot = ShotInfo(view_dir, direction, spread, state)
                 self._fire(origin, direction, age)
+                self.accuracy.on_shot()
+                self.recoil.on_shot()
+                self.gun_kick.on_shot()
+        up, right = self.recoil.step(dt)
+        if up or right:
+            self.player.kick_view(up, right)       # sau khi bắn: phát này đã đi theo hướng nhìn trước cú giật
+        self.gun_kick.update(dt)
+        self.spread_now = self.accuracy.angle(self.player.state, self.player.ads_amount)
 
     def _boxes(self) -> list:
         return [(*t.aabb(), t) for t in self.targets] + self.static_boxes
