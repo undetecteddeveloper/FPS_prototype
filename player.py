@@ -7,8 +7,8 @@ import math
 
 from ursina import Entity, camera, held_keys, mouse, time
 
-from movement import (MoveState, apply_look, clamp_to_bounds, resolve_state, step_horizontal_velocity,
-                      step_toward, step_vertical, target_speed, wants_sprint, wish_direction)
+from movement import (MoveState, aim_direction, apply_look, clamp_to_bounds, resolve_state,
+                      step_horizontal_velocity, step_toward, step_vertical, target_speed, wants_sprint, wish_direction)
 from weapon_data import PlayerParams
 
 MAX_DT = 0.05   # sau một cú giật (nạp, cửa sổ kéo) không để vật lý nhảy một bước quá lớn
@@ -53,8 +53,12 @@ class Player(Entity):
     def speed(self) -> float:
         return math.hypot(self.vx, self.vz)
 
-    # --- vòng lặp ---
-    def update(self):
+    def aim_ray(self) -> tuple:
+        """(gốc, hướng) của tia ngắm: từ mắt, theo hướng nhìn. G3 sẽ cộng recoil và độ tản vào đây."""
+        return (self.x, self.y + self.eye_height, self.z), aim_direction(self.yaw, self.pitch)
+
+    # --- vòng lặp (Game.update gọi, để thứ tự cập nhật rõ ràng: người chơi -> bắn -> súng -> HUD) ---
+    def tick(self):
         if mouse.locked:
             self.look(mouse.velocity[0], mouse.velocity[1])
         self.step(min(time.dt, MAX_DT), **self.read_keys())

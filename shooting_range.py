@@ -18,6 +18,13 @@ BACKSTOP_HEIGHT = 5.0
 FAR = 600.0                      # mặt cỏ trải xa tới đây để chân trời không bị hở
 
 
+def aabb_of(entity):
+    """(lo, hi) của một Entity dạng 'cube' không xoay, ở toạ độ thế giới."""
+    x, y, z = entity.position
+    sx, sy, sz = entity.scale
+    return (x - sx / 2, y - sy / 2, z - sz / 2), (x + sx / 2, y + sy / 2, z + sz / 2)
+
+
 def _grid_texture(base: int, line: int, cells: int = 8, size: int = 256) -> Texture:
     """Ô lưới mờ để mắt thấy được chuyển động và khoảng cách; mipmap để xa không bị nhấp nháy."""
     img = Image.new('RGB', (size, size), (base, base, base))
@@ -89,5 +96,7 @@ def build_range() -> dict:
     world['berms'].append(Entity(model='cube', color=earth, scale=(2 * LANE_HALF_WIDTH + 10, BACKSTOP_HEIGHT, 6),
                                  position=(0, BACKSTOP_HEIGHT / 2, LANE_END_Z + 3)))
 
+    # hộp va chạm cho đạn (AABB); mặt đất xử lý riêng ở y = 0
+    world['colliders'] = [(*aabb_of(e), e) for e in world['berms']]
     world['sky'] = Sky()
     return world

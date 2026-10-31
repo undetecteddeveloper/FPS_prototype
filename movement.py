@@ -100,3 +100,10 @@ def apply_look(yaw: float, pitch: float, dx: float, dy: float, degrees_per_unit:
     yaw = (yaw + dx * degrees_per_unit) % 360.0
     pitch = min(max(pitch - dy * degrees_per_unit, -pitch_limit), pitch_limit)
     return yaw, pitch
+
+
+def aim_direction(yaw_deg: float, pitch_deg: float) -> tuple:
+    """Vector hướng nhìn đơn vị. pitch dương = cúi xuống (như rotation_x của Ursina)."""
+    yaw, pitch = math.radians(yaw_deg), math.radians(pitch_deg)
+    cp = math.cos(pitch)
+    return math.sin(yaw) * cp, -math.sin(pitch), math.cos(yaw) * cp

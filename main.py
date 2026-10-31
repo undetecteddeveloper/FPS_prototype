@@ -15,11 +15,13 @@ gltf_patch.apply()
 
 import ursina  # noqa: E402
 from panda3d.core import Filename, loadPrcFileData  # noqa: E402
-from ursina import Entity, Ursina, application, mouse, window  # noqa: E402
+from ursina import Entity, Ursina, application, mouse, time, window  # noqa: E402
 
-from hud import Hud  # noqa: E402
+from combat import Combat  # noqa: E402
+from hud import Hud, setup_fonts  # noqa: E402
 from player import Player  # noqa: E402
 from shooting_range import WALK_BOUNDS, build_range  # noqa: E402
+from targets import build_targets  # noqa: E402
 from viewmodel import Viewmodel  # noqa: E402
 from weapon_data import GameParams  # noqa: E402
 
@@ -33,14 +35,19 @@ class Game(Entity):
         self.quit_after = quit_after
         self._age = 0.0
         self.world = build_range()
+        self.targets = build_targets(params.feedback)
         self.player = Player(params.player, WALK_BOUNDS)
+        self.combat = Combat(params, self.player, self.targets, self.world['colliders'])
         self.viewmodel = Viewmodel(params.gun, ROOT)
         self.hud = Hud(params.gun.credit)
 
     def update(self):
-        from ursina import time
+        # thứ tự cố định: người chơi (nhìn/đi) -> bắn (dùng hướng nhìn vừa cập nhật) -> súng -> HUD
+        dt = time.dt
+        self.player.tick()
+        self.combat.update(min(dt, 0.05))
         self.viewmodel.update()
-        self.hud.update(time.dt)
+        self.hud.update(dt, self.combat)
         self._age += time.dt
         if self.quit_after and self._age >= self.quit_after:
             application.quit()
@@ -48,6 +55,12 @@ class Game(Entity):
     def input(self, key):
         if key == 'escape':
             mouse.locked = not mouse.locked
+        elif key == 'left mouse down':
+            self.combat.pressed = True
+        elif key == 'b':
+            self.combat.weapon.toggle_mode()
+        elif key == 'r':
+            self.combat.weapon.refill()       # tạm thời: reload có animation làm ở G5
 
 
 def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, quit_after: float = 0.0) -> Game:
@@ -58,6 +71,7 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
                  development_mode=False)
     application.asset_folder = ROOT
     window.fps_counter.enabled = False
+    setup_fonts()
     game = Game(GameParams(), quit_after)
     game.app = app
     return game

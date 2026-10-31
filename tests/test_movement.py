@@ -121,3 +121,13 @@ def test_jump_apex_does_not_depend_on_fps(fps):
             break
     # sai số nhỏ chỉ do đỉnh rơi giữa hai khung hình
     assert apex == pytest.approx(P.jump_speed ** 2 / (2 * P.gravity), abs=0.06)
+
+
+def test_aim_direction():
+    from movement import aim_direction
+    assert aim_direction(0, 0) == pytest.approx((0, 0, 1))
+    assert aim_direction(90, 0) == pytest.approx((1, 0, 0))
+    assert aim_direction(0, 90) == pytest.approx((0, -1, 0), abs=1e-9)      # cúi xuống
+    assert aim_direction(0, -90) == pytest.approx((0, 1, 0), abs=1e-9)      # ngẩng lên
+    for yaw, pitch in ((17, 33), (200, -45), (359, 89)):
+        assert math.hypot(*aim_direction(yaw, pitch)[:2], aim_direction(yaw, pitch)[2]) == pytest.approx(1.0)

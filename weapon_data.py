@@ -48,6 +48,15 @@ class GunData:
     model_scale: float = 0.01             # file tính bằng cm
     view_fov: float = 70.0                # FOV ngang riêng của camera vẽ súng (>75 thì lộ cẳng tay trái bị xoắn da)
     hip_offset: tuple = (0.0, 0.0, 0.0)   # dịch thêm viewmodel so với góc nhìn gốc (x phải, y lên, z ra trước)
+    # bắn
+    rpm: float = 750.0                    # phát/phút
+    magazine: int = 30
+    reserve: int = 150
+    full_auto: bool = True                # chế độ lúc vào game (phím B đổi tự động / bắn đơn)
+    # đạn bay có độ rơi: rơi ~0,11 m ở 75 m và ~0,44 m ở 150 m
+    muzzle_velocity: float = 500.0        # m/s
+    bullet_gravity: float = 9.81          # m/s^2
+    bullet_lifetime: float = 3.0          # s; quá thì bỏ đạn (bay ra ngoài làn)
 
 
 M4 = GunData(
@@ -65,6 +74,18 @@ M4 = GunData(
 
 
 @dataclass
+class FeedbackParams:
+    """Phản hồi khi đạn trúng: hit marker, nháy màu bia, lỗ đạn."""
+    hit_marker_duration: float = 0.15
+    target_flash_duration: float = 0.12
+    last_hit_display_time: float = 2.0    # hiện khoảng cách bia vừa trúng bao lâu
+    hole_base_size: float = 0.05          # m; lỗ đạn thật chỉ 5,56 mm, phóng to để nhìn thấy
+    hole_size_per_meter: float = 0.002    # lỗ càng xa càng to thêm (150 m: ~0,35 m)
+    max_holes: int = 200                  # quá thì tái dùng lỗ cũ nhất
+
+
+@dataclass
 class GameParams:
     player: PlayerParams = field(default_factory=PlayerParams)
     gun: GunData = field(default_factory=lambda: M4)
+    feedback: FeedbackParams = field(default_factory=FeedbackParams)
