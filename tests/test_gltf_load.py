@@ -7,17 +7,12 @@ import pytest
 from panda3d.core import Filename, GeomVertexReader, Thread, loadPrcFileData
 
 import gltf_patch
+from weapon_data import M4
 
-GLB = Path(__file__).resolve().parent.parent / 'guns' / 'm4_-_fps_weapon_animations_pack_v.1.glb'
+GLB = Path(__file__).resolve().parent.parent / M4.glb
 
-# khoảng khung hợp lệ của từng clip (khung N của clip N khung bị bao về 0, xem CLAUDE.md)
-FRAMES = {
-    'Reload': (1, 110),
-    'Reload_Empty': (111, 224),
-    'Fire': (226, 249),
-    'Holster': (251, 268),
-    'Draw': (269, 299),
-}
+# khoảng khung hợp lệ của từng clip lấy từ weapon_data (nguồn duy nhất), khỏi chép lại ở đây
+FRAMES = {clip.anim: (clip.start, clip.end) for clip in M4.clips.values()}
 NUM_FRAMES = {'Draw': 300, 'Reload': 111, 'Fire': 250, 'Reload_Empty': 225, 'Holster': 269}
 
 
@@ -114,3 +109,14 @@ def test_every_mesh_has_a_color_texture(actor):
         attrib = state.get_attrib(TextureAttrib)
         assert attrib is not None and attrib.get_num_on_stages() == 1
         assert attrib.get_on_stage(0).get_name() == 'Base Color'
+
+
+def test_clip_table_matches_the_file(actor):
+    """Bảng clip trong weapon_data phải nằm trong số khung thật của animation (khung N bị bao về 0)."""
+    for clip in M4.clips.values():
+        n = actor.getAnimControl(clip.anim).getNumFrames()
+        assert 0 <= clip.start < clip.end <= n - 1, clip
+    # khoảng của các clip không chồng lên nhau trên dòng thời gian chung
+    spans = sorted((c.start, c.end) for c in M4.clips.values())
+    for (_, end), (start, _) in zip(spans, spans[1:]):
+        assert end < start
