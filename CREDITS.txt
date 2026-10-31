@@ -6,6 +6,9 @@ M4 - FPS Weapon Animations Pack (v.1)
   Giấy phép: CC-BY 4.0 (http://creativecommons.org/licenses/by/4.0/)
   Thay đổi: nạp qua bản vá trình chuyển đổi glTF (gltf_patch.py), bỏ normal map, đổi đơn vị cm sang m.
 
+Tiếng súng M4 (sounds\m4_shot.wav, dựng từ sounds\source\m4_shot_original.wav bằng tools\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
+  Do chủ dự án cung cấp. Tác giả / nguồn / giấy phép: CHƯA GHI, cần chủ dự án điền trước khi phát hành.
+
 Chưa dùng ở phiên này: Animated FPS hands (rifle animation pack) của Cransh
   (https://sketchfab.com/ccransh), CC-BY 4.0. Nếu dùng thì phải ghi công ở đây và trong game.
 

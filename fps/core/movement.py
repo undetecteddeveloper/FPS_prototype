@@ -33,8 +33,9 @@ def resolve_state(on_ground: bool, crouching: bool, sprinting: bool, moving: boo
     return MoveState.WALK if moving else MoveState.IDLE
 
 
-def target_speed(state: MoveState, p: PlayerParams, ads: bool = False) -> float:
-    """Tốc độ mặt đất mà trạng thái này hướng tới. Trên không: giữ đà, nên không có tốc độ mục tiêu."""
+def target_speed(state: MoveState, p: PlayerParams, ads=0.0) -> float:
+    """Tốc độ mặt đất mà trạng thái này hướng tới. Trên không: giữ đà, nên không có tốc độ mục tiêu.
+    `ads`: 0..1 (hoặc bool); đang vào ADS thì tốc độ giảm dần theo."""
     base = {
         MoveState.IDLE: p.walk_speed,
         MoveState.WALK: p.walk_speed,
@@ -43,7 +44,7 @@ def target_speed(state: MoveState, p: PlayerParams, ads: bool = False) -> float:
         MoveState.CROUCH_WALK: p.crouch_speed,
         MoveState.AIR: p.walk_speed,
     }[state]
-    return base * (p.ads_speed_multiplier if ads else 1.0)
+    return base * (1.0 + (p.ads_speed_multiplier - 1.0) * float(ads))
 
 
 def wish_direction(forward: float, strafe: float, yaw_deg: float) -> tuple:
@@ -79,6 +80,12 @@ def step_vertical(y: float, vy: float, gravity: float, dt: float, ground_y: floa
     if y <= ground_y:
         return ground_y, 0.0, True
     return y, vy, False
+
+
+def smoothstep(x: float) -> float:
+    """Đường cong êm 0..1 (đạo hàm 0 ở hai đầu): dùng để vào/ra ADS và tư thế chạy không bị khựng đầu cuối."""
+    x = min(max(x, 0.0), 1.0)
+    return x * x * (3.0 - 2.0 * x)
 
 
 def step_toward(current: float, target: float, rate: float, dt: float) -> float:

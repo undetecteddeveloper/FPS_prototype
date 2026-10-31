@@ -5,7 +5,7 @@ Súng nằm trong đồ thị cảnh RIÊNG, vẽ bằng camera riêng (vùng hi
   - súng không bao giờ xuyên vào tường/bia,
   - độ sâu tầm 200 m của thế giới không bị mặt phẳng gần 1 cm của súng làm hỏng.
 
-Chuỗi nút: root -> sway -> rig -> actor.   `sway` dành cho code recoil/sway/ADS (G3, G4);
+Chuỗi nút: root -> sway -> rig -> actor.   `sway` nhận kick súng, sway, bob, tư thế chạy và ADS (cộng lại trong `update`);
 `rig` chỉ làm nhiệm vụ căn mô hình sao cho khớp FPS_Camera trùng gốc camera.
 """
 from pathlib import Path
@@ -107,14 +107,14 @@ class Viewmodel:
         for node in self.reload_props:
             node.show() if visible else node.hide()
 
-    def update(self, kick: tuple = (0, 0, 0, 0, 0, 0)):
-        """kick = (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải), mét và độ (GunKick.pose).
-        G4 sẽ cộng thêm sway/bob/ADS vào cùng nút `sway`.
+    def update(self, *poses: tuple):
+        """Mỗi tư thế = (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải), mét và độ: kick súng
+        (GunKick.pose) và sway/ADS/chạy (Sway.update). Cộng lại rồi đặt lên nút `sway`.
 
         BẪY dấu (đã đo bằng tools/g3_selftest.py): `set_hpr` THÔ của nút trong đồ thị súng này khác `Entity.rotation`
         của Ursina ở thế giới: h dương quay súng sang TRÁI, p dương ngóc nòng LÊN, r dương nghiêng PHẢI."""
         self._sync_lens()
-        x, y, z, pitch_up, yaw_right, roll_right = kick
+        x, y, z, pitch_up, yaw_right, roll_right = (sum(c) for c in zip(*poses)) if poses else (0,) * 6
         self.sway.set_pos_hpr(x, y, z, -yaw_right, pitch_up, roll_right)
 
     def destroy(self):

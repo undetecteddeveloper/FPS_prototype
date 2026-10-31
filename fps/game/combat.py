@@ -50,13 +50,15 @@ class ShotInfo:
 
 
 class Combat:
-    def __init__(self, params: GameParams, player, targets: list, static_boxes: list, rng: random.Random = None):
+    def __init__(self, params: GameParams, player, targets: list, static_boxes: list, rng: random.Random = None,
+                 audio=None):
         self.gun = params.gun
         self.fb = params.feedback
         self.player = player
         self.targets = targets
         self.static_boxes = static_boxes           # [(lo, hi, owner)]
         self.rng = rng or random.Random()
+        self.audio = audio                         # GunAudio hoặc None (tắt tiếng)
         self.weapon = Weapon(self.gun)
         self.accuracy = Accuracy(self.gun.accuracy)
         self.recoil = CameraRecoil(self.gun.recoil, self.rng)
@@ -83,10 +85,13 @@ class Combat:
 
         self._step_bullets(dt)           # đạn cũ đi trước, đạn mới sinh ra sau (đã tự đẩy tới cuối khung)
 
-        can_shoot = mouse.locked or not self.require_locked_mouse
-        held = bool(held_keys['left mouse']) and can_shoot
-        pressed = self.pressed and can_shoot
-        self.pressed = False
+        mouse_ok = mouse.locked or not self.require_locked_mouse
+        trigger = bool(held_keys['left mouse']) and mouse_ok
+        ready = mouse_ok and self.player.can_fire      # đang hạ súng sau khi chạy (sprint-to-fire) thì chưa bắn được
+        held = trigger and ready
+        pressed = self.pressed and ready
+        if ready or not trigger:
+            self.pressed = False                       # còn giữ cò mà súng chưa sẵn sàng: nhớ cú bóp để bắn khi sẵn sàng
         self.accuracy.update(dt)
         ages = self.weapon.update(dt, held, pressed)
         if ages:
@@ -100,6 +105,8 @@ class Combat:
                 self.accuracy.on_shot()
                 self.recoil.on_shot()
                 self.gun_kick.on_shot()
+                if self.audio:
+                    self.audio.play_shot()
         up, right = self.recoil.step(dt)
         if up or right:
             self.player.kick_view(up, right)       # sau khi bắn: phát này đã đi theo hướng nhìn trước cú giật

@@ -7,7 +7,10 @@
   `--quit-after 5` (tự thoát sau 5 giây, dùng để kiểm tra mà không phải tắt tiến trình).
 - Kiểm tra bằng game thật (điều khiển qua `held_keys`/`combat.pressed`, đo, chụp ảnh vào `shots\`; thoát mã 1 nếu trượt):
   `.venv\Scripts\python.exe -X utf8 tools\g1_selftest.py` (di chuyển), `tools\g2_selftest.py` (bắn: nhịp, độ rơi từng bia, đạn, hit marker, lỗ)
-  và `tools\g3_selftest.py` (recoil, độ tản theo trạng thái, bloom, tâm ngắm so với phép chiếu thật, kick súng trên màn hình)
+  `tools\g3_selftest.py` (recoil, độ tản theo trạng thái, bloom, tâm ngắm so với phép chiếu thật, kick súng trên màn hình),
+  `tools\g4_selftest.py` (ADS, đường ngắm trùng tâm, thở/bob/lag chuột, quán tính nhảy/ngồi, tư thế chạy, sprint-to-fire)
+  và `tools\audio_selftest.py` (BẬT tiếng, kiểm trình phát thật và số lần phát; các selftest khác tắt tiếng bằng `create_game(sound=False)`)
+- Công cụ dựng/đo: `tools\prep_sound.py` (dựng `sounds\m4_shot.wav` từ file gốc), `tools\g4_ads_align.py` (đo điểm ngắm của súng, in tư thế ADS)
 - Test (toán thuần + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest`
 - Công cụ G0: `tools\g0_view.py` (chụp ảnh tư thế), `tools\g0_timing.py` (đo clip + FPS), `tools\g0_motion.py`
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15)
@@ -30,7 +33,7 @@ shots/                   ảnh chụp của các bài kiểm tra (gitignore)
 ## Quy ước
 - Mọi thông số súng/recoil/spread/sway nằm trong `fps/weapon_data.py` (dataclass). Không rải số ra module khác.
 - Toán mới thì tách ra `fps/core/` (không import ursina) để pytest được; chỉ phần cần Ursina/Panda mới vào `fps/game/`.
-- Thứ tự mỗi khung hình cố định trong `Game.update`: `player.tick()` -> `combat.update()` -> `viewmodel.update()` -> `hud.update()`.
+- Thứ tự mỗi khung hình cố định trong `Game.update`: `player.tick()` -> `combat.update()` -> `sway.update()` -> `viewmodel.update(kick, sway)` -> `hud.update()`.
   Đừng để từng đối tượng tự `update` riêng (thứ tự Ursina không đảm bảo, bắn sẽ dùng hướng nhìn của khung trước).
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi trong console.
 - Commit trên nhánh `dev`. Chỉ push khi người dùng nói. `guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
@@ -103,3 +106,21 @@ shots/                   ảnh chụp của các bài kiểm tra (gitignore)
 - `g2_selftest.py` tắt độ tản (đo độ rơi cần đạn đi đúng hướng ngắm); `g3_selftest.py` tự tắt bloom và tăng nhịp bắn lên 250 phát/s khi đo độ tản theo trạng thái (cần >= 100 mẫu mỗi mục).
 - Chi phí G3 mỗi khung ~0,06 ms (tâm ngắm 53 µs là phần lớn). Đã đo ở G3 (vsync tắt, 1280x720, gồm hai loạt liên thanh): trung bình 102 FPS, 1% thấp nhất 66, khung chậm nhất 17 ms.
   Lần chạy khác trên cùng máy có lúc rớt 1% xuống ~50 và khung 29–120 ms do máy nhiễu (G2 chạy lại cũng thấy); chạy lại trước khi kết luận tụt FPS.
+
+## Ngắm, sway, chạy, âm thanh (G4)
+- `player.ads_amount` và `player.sprint_amount` là tiến độ TUYẾN TÍNH 0..1 (`gun.ads_time` 0,25 s; `sprint_in_time` 0,2 s, `sprint_out_time` 0,25 s). `smoothstep` chỉ áp khi dùng cho hình ảnh
+  (FOV, tư thế súng, tốc độ đi, độ nhạy chuột); độ tản (`spread.py`) dùng số thô. FOV thế giới 80 -> `GunData.ads_fov` 65; độ nhạy chuột nhân `ads_look_multiplier` 0,7 ngay trong `Player.look()`.
+- Đường ngắm: `GunData.ads_sights` = (tâm vòng ngắm sau, đỉnh CỘT ngắm trước) đo bằng `tools\g4_ads_align.py` từ đỉnh mô hình (quét nút `Main_M4_D_0-parent`; đừng lấy đỉnh hai cánh che, cao hơn cột 2 mm).
+  `sway.ads_pose()` tính phép xoay + tịnh tiến đưa đường ngắm trùng trục nhìn, vòng sau cách mắt `ads_eye_relief` (0,18 m). `g4_selftest` kiểm bằng phép chiếu thật: lệch < 6 px (đo ~1 px).
+- `Sway` (`fps/core/sway.py`) cộng 6 thứ thành một tư thế: thở (Lissajous 1:2), lag chuột (lò xo; chuột quay phải thì súng trễ trái), bob (PHA theo quãng đường, bước 2,4 m: nhịp đúng ở mọi tốc độ),
+  quán tính dọc theo `player.eye_dy` (thay cho xung nhảy/ngồi riêng: camera lên thì súng trễ xuống) + nhún khi chạm đất, tư thế chạy, tư thế ADS. Khi ngắm, 4 thứ đầu còn `ads_multiplier` = 20%.
+  `Viewmodel.update(*poses)` cộng tư thế của kick (G3) và sway rồi đặt lên nút `sway` (dấu hpr: xem BẪY DẤU ở G3).
+- Nhún chạm đất: `Player._dip` hạ `camera_pivot.y` (đỉnh `land_dip_per_speed` x tốc độ rơi, ~3,9 cm khi nhảy) và `aim_ray()` lấy gốc tia từ chỗ camera đang ở.
+- Sprint-to-fire (`PlayerParams.sprint_blocks_fire` = True): bóp cò khi đang chạy thì thôi chạy (đi bộ), súng đưa lên trong `sprint_out_time`, rồi mới bắn (đo 0,26 s); `Combat` nhớ cú bóp lúc chưa sẵn sàng (bắn đơn
+  không mất phát). Đặt False thì bắn thẳng từ tư thế chạy: `g3_selftest` làm vậy để đo độ tản của trạng thái chạy (`accuracy.sprint` chỉ có hiệu lực khi False). Bấm ngắm cũng cắt chạy.
+- Tư thế chạy `SwayData.sprint_pose` là số chỉnh bằng mắt (ảnh `shots\g4_sprint.png`): hạ quá tay thì súng văng khỏi màn hình (xoay quanh mắt kéo thân súng xuống ~19 cm với y -0,09 và pitch -20).
+- Âm thanh: `fps/game/gun_audio.py` phát từ nhóm 8 bản luân phiên (tiếng 0,5 s, nhịp 0,08 s) với cao độ ngẫu nhiên ±3%. `sounds\m4_shot.wav` dựng bằng `tools\prep_sound.py` từ `sounds\source\m4_shot_original.wav`
+  (file gốc 2 s, mở đầu im 48 ms làm tiếng trễ ~3 khung: cắt đầu và đuôi, mờ dần 80 ms). Tắt tiếng: `--mute`; selftest tắt bằng `create_game(sound=False)`. Không nghe được loa nên `tools\audio_selftest.py` kiểm gián tiếp
+  (trình phát thật không phải âm câm, độ dài, số lần phát, trạng thái PLAYING); CREDITS ghi rõ nguồn/giấy phép tiếng súng CHƯA có.
+- Git/Windows: cây làm việc dùng CRLF (autocrlf), cảnh báo "LF will be replaced by CRLF" vô hại; script thay chuỗi trên file `.py` phải chuẩn hoá `\r\n` -> `\n` trước (đã vấp khi dọn cấu trúc).
+- Đã đo ở G4 (vsync tắt, 1280x720, cả kịch bản): trung bình 95 FPS, 1% thấp nhất 70, khung chậm nhất 18 ms.

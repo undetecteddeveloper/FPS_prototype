@@ -27,13 +27,15 @@ from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between, crosshair_gap  # noqa: E402
 from fps.weapon_data import M4_PATTERN  # noqa: E402
 
-game = create_game(vsync=False)
+game = create_game(vsync=False, sound=False)
 player, combat, hud, viewmodel = game.player, game.combat, game.hud, game.viewmodel
 gun = game.params.gun
 acc = gun.accuracy
 mouse.locked = False                      # không giữ con trỏ của người dùng
 combat.require_locked_mouse = False       # cho phép bắn dù chuột không bị bắt (chỉ trong bài kiểm tra)
 combat.rng.seed(20240131)                 # lặp lại được (nhưng nhịp khung hình vẫn đổi chút kết quả)
+# bài này đo độ tản của trạng thái chạy nước rút nên phải bắn được từ tư thế chạy; sprint-to-fire kiểm ở g4_selftest.py
+game.params.player.sprint_blocks_fire = False
 
 results = []
 frame_dts = []
@@ -106,8 +108,9 @@ class Script(Entity):
 
     # --- đưa mọi thứ về trạng thái đầu ---
     def reset_state(self, auto=True, mag=30, pitch=0.0, ads=0.0):
-        for k in ('w', 'a', 's', 'd', 'shift', 'control', 'space', 'left mouse'):
+        for k in ('w', 'a', 's', 'd', 'shift', 'control', 'space', 'left mouse', 'right mouse'):
             held_keys[k] = 0
+        held_keys['right mouse'] = 1 if ads > 0 else 0       # ngắm đi qua đúng đường phím của game
         player.position = (0, 0, 0)
         player.vx = player.vz = player.vy = 0.0
         player.on_ground = True
@@ -272,7 +275,9 @@ class Script(Entity):
         check('tản về nền đứng', round(combat.spread_now, 3), acc.stand, abs(combat.spread_now - acc.stand) < 1e-9)
 
         # ngắm: nền 0,1 độ và bloom gần như không tác dụng
+        saved_ads_time = gun.ads_time
         for ads, label in ((1.0, 'ADS hẳn'), (0.5, 'ADS nửa chừng')):
+            gun.ads_time = saved_ads_time if ads == 1.0 else 1e6      # nửa chừng: đóng băng tiến độ vào ADS để đo đúng mức 0,5
             self.reset_state(ads=ads)
             shots_log.clear()
             yield from self.wait(0.05)
@@ -287,8 +292,9 @@ class Script(Entity):
                       last <= acc.ads + acc.ads_bloom_multiplier * acc.bloom_max + 1e-9)
             else:
                 mid = (acc.stand + acc.ads) / 2
-                check(f'{label}: phát đầu tản theo mức ADS hiện tại (độ)', round(first, 3), mid, abs(first - mid) < 1e-9)
+                check(f'{label}: phát đầu tản theo mức ADS hiện tại (độ)', round(first, 3), mid, abs(first - mid) < 1e-5)       # đóng băng ADS bằng ads_time rất lớn vẫn nhích ~1e-8 mỗi khung
             yield from self.wait(1.0)
+        gun.ads_time = saved_ads_time
 
         # --- D. độ tản theo trạng thái, đo từ hướng đạn thật (tắt bloom, bắn nhanh) ---
         phase['name'] = 'đo độ tản'
@@ -356,13 +362,13 @@ class Script(Entity):
         held_keys['control'] = 0
         yield from self.wait(0.5)
 
-        player.ads, player.ads_amount = True, 1.0
-        yield from self.wait(0.3)
+        held_keys['right mouse'] = 1
+        yield from self.wait(0.6)
         alpha_ads = hud.crosshair[0][0].color.a
         check('tâm ngắm ẩn khi ngắm (ADS)', round(alpha_ads, 3), 0, alpha_ads == 0)
         shot('ads_no_crosshair')
-        player.ads, player.ads_amount = False, 0.0
-        yield from self.wait(0.3)
+        held_keys['right mouse'] = 0
+        yield from self.wait(0.6)
 
         # --- F. loạt thứ ba: ảnh giữa loạt, kick súng thấy được, camera = hướng bắn ---
         phase['name'] = 'loạt 3'

@@ -64,13 +64,13 @@ class UiText:
 
 
 class Hud:
-    def __init__(self, credit: str, fov: float):
+    def __init__(self, credit: str):
         ui = camera.ui
         tl, bl, br = window.top_left, window.bottom_left, window.bottom_right
         faint = color.rgba(1, 1, 1, 0.75)
         self.fps_text = UiText('', tl + (0.012, -0.010), scale=0.95)
         self.hint = UiText('Esc: nhả / bắt chuột   WASD đi   Shift chạy   Ctrl/C ngồi   Space nhảy   '
-                           'Chuột trái bắn   B đổi chế độ   R nạp đạn',
+                           'Chuột trái bắn   Chuột phải ngắm   B đổi chế độ   R nạp đạn',
                            bl + (0.012, 0.034), origin=(-0.5, -0.5), scale=0.85, tint=faint)
         self.credit = UiText(credit, bl + (0.012, 0.008), origin=(-0.5, -0.5), scale=0.75,
                              tint=color.rgba(1, 1, 1, 0.5))
@@ -79,7 +79,6 @@ class Hud:
         self.mode = UiText('', br + (-0.022, 0.085), origin=(0.5, -0.5), scale=0.95, tint=faint)
 
         # tâm ngắm động: bốn vạch dạt ra theo độ tản; ẩn dần khi ngắm (ADS)
-        self.fov = fov
         self.gap = CROSSHAIR_MIN_GAP
         self.crosshair = []     # (entity, hướng x, hướng y)
         for ux, uy in ((-1, 0), (1, 0), (0, 1), (0, -1)):
@@ -101,7 +100,7 @@ class Hud:
         self._elapsed = 0.0
 
     def _update_crosshair(self, dt: float, spread: float, ads_amount: float, snap: bool = False):
-        vfov_half_tan = math.tan(math.radians(self.fov / 2)) / window.aspect_ratio
+        vfov_half_tan = math.tan(math.radians(camera.fov / 2)) / window.aspect_ratio     # FOV hiện tại (ngắm làm nó hẹp lại)
         target = max(CROSSHAIR_MIN_GAP, crosshair_gap(spread, vfov_half_tan))
         self.gap = target if snap else self.gap + (target - self.gap) * (1.0 - math.exp(-dt * CROSSHAIR_SMOOTH))
         tint = color.rgba(1, 1, 1, CROSSHAIR_ALPHA * (1.0 - ads_amount))
