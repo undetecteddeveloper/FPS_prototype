@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+guns/animated_fps_hands_rifle_animation_pack.glb
+shots/

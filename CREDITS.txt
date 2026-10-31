@@ -1,0 +1,12 @@
+CREDITS
+
+M4 - FPS Weapon Animations Pack (v.1)
+  Tác giả: BarcodeGames (https://sketchfab.com/barcodegames)
+  Nguồn:   https://sketchfab.com/3d-models/m4-fps-weapon-animations-pack-v1-662fc74dda2646cfb48fc610705768ef
+  Giấy phép: CC-BY 4.0 (http://creativecommons.org/licenses/by/4.0/)
+  Thay đổi: nạp qua bản vá trình chuyển đổi glTF (gltf_patch.py), bỏ normal map, đổi đơn vị cm sang m.
+
+Chưa dùng ở phiên này: Animated FPS hands (rifle animation pack) của Cransh
+  (https://sketchfab.com/ccransh), CC-BY 4.0. Nếu dùng thì phải ghi công ở đây và trong game.
+
+Thư viện: Ursina, Panda3D, panda3d-gltf (xem requirements.txt).
