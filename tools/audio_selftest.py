@@ -9,7 +9,6 @@ Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\audio_selftest.py        (tho
 """
 import sys
 from collections import Counter
-import time as pytime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -157,7 +156,8 @@ class Script(Entity):
         yield from self.wait_idle()
         banks = foley.banks
         lengths = [s.length() for b in banks.values() for v in b.voices for s in v]
-        check('foley: số nhóm tiếng đã nạp', len(banks), '>= 14', len(banks) >= 14)
+        want_names = {c.sound for cues in foley.audio.cues.values() for c in cues} | {'step_walk', 'step_run', 'land', 'jump', foley.audio.cancel_sound}
+        check('foley: số nhóm tiếng đã nạp (mọi tên trong bảng mốc + bước chân)', len(banks), len(want_names), set(banks) == want_names)
         check('foley: file nào cũng nạp được và có độ dài (s)', f'{min(lengths):.3f}..{max(lengths):.3f}', '0.04..0.7', 0.04 < min(lengths) and max(lengths) < 0.7)
         check('foley: bước chân có 4+ biến thể mỗi loại', f"{len(banks['step_walk'].voices)}/{len(banks['step_run'].voices)}", '>= 4',
               len(banks['step_walk'].voices) >= 4 and len(banks['step_run'].voices) >= 4)

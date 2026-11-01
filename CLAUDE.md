@@ -10,9 +10,16 @@
   `tools\g3_selftest.py` (recoil, độ tản theo trạng thái, bloom, tâm ngắm so với phép chiếu thật, kick súng trên màn hình),
   `tools\g4_selftest.py` (ADS, đường ngắm trùng tâm, thở/bob/lag chuột, quán tính nhảy/ngồi, tư thế chạy, sprint-to-fire)
   `tools\g5_selftest.py` (rút súng, nạp hai kiểu, huỷ nạp, logic đạn, tia lửa, tracer; 69 mục)
+  `tools\g6_shake_selftest.py` (camera shake), `tools\g6_targets_selftest.py` (bia chạy, biển, bóng bia chạy; ~1,5 phút), `tools\g6_debug_selftest.py` (bảng F1, HUD, lưu/nạp; ~1 phút)
   và `tools\audio_selftest.py` (BẬT tiếng, kiểm trình phát thật và số lần phát; các selftest khác tắt tiếng bằng `create_game(sound=False)`).
-  Các selftest G1–G4 gọi `create_game(draw=False)` để khỏi chờ 1 s rút súng; `create_game(effects=False, look=False)` tắt tia lửa/tracer và shader thế giới (để đo)
-- Công cụ dựng/đo: `tools\prep_sound.py` (dựng `sounds\m4_shot.wav` từ file gốc), `tools\g4_ads_align.py` (đo điểm ngắm của súng, in tư thế ADS),
+  Các selftest G1–G4 gọi `create_game(draw=False)` để khỏi chờ 1 s rút súng; `create_game(effects=False, look=False)` tắt tia lửa/tracer và shader thế giới (để đo);
+  `shake=False` tắt camera shake (g3 cần camera trùng tia ngắm); `moving_targets=False` làm mọi bia đứng yên (g1–g5, g6_shake)
+- NHIỀU GAME CÙNG LÚC làm các bài đo theo thời gian (nhịp bắn, FPS) trượt oan. Khi có nhiều agent/terminal: bọc mọi lần mở cửa sổ game bằng
+  `.venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh gốc>` (ổ khoá toàn máy, tự chờ tới lượt). Máy nóng/bận hạ xung: mục "FPS trung bình >= 60" của g3 tụt 59 -> 45 sau nhiều lần chạy liền;
+  chạy lại một mình khi máy yên (g3 yên = 62 FPS, sát ngưỡng). `tools\room_perf.py` đo FPS có/không bóng xen kẽ trong cùng một lần chạy (đáng tin hơn số tuyệt đối).
+- Công cụ dựng/đo: `tools\prep_sound.py` (dựng `sounds\m4_shot.wav` từ file gốc), `tools\prep_foley.py [--check]` (tổng hợp 37 file `sounds\foley\*.wav` bằng mã thuần),
+  `tools\prep_user_audio.py` (cắt hai file của người dùng thành `sounds\foley\user_*.wav`), `tools\sway_sim.py` (mô phỏng sway: lệch cực đại / quá đà / thời gian ổn định, thuần toán),
+  `tools\room_shots.py` (chụp phòng tập), `tools\g4_ads_align.py` (đo điểm ngắm của súng, in tư thế ADS),
   `tools\g5_reload_probe.py` (đo từng khung của clip nạp: băng rời / vào chỗ, bolt), `tools\g5_muzzle_align.py` (đo miệng nòng),
   `tools\g5_perf.py <biến thể>` (FPS lúc đứng yên so với lúc nạp, tắt từng thứ để tìm thủ phạm: base / noblend / cpuskin / noview / nolook / nofx / nohud)
 - Test (toán thuần + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest`
@@ -25,8 +32,10 @@ main.py  run.bat  requirements.txt  pytest.ini  CLAUDE.md  CREDITS.txt  PROMPT_P
 fps/                     gói mã nguồn (import dạng `from fps.core.movement import ...`)
   app.py                 Game, create_game() (dựng tất cả; tools gọi lại hàm này), main()
   weapon_data.py         MỌI thông số (dataclass)
-  core/                  toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring, sway, handling (nạp/rút súng), fx (tia lửa/tracer)
-  game/                  phần ghép Ursina/Panda: player, combat, targets, viewmodel, shooting_range, hud, gltf_patch, gun_audio, effects, look, shaders
+  core/                  toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring, sway, handling (nạp/rút súng), fx (tia lửa/tracer),
+                         shake (camera shake), cues (mốc âm theo khung), footsteps, room (phòng tập), patrol (bia chạy), signs (biển), params + param_meta (bảng F1, lưu/nạp)
+  game/                  phần ghép Ursina/Panda: player, combat, targets, viewmodel, shooting_range, hud, gltf_patch, gun_audio, effects, look, shaders,
+                         foley (nạp đạn/bước chân), camera_shake, lamp_shadows (bóng đèn), signs (biển), debug_panel (F1)
 shaders/                 GLSL: viewmodel.vert|frag (súng + tay, skin trên GPU), world.vert|frag (thế giới: đèn, sương mù, nhiễu mặt đất)
 guns/  sounds/           tài nguyên (glb; wav, trong sounds/source là file gốc)
 tests/  tools/  docs/    pytest; công cụ + bài kiểm tra bằng game thật; ghi chú các giai đoạn
@@ -75,7 +84,7 @@ shots/                   ảnh chụp của các bài kiểm tra (gitignore)
 - Độ sâu thế giới: near 0.1, far 10000 (mặc định Ursina) đủ cho 200 m. Vật nằm sát đất (vạch) dùng `set_depth_offset(1)`, không nâng lên.
 - Kiểu `Entity` mới của Ursina 8.3 dùng `unlit_with_fog_shader` (màu phẳng); từ G5 vật thể trường bắn/bia/lỗ đạn dùng `shaders/world.*` (đèn + sương mù), xem mục G5.
 - KHÔNG bật MSAA: trên Intel UHD 620 của máy này mọi mức MSAA kéo FPS từ ~140 xuống ~20.
-- Vạch ngang làn mảnh hơn một điểm ảnh ở ≥ 100 m nên đứt nét: chỉ vạch tới 50 m, xa hơn dùng cột (G6 thêm biển chữ).
+- Vạch ngang làn mảnh hơn một điểm ảnh ở ≥ 100 m nên đứt nét: chỉ vạch tới 50 m, xa hơn dùng biển treo trần (G6).
 - Đã đo ở G1 (vsync tắt, 1280x720): trung bình 126 FPS, 1% thấp nhất 84. Khung lưu ảnh chụp rất chậm: loại khỏi số đo.
 - Đừng dùng `taskkill /IM python.exe` để tắt game (tắt cả việc khác của người dùng): dùng `--quit-after`.
 - Gọi `run.bat` từ Git Bash bằng `cmd //c` không chạy được (không thấy file); dùng PowerShell: `& .\run.bat --quit-after 5`.
@@ -152,10 +161,53 @@ shots/                   ảnh chụp của các bài kiểm tra (gitignore)
 - BẪY Panda/Ursina: `CardMaker` dựng thẻ trong mặt phẳng **XY** (pháp tuyến +z) vì Ursina dùng hệ y-up, không phải XZ như tài liệu Panda. Đặt thẻ bằng `set_mat` tường minh (hàng 0 = ảnh trục ngang, hàng 1 = ảnh trục dọc, hàng 2 = pháp tuyến).
   Đầu vào shader riêng của vật thể Ursina (`camera_world_position`, `fog_color`... từ `unlit_with_fog_shader`) ĐÈ lên đầu vào đặt ở `render`: uniform của shader mình phải có tiền tố riêng (`look_`), không thì thấy giá trị 0.
   Uniform đổi mỗi khung (đèn tia lửa, vị trí camera) đưa bằng mảng `PTA_LVecBase3f` sửa tại chỗ; gọi lại `set_shader_input` mỗi khung làm đổi trạng thái vẽ của cả cây cảnh.
-- Shader thế giới `shaders/world.*` (áp bằng `Entity.shader` trong `game/look.py`): đèn nửa cầu + mặt trời (pháp tuyến lấy từ đạo hàm vị trí nên không cần mesh có normal), nhiễu giá trị hai tỉ lệ trên mặt nằm ngang (mờ dần 40-160 m),
+- (G5; từ G6 mặt trời/trời/sương ngoài trời đã THAY bằng phòng kín + đèn treo trần, xem mục G6) Shader thế giới `shaders/world.*` (áp bằng `Entity.shader` trong `game/look.py`): đèn nửa cầu + mặt trời (pháp tuyến lấy từ đạo hàm vị trí nên không cần mesh có normal), nhiễu giá trị hai tỉ lệ trên mặt nằm ngang (mờ dần 40-160 m),
   sương mù exp 0,0032 hoà vào màu chân trời (0,75, 0,84, 0,87), lớp tối góc màn hình. Chi phí đo được ~0,2 ms/khung (trong nhiễu của máy). Số liệu ở `weapon_data.LookData`.
   KHÔNG dùng FXAA của Ursina (`camera.shader = fxaa_shader`): bầu trời thành xám phẳng khi có vùng vẽ súng riêng; MSAA vẫn cấm.
 - Đạn chia bước <= 1/120 s khi dò va chạm (`MAX_BULLET_STEP`): trước đây một khung treo 40 ms làm điểm trúng lệch tới `g*dt^2/8` = 3 mm ở 10 m (g2_selftest bắt được).
 - CHƯA GIẢI QUYẾT: phát bắn ĐẦU TIÊN của phiên có một khung ~40 ms (các phát sau 8-13 ms). Chỉ xảy ra khi tia lửa/tracer được cập nhật thật (tắt `Effects.update` thì hết). Đã thử: `prepare_scene`, vẽ thử nút vài khung lúc dựng
   (giảm khung thứ hai từ 25 xuống 10 ms), chạy thử đường mã, thay billboard bằng ma trận, PTA cho đèn, đóng băng bộ gom rác: không hết. Giờ chỉ còn một lần mỗi phiên.
 - Đã đo ở G5 (vsync tắt, 1280x720, cả kịch bản g5_selftest): trung bình 85 FPS, 1% thấp nhất 59; bắn liên thanh có tia lửa + tracer không tụt đáng kể.
+
+## Phòng tập, đèn, bóng, bia chạy, biển (G6)
+- Trường bắn là PHÒNG KÍN: tường bốn phía + trần 5,5 m + sàn gạch, lòng rộng 24 m, z từ −20 đến 216; người chơi kẹp bởi `WALK_BOUNDS` (x ±10,8). Hình học thuần ở `core/room.py` (tường, cột, dầm, tấm tiêu âm, vị trí đèn), mesh gộp ở
+  `game/shooting_range.py`. Đạn trúng tường/trần (lỗ đạn trên đó); dò va chạm nhóm hộp 30 m (`ballistics.BoxGroup`) nên không tốn.
+- Ánh sáng: 23 bóng đèn treo trần cách nhau 10 m (cao 4,6 m), mỗi đèn đổ bóng THẬT. `LookData` (đèn: màu, cường độ, bán kính, nón; ánh nền; exposure; sương trong phòng; `shadows` True / 'fake' / False,
+  đổi lúc chạy bằng `game.look.set_shadow_mode`). Bản đồ bóng = atlas cubemap 5 mặt (bỏ mặt lên trần) vẽ MỘT lần lúc dựng (`render_now`) trong một kết cấu 2816x2816; mỗi khung chỉ tốn lấy mẫu trong shader.
+  Vẽ atlas ở khung đầu làm khung đó dài ~0,5 s và g5 trượt 5 mục (rút súng): đã chuyển sang lúc dựng game. Máy trống: bóng thật 83-88 FPS, +6-9% thời gian khung so với tắt bóng (`tools\room_perf.py`).
+- BẪY shader bóng: camera bóng chỉ vẽ mặt sau của vật + đẩy điểm theo pháp tuyến (chống acne); `render.hide(BitMask32.bit(7))` + `show_through` cho vật đổ bóng; shader `#version 140` phải dùng `Shader.make`,
+  KHÔNG dùng `shaders.load_glsl` (tự chèn `#version 120`); `mat4` truyền vào GLSL qua mảng `PTA_LMatrix4f` dùng theo kiểu `M * vec4`; thẻ có alpha phải dùng shader thế giới (shader mặc định Ursina gần như không hiện).
+- Bia chạy: 3 bia (25 m 1,5 m/s; 100 m 3 m/s; 200 m 4 m/s) đi ngang làn, nghỉ 0,35 s mỗi đầu (`targets.MOVERS`). Toán `core/patrol.py` theo thời gian chính xác (độc lập FPS). Cập nhật ở ĐẦU `Combat.update`.
+  Đạn dò với hộp bia tịnh tiến trong từng bước đạn (`ballistics.moving_hit`): trúng/trượt giống hệt ở 20, 60, 240 FPS (lấy vị trí cuối khung lệch tới 20 cm ở 20 FPS). `Entity.root.x` là float32: so sánh dung sai ~1e-5.
+  Bia xa 150 m ở x = 0 che các tia nhắm gần trục: test nhắm bia khác phải tránh nó.
+- Bóng bia chạy: atlas lúc dựng KHÔNG chứa bia chạy; `WorldLook._tick_movers` vẽ lại 2-3 đèn gần mỗi bia, 8 Hz luân phiên (`LookData.mover_shadow_hz`, `mover_shadow_reach`; 0 = tắt), `LampShadows.refresh*` vẽ đúng một khung.
+  Vật chuyển động mới thì thêm vào `look.movers`. Tốn +5-7% thời gian khung.
+- Biển khoảng cách: treo trần thành cặp trái/phải ở 10/25/50/100/150/200 m, mặt về phía người bắn; chữ Segoe UI Semilight vẽ bằng PIL vào MỘT atlas (mipmap + anisotropic 8) ở `game/signs.py`; shader thế giới `look_material = 6`
+  (nhận đèn, sương, bóng; chữ phát sáng nhẹ). x từng biển chọn để biển gần che biển xa < 10% (`tests/test_signs.py`). Biển 200 m khó đọc bằng mắt từ vạch bắn (trần chặn chiều cao): cần ngắm hoặc đi gần.
+- Camera shake (`core/shake.py`, `game/camera_shake.py`, `ShakeData`): CHỈ HÌNH ẢNH, không đổi `player.yaw/pitch`, `aim_ray()` hay hướng đạn (chạy cùng kịch bản bật/tắt cho tia ngắm và điểm trúng giống hệt).
+  Bắn: mỗi phát +0,22 trauma (trần 0,70), tắt 2,0/s, biên độ = trauma^1,5 nhân nhiễu mượt 16 Hz, nhân `fire_scale` 1,2 (kẹp trauma chứ không kẹp biên độ nên tỉ lệ đúng). Nạp: xung lò xo ở các mốc
+  mag_out / seat / bolt (`ShakeData.reload_beats`), không rung suốt clip. ADS còn 50%. Súng đi theo 60% (`gun_follow`) trễ 0,02 s. Dấu đã đo: `camera.rotation_x` dương = nhìn xuống, `rotation_y` dương = quay phải,
+  `rotation_z` dương = nghiêng phải. Sự kiện (`on_shot/on_beat/watch_reload`) phải vào TRƯỚC `Shake.update(dt)` của khung. Shake có seed riêng (không dùng chung `combat.rng`, kẻo đổi chuỗi ngẫu nhiên của đạn).
+- Đẩy lùi súng: lò xo RIÊNG `GunKick.back` (omega 18, zeta 0,7; chậm hơn nhịp bắn 0,08 s nên các phát dồn lên); đỉnh một phát 3 cm, cả băng 5 cm, ADS x0,5. Lò xo kick cũ (omega 38) đã trượt về trước phát kế nên liên thanh chỉ lùi 2,2 cm.
+  `back_x_ratio` 0,3 nhích súng vào giữa khi lùi (súng lệch phải 7 cm sẽ trượt ra rìa màn hình), chỉ lúc hông. `GunKick.on_shot(ads, age)` nhận tuổi phát trong khung (độc lập FPS). Cuối loạt hông thân sau súng tràn ra góc dưới phải;
+  thấy nặng thì giảm `back_peak` (~0,025).
+- Sway chuột (`MouseLag` trong `core/sway.py`): hệ bậc hai theo vận tốc quay (tham số tần số / giảm chấn / phản ứng, nghiệm chính xác nên ổn định mọi dt), đầu vào làm mượt `lag_smooth`, ngưỡng mềm `lag_deadzone`,
+  nén tanh tới `lag_max` thay vì kẹp cứng (kẹp cứng cũ bẹt mọi cú xoay 120-900°/s ở 3,9°: nguyên nhân "cứng"). `lag_gain` là GIÂY (lệch = gain x tốc độ quay). Flick 240°/s: lệch 3,9° -> 7,2°, quá đà 13%, ổn định 0,25 s.
+  Đỉnh flick ≈ `lag_max` (có thể vượt ~10%). Số đáng chỉnh: `lag_max` 8, `lag_zeta` 0,60, `lag_omega` 17. Nguồn tra được mỏng (Patreon t3ssel8r, wiki Valve trả 403): thuật toán là tự suy từ kiến thức về "second order dynamics".
+- Bob súng: `bob_rate` 0,4 (đi / ngồi đi) và `bob_sprint_rate` 0,3 (chạy nước rút) nhân vào tốc độ pha; biên độ giữ nguyên. Nhịp bước chân KHÔNG đọc pha bob.
+- Âm thanh nạp đạn / bước chân (`game/foley.py`, `core/cues.py`, `core/footsteps.py`, `AudioData`): tiếng phát theo MỐC KHUNG của clip (`M4_SOUND_CUES`, thời điểm thật = (khung − clip.start)/30/`ReloadData.speed`), huỷ nạp thì
+  bỏ mốc chưa tới (+ tiếng `settle` nếu đã phát ít nhất một tiếng). Bước chân theo QUÃNG ĐƯỜNG khi chạm đất (đi 0,75 m, chạy 1,0 m, ngồi 0,5 m x0,35 âm lượng). Mặc định dùng tiếng do người dùng cung cấp:
+  `AudioData.sound_files` ánh xạ tên logic -> nhóm file (`user_*` cắt từ `sounds\source\reload_user_original.wav`, `footstep_wood_user_original.wav` bằng `tools\prep_user_audio.py`; xoá một dòng ánh xạ là quay về tiếng tổng hợp),
+  `pitch_scale` đổi cao độ khi dùng chung một file (chạy 1,06; chạm đất 0,78; nhảy 1,12). Tiếng người dùng được chuẩn hoá đỉnh từng lát (bước gốc chênh 7 dB); lát cắt sát cú va nên mốc khung đặt thẳng vào lúc va
+  (chốt băng 26, băng trượt vào 57 [rất nhỏ], băng vào chỗ 61, bolt 76; Reload_Empty: 136, 168, 172, 190). Bỏ `mag_tap` và `bolt_tick` thứ hai khỏi bảng mốc. `mag_out` (trượt băng ra) vẫn là tiếng tổng hợp.
+  `CueSchedule.update` đầu tiên sau `start` KHÔNG cộng dt (lệnh nạp xử lý sau `Handling.update` của khung đó). `Foley.update(dt)` phải nhận cùng dt thật với `Handling`. Nguồn / giấy phép hai file người dùng CHƯA RÕ (xem CREDITS).
+- Bảng debug F1 (`game/debug_panel.py`) + `ParamStore` (`core/params.py`): 231 thanh sinh TỰ ĐỘNG từ các dataclass (nhóm Bắn / Giật / Độ tản / Ngắm / Sway / Rung / Âm lượng / Nạp / Ánh sáng / Di chuyển / Hiệu ứng; nâng cao ẩn sau nút),
+  nhãn + chú thích tiếng Việt ở `core/param_meta.py` (`META`, `GROUPS`, `EXCLUDED`). `test_params` BẮT BUỘC mọi trường mới của `GameParams` phải có trên bảng hoặc trong `EXCLUDED` kèm lý do.
+  Lưu / nạp `user_params.json` cạnh `main.py` (gitignore; chỉ ghi số khác mặc định; game thật tự nạp, `--defaults` bỏ qua; `create_game()` mặc định KHÔNG nạp nên selftest không dính file cá nhân).
+  Module mới phải ĐỌC LẠI số từ dataclass mỗi lần dùng, không chép lúc dựng (đã sửa `Weapon.interval`, tracer, ánh sáng súng). Trường chép lúc dựng ghi cờ "cần khởi động lại": `gun.magazine`, `gun.reserve`,
+  `gun.reload.draw_speed`, `look.lamp_radius`. Bảng mở: `player.ui_open = True` chặn bắn / ngắm / nhìn; chuột nhả. Hình nón tản đạn = 7 vòng (Đứng/Đi/Chạy/Nhảy/Ngồi/Ngắm/Ngắm đi) lấy từ `Accuracy.base`, mặt cắt tại 25 m.
+  Lần bấm F1 đầu tiên khựng 226-298 ms (dựng bảng). Đặt màu chữ mỗi khung làm Panda dựng lại hình chữ: chỉ đặt khi đổi (`_tint`).
+- HUD: số đạn / dự trữ, chế độ bắn, ĐANG NẠP ĐẠN + thanh tiến độ, HẾT ĐẠN, FPS, khoảng cách bia vừa trúng (2 s rồi mờ), gợi ý phím, ghi công "M4: BarcodeGames (CC BY 4.0)". Bảng mở thì ẩn FPS/gợi ý/ghi công.
+- Cây làm việc lẫn CRLF / LF (công cụ Edit và script ghi khác nhau); git tự chuẩn hoá nên vô hại, nhưng đừng coi "giữ CRLF" là tuyệt đối. Heredoc Bash có nháy đơn trong tiếng Việt dễ báo "unexpected EOF": dùng Write / Edit.
+- Đã đo ở G6 (máy trống, vsync tắt, 1280x720): đứng yên có bóng thật 83-88 FPS (1% thấp 48-64); cả kịch bản g1 82, g2 71, g3 62 (1% thấp 34-37, sát ngưỡng), g4 82, g5 66. Cao nhất là chi phí shader thế giới mới
+  (5 đèn mỗi điểm ảnh) + phòng lớn, thấp hơn G3-G5 (102 / 85) khoảng 20%. `g6_debug_selftest` từng chết (segmentation fault) lúc khởi động đúng 1 trong 5 lần chạy, chạy lại thì đạt: lỗi chập chờn của cửa sổ GL, chưa tìm ra nguyên nhân.

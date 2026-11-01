@@ -9,6 +9,7 @@ Góc: "lên" và "phải" dương, tính bằng độ. Mọi số nằm trong we
 import math
 import random
 
+from fps.core.movement import smoothstep
 from fps.core.spring import Spring, impulse_gain
 from fps.weapon_data import GunKickData, RecoilData
 
@@ -31,6 +32,7 @@ class CameraRecoil:
             self.index = 0
             self.burst = [0.0, 0.0]
         up, right = d.pattern[min(self.index, len(d.pattern) - 1)]
+        up, right = up * d.up_scale, right * d.right_scale
         self.index += 1
         up *= 1.0 + self.rng.uniform(-d.noise, d.noise)
         right *= 1.0 + self.rng.uniform(-d.noise, d.noise)
@@ -69,17 +71,48 @@ class GunKick:
         self.d = data
         self.rng = rng or random.Random()
         self.spring = Spring(6, data.omega, data.zeta)
+        self.back = Spring(2, data.back_omega, data.back_zeta)       # đẩy lùi: [z, x đi kèm]; lò xo riêng, chậm hơn nên các phát dồn lên
+        self._pending = []                                           # (tuổi trong khung, xung 6 thành phần, xung đẩy lùi) chờ `update`
 
-    def on_shot(self):
+    def on_shot(self, ads: float = 0.0, age: float = None):
+        """Một phát bắn. `ads` 0 hông .. 1 ngắm hẳn: đẩy lùi giảm còn `back_ads_scale` (nội suy smoothstep như các hiệu ứng hình ảnh khác).
+        `age` = phát này nổ cách cuối khung bao lâu (như `Weapon.update` trả về): xung được áp đúng thời điểm đó trong `update`, nên
+        đỉnh dồn của loạt đúng ở mọi FPS. Bỏ trống = áp ngay (đầu khung)."""
+        d = self.d
+        gain = impulse_gain(d.omega, d.zeta)
+        imp = [(p + self.rng.uniform(-r, r)) * gain for p, r in zip(d.peak, d.random)]
+        k = 1.0 + (d.back_ads_scale - 1.0) * smoothstep(min(max(ads, 0.0), 1.0))
+        back_z = (d.back_peak + self.rng.uniform(-d.back_random, d.back_random)) * k * impulse_gain(d.back_omega, d.back_zeta)
+        back = (back_z, back_z * d.back_x_ratio * (1.0 - smoothstep(min(max(ads, 0.0), 1.0))))     # x chỉ lúc hông: súng ở bên phải mắt, kéo vào gần mắt thì lệch ra rìa; khi ngắm thì đường ngắm phải giữ nguyên trục
+        if age is None:
+            self.spring.omega, self.spring.zeta = d.omega, d.zeta
+            self.back.omega, self.back.zeta = d.back_omega, d.back_zeta
+            self.spring.kick(imp)
+            self.back.kick(back)
+        else:
+            self._pending.append((age, imp, back))
+
+    def _step(self, h: float):
+        if h <= 0.0:
+            return
         d = self.d
         self.spring.omega, self.spring.zeta = d.omega, d.zeta
-        gain = impulse_gain(d.omega, d.zeta)
-        self.spring.kick([(p + self.rng.uniform(-r, r)) * gain for p, r in zip(d.peak, d.random)])
+        self.spring.step(h)
+        self.back.omega, self.back.zeta = d.back_omega, d.back_zeta
+        self.back.step(h)
 
     def update(self, dt: float):
-        self.spring.omega, self.spring.zeta = self.d.omega, self.d.zeta
-        self.spring.step(dt)
+        left = dt
+        for age, imp, back in sorted(self._pending, key=lambda e: -e[0]):      # cũ nhất trước
+            age = min(max(age, 0.0), left)
+            self._step(left - age)
+            left = age
+            self.spring.kick(imp)
+            self.back.kick(back)
+        self._pending.clear()
+        self._step(left)
 
     @property
     def pose(self) -> tuple:
-        return tuple(self.spring.x)
+        x, y, z, pitch, yaw, roll = self.spring.x
+        return (x + self.back.x[1], y, z + self.back.x[0], pitch, yaw, roll)

@@ -82,3 +82,27 @@ def crosshair_gap(angle_deg: float, vfov_half_tan: float) -> float:
     """Khoảng từ tâm màn hình tới mép trong vạch tâm ngắm (đơn vị UI: chiều cao cửa sổ = 1) để vạch nằm đúng
     trên rìa hình nón tản. vfov_half_tan = tan(nửa FOV dọc) của camera thế giới."""
     return 0.5 * math.tan(math.radians(angle_deg)) / vfov_half_tan
+
+
+def ring_radius(angle_deg: float, distance: float) -> float:
+    """Bán kính (m) của hình nón tản nửa góc `angle_deg` cắt bởi mặt phẳng vuông góc ở `distance` m (cho hình minh hoạ ở bảng debug)."""
+    return distance * math.tan(math.radians(min(angle_deg, 89.0)))
+
+
+def shot_offset(view_dir: tuple, direction: tuple) -> tuple:
+    """Độ lệch (phải, lên), tính bằng độ, của hướng đạn so với hướng nhìn: chiếu hướng đạn lên hai trục phải / lên của người nhìn.
+    Vẽ chấm đạn ở bảng debug: vị trí trên mặt cắt tại d mét = d * tan(độ lệch)."""
+    vx, vy, vz = view_dir
+    if abs(vy) > 0.9999:                                   # nhìn thẳng lên / xuống: chọn trục phải tuỳ ý
+        rx, ry, rz = 1.0, 0.0, 0.0
+    else:
+        rx, ry, rz = vz, 0.0, -vx                          # phải = up(0,1,0) x dir, chuẩn hoá bên dưới
+        n = math.hypot(rx, rz)
+        rx, rz = rx / n, rz / n
+    ux, uy, uz = ry * vz - rz * vy, rz * vx - rx * vz, rx * vy - ry * vx   # lên = phải x dir ... đổi dấu cho hướng +y
+    if uy < 0:
+        ux, uy, uz = -ux, -uy, -uz
+    dx, dy, dz = direction
+    fwd = dx * vx + dy * vy + dz * vz
+    return (math.degrees(math.atan2(dx * rx + dy * ry + dz * rz, fwd)),
+            math.degrees(math.atan2(dx * ux + dy * uy + dz * uz, fwd)))

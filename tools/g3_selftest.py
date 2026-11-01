@@ -27,7 +27,7 @@ from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between, crosshair_gap  # noqa: E402
 from fps.weapon_data import M4_PATTERN  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, shake=False)     # camera shake (G6) làm camera.forward / vị trí súng lệch khỏi tia ngắm: tắt khi đo recoil/tâm ngắm
+game = create_game(vsync=False, sound=False, draw=False, shake=False, moving_targets=False)     # bia đứng yên (G6); camera shake (G6) làm camera.forward / vị trí súng lệch khỏi tia ngắm: tắt khi đo recoil/tâm ngắm
 player, combat, hud, viewmodel = game.player, game.combat, game.hud, game.viewmodel
 gun = game.params.gun
 acc = gun.accuracy
@@ -60,8 +60,8 @@ def check(name, got, expected, ok):
     results.append((name, got, expected, bool(ok)))
 
 
-def shot(name):
-    out = ROOT / 'shots' / f'g3_{name}.png'
+def shot(name, prefix='g3_'):
+    out = ROOT / 'shots' / f'{prefix}{name}.png'
     out.parent.mkdir(exist_ok=True)
     application.base.win.saveScreenshot(Filename.from_os_specific(str(out)))
     skip['next'] = True
@@ -393,12 +393,12 @@ class Script(Entity):
         yield from self.wait(0.15)
         shot('spray_end')
         peak_back = min(kick_z)
-        check('kick súng lùi lại trong loạt (mm)', round(peak_back * 1000, 1), f'<= -{abs(gun.kick.peak[2]) * 1000 * 0.8:.0f}',
-              peak_back <= -abs(gun.kick.peak[2]) * 0.8)
-        check('kick súng chưa vượt 4x một phát đơn', round(peak_back * 1000, 1), f'>= -{abs(gun.kick.peak[2]) * 4000:.0f}',
-              peak_back >= -abs(gun.kick.peak[2]) * 4)
-        check('trên màn hình súng thật sự lại gần mắt hơn khi bắn (mm)', round((min(gun_z) - rest[2]) * 1000, 1), '< -5',
-              min(gun_z) - rest[2] < -0.005)
+        back = gun.kick.back_peak
+        check('kick súng lùi lại trong loạt (mm)', round(peak_back * 1000, 1), f'<= {back * 1300:.0f}', peak_back <= back * 1.3)
+        check('kick súng lùi không quá 2x một phát đơn (đẩy lùi có trần)', round(peak_back * 1000, 1), f'>= {back * 2000:.0f}',
+              peak_back >= back * 2)
+        check('trên màn hình súng thật sự lại gần mắt hơn khi bắn (mm)', round((min(gun_z) - rest[2]) * 1000, 1), '< -25',
+              min(gun_z) - rest[2] < -0.025)
         d_world = tuple(camera.forward)
         d_expected = aim_direction(player.yaw, player.pitch)
         check('camera thế giới khớp tia ngắm sau recoil (độ lệch)', round(angle_between(d_world, d_expected), 4), '< 0.01',
@@ -406,6 +406,136 @@ class Script(Entity):
         yield from self.wait(0.6)
         settled = max(abs(v) for v in combat.gun_kick.pose[:3])
         check('0,75 s sau khi ngừng: kick súng đã yên (mm)', round(settled * 1000, 3), '< 1', settled < 0.001)
+        # --- G. đẩy lùi (z của kick súng): một phát, cả băng, về chỗ, ADS, camera/đạn không đổi ---
+        phase['name'] = 'đẩy lùi'
+        pb = gun.kick.back_peak
+
+        # G1. bắn đơn: đỉnh ~3 cm, trên màn hình lùi đúng chừng đó, rồi về chỗ
+        self.reset_state(auto=False, mag=30)
+        yield from self.wait(0.4)
+        rest1 = gun_center()
+        combat.rng.seed(1357)
+        one_z, one_scr = [], []
+        t_one, last_one = 0.0, 0.0
+        combat.pressed = True
+        while t_one < 1.5:
+            yield
+            t_one += min(time.dt, 0.05)
+            z = combat.gun_kick.pose[2]
+            one_z.append(z)
+            one_scr.append(gun_center()[2] - rest1[2])
+            if abs(z) >= 0.001:
+                last_one = t_one
+        single = min(one_z)
+        check('đẩy lùi MỘT phát: đỉnh ~3 cm (mm)', round(single * 1000, 1), f'{pb * 1000:.0f} +-25%', abs(single - pb) <= 0.25 * abs(pb))
+        check('  trên màn hình thân súng lùi đúng chừng đó (mm)', round(min(one_scr) * 1000, 1), f'{pb * 1000:.0f} +-30%',
+              abs(min(one_scr) - pb) <= 0.30 * abs(pb))
+        check('  về chỗ cũ (|z| < 1 mm) sau phát đơn (s)', round(last_one, 2), '<= 0.6', last_one <= 0.6)
+        print(f'ĐẨY LÙI một phát: đỉnh {single * 1000:.1f} mm, về chỗ (< 1 mm) sau {last_one:.2f} s')
+
+        # G2. cả băng 30 viên hông: đỉnh ~5 cm; ngừng bắn thì về chỗ trong thời gian đo được
+        self.reset_state(auto=True, mag=30)
+        yield from self.wait(0.4)
+        rest2 = gun_center()
+        cam_rest = tuple(camera.world_position)
+        combat.rng.seed(2468)
+        z_hip, scr_hip, cam_dev, scr_x_hip = [], [], [], []
+
+        def track_hip():
+            z_hip.append(combat.gun_kick.pose[2])
+            c = gun_center()
+            scr_hip.append(c[2] - rest2[2])
+            scr_x_hip.append(c[0] - rest2[0])
+            cam_dev.append(max(abs(a - b) for a, b in zip(tuple(camera.world_position), cam_rest)))
+            if combat.weapon.mag == 2 and not shot_taken.get('hip'):
+                shot_taken['hip'] = True
+                shot('hip_late', prefix='kick_')
+
+        yield from self.spray(track=track_hip)
+        t_stop, last_big = 0.0, 0.0
+        while t_stop < 1.5:                                     # spray trả về ngay khi hết đạn: đo thời gian về chỗ sau phát cuối
+            yield
+            t_stop += min(time.dt, 0.05)
+            track_hip()
+            if abs(combat.gun_kick.pose[2]) >= 0.001:
+                last_big = t_stop
+        burst = min(z_hip)
+        check('đẩy lùi cả băng 30 viên hông: đỉnh ~5 cm (mm)', round(burst * 1000, 1), '-35 .. -65', -0.065 <= burst <= -0.035)
+        check('  nhiều hơn một phát đơn nhưng có trần (x so với phát đơn)', round(burst / single, 2), '1.3 .. 2.0', 1.3 <= burst / single <= 2.0)
+        check('  trên màn hình thân súng lùi cùng cỡ (mm)', round(min(scr_hip) * 1000, 1), '-35 .. -70', -0.070 <= min(scr_hip) <= -0.035)
+        check('  hông: thân súng nhích vào giữa (sang trái) cùng lúc (mm)', round(min(scr_x_hip) * 1000, 1), '-30 .. -6', -0.030 <= min(scr_x_hip) <= -0.006)
+        check('  ngừng bắn: về chỗ cũ (|z| < 1 mm) sau (s)', round(last_big, 2), '<= 0.7', last_big <= 0.7)
+        check('  camera thế giới KHÔNG lùi (độ lệch vị trí, mm)', round(max(cam_dev) * 1000, 4), '< 0.01', max(cam_dev) < 1e-5)
+        print(f'ĐẨY LÙI cả băng (hông): đỉnh {burst * 1000:.1f} mm ({burst / single:.2f}x một phát), trên màn hình {min(scr_hip) * 1000:.1f} mm, '
+              f'về chỗ sau {last_big:.2f} s kể từ phát cuối')
+        yield from self.wait(0.6)
+
+        # G3. ADS: còn khoảng một nửa
+        self.reset_state(auto=True, mag=30, ads=1.0)
+        yield from self.wait(0.5)
+        rest3 = gun_center()
+        combat.rng.seed(2468)
+        z_ads, scr_ads = [], []
+
+        def track_ads():
+            z_ads.append(combat.gun_kick.pose[2])
+            scr_ads.append(gun_center()[2] - rest3[2])
+            if combat.weapon.mag == 2 and not shot_taken.get('ads'):
+                shot_taken['ads'] = True
+                shot('ads_late', prefix='kick_')
+
+        shots_log.clear()                                       # không dùng self.spray: nó reset_state về hông
+        held_keys['left mouse'] = 1
+        while combat.weapon.mag > 0:
+            yield
+            track_ads()
+        held_keys['left mouse'] = 0
+        yield from self.wait(0.02)
+        shot('ads_end', prefix='kick_')
+        ratio = min(z_ads) / burst
+        check('đẩy lùi khi ngắm hẳn ~ một nửa hông (tỉ lệ đỉnh cả băng)', round(ratio, 2), f'{gun.kick.back_ads_scale} +-0.12',
+              abs(ratio - gun.kick.back_ads_scale) <= 0.12)
+        check('  vẫn thấy được khi ngắm (mm)', round(min(scr_ads) * 1000, 1), '< -10', min(scr_ads) < -0.010)
+        print(f'ĐẨY LÙI khi ngắm: đỉnh {min(z_ads) * 1000:.1f} mm ({ratio:.2f} so với hông), trên màn hình {min(scr_ads) * 1000:.1f} mm')
+        held_keys['right mouse'] = 0
+        yield from self.wait(0.8)
+
+        # G4. chỉ viewmodel lùi: cùng kịch bản bước dt cố định, đẩy lùi bật / tắt -> tia ngắm, góc nhìn, hướng đạn, gốc đạn GIỐNG HỆT
+        def det_pass(back_peak):
+            self.reset_state(auto=True, mag=30)
+            saved_peak = gun.kick.back_peak
+            gun.kick.back_peak = back_peak
+            combat.rng.seed(97531)
+            combat.recoil = CameraRecoil(gun.recoil, combat.rng)
+            combat.gun_kick = GunKick(gun.kick, combat.rng)
+            rays, views, fired = [], [], []
+            orig = combat._fire
+
+            def logged(origin, direction, age):
+                fired.append((combat.last_shot.view_dir, direction, origin))
+                return orig(origin, direction, age)
+
+            combat._fire = logged
+            try:
+                held_keys['left mouse'] = 1
+                for _ in range(200):
+                    combat.update(1 / 120, 1 / 120)
+                    rays.append(player.aim_ray())
+                    views.append((player.yaw, player.pitch))
+            finally:
+                held_keys['left mouse'] = 0
+                combat._fire = orig
+                gun.kick.back_peak = saved_peak
+            return rays, views, fired
+
+        on = det_pass(pb)
+        off = det_pass(0.0)
+        check('đẩy lùi BẬT / TẮT: tia ngắm (gốc + hướng) giống hệt mỗi bước', on[0] == off[0], True, on[0] == off[0])
+        check('  góc nhìn của người chơi giống hệt', on[1] == off[1], True, on[1] == off[1])
+        check('  hướng nhìn + hướng đạn + gốc đạn của từng phát giống hệt', on[2] == off[2] and len(on[2]) > 15, True,
+              on[2] == off[2] and len(on[2]) > 15)
+        yield from self.wait(0.3)
+
         phase['name'] = 'xong'
         yield from self.wait(0.3)
 
@@ -416,7 +546,7 @@ def report():
     for name, got, expected, ok in results:
         print(f'{name:64s} {str(got):>16s} {str(expected):>22s}  {"ĐẠT" if ok else "TRƯỢT"}')
     # loại các đoạn tự làm chậm khung: đo độ tản (250 phát/giây) và loạt 3 (đo hộp bao súng mỗi khung)
-    pairs = [(dt, ph) for dt, ph in zip(frame_dts, frame_phase) if ph not in ('đo độ tản', 'loạt 3')]
+    pairs = [(dt, ph) for dt, ph in zip(frame_dts, frame_phase) if ph not in ('đo độ tản', 'loạt 3', 'đẩy lùi')]
     dts = sorted(dt for dt, _ in pairs)
     n = len(dts)
     avg = n / sum(dts)

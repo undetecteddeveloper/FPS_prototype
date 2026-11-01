@@ -53,6 +53,8 @@ class Clip:
 class RecoilData:
     """Recoil của CAMERA: mẫu theo từng phát, người chơi tự kéo chuột bù. Góc tính bằng độ."""
     pattern: tuple                        # ((lên, phải), ...) cho từng phát; quá cuối mẫu thì giữ bước cuối
+    up_scale: float = 1.0                 # nhân vào độ giật LÊN của mẫu (bảng debug: 1 = đúng mẫu, 0 = không giật)
+    right_scale: float = 1.0              # nhân vào độ lệch PHẢI của mẫu (âm: lệch trái)
     noise: float = 0.10                   # mỗi bước nhân (1 ± noise), ngẫu nhiên độc lập cho lên và phải
     pattern_reset_time: float = 0.35      # nghỉ bắn lâu hơn mức này thì phát kế quay về đầu mẫu
     kick_time: float = 0.025              # hằng số thời gian (s) làm mượt cú giật: camera không nhảy cục trong một khung
@@ -86,8 +88,16 @@ class GunKickData:
     `peak` = độ lệch đỉnh của MỘT phát đơn lẻ; `random` = biên độ ngẫu nhiên ± cộng vào mỗi phát."""
     omega: float = 38.0                   # rad/s, tần số riêng (chu kỳ ~0,17 s)
     zeta: float = 0.55                    # <1 thì súng nảy nhẹ trước khi yên
-    peak: tuple = (0.0, 0.004, -0.022, 1.6, 0.0, 0.0)
-    random: tuple = (0.002, 0.001, 0.003, 0.4, 0.4, 0.9)
+    peak: tuple = (0.0, 0.004, 0.0, 1.6, 0.0, 0.0)      # z = 0: đẩy lùi do lò xo riêng bên dưới lo (lò xo này nhanh, đỉnh một phát không dồn lên khi bắn liên thanh)
+    random: tuple = (0.002, 0.001, 0.0, 0.4, 0.4, 0.9)
+    # ĐẨY LÙI (MW2): súng bị đẩy về phía mắt (z âm) rồi trượt về. Lò xo RIÊNG, chậm hơn lò xo trên (chu kỳ dài hơn nhịp bắn 0,08 s) nên các
+    # phát dồn lên: ở 750 phát/phút một phát đơn lùi ~3 cm, cả băng dồn tới ~5 cm rồi bão hoà (đo: tools/g3_selftest.py), ngừng bắn thì ~0,3 s về chỗ.
+    back_peak: float = -0.030             # m: đỉnh của MỘT phát đơn lẻ; âm = lùi về phía mắt
+    back_random: float = 0.003            # m: ± ngẫu nhiên mỗi phát
+    back_omega: float = 18.0              # rad/s (chu kỳ ~0,35 s)
+    back_zeta: float = 0.7
+    back_ads_scale: float = 0.5           # khi ngắm hẳn đẩy lùi còn ngần này (chỉ là hình ảnh của súng; camera và hướng đạn không đổi)
+    back_x_ratio: float = 0.3             # nhích ngang theo đẩy lùi (m ngang mỗi m lùi; súng lùi thì nhích vào giữa màn hình, khỏi trượt ra rìa phải). Chỉ lúc hông, ngắm thì 0
 
 
 @dataclass
@@ -100,12 +110,17 @@ class SwayData:
     breath_y: float = 0.0010
     breath_pitch: float = 0.10
     breath_yaw: float = 0.08
-    # lag theo chuột: súng trễ ngược hướng quay, lò xo kéo về
-    lag_gain: float = 0.35                # độ lệch súng mỗi độ góc nhìn quay
-    lag_max: float = 4.0                  # độ
-    lag_omega: float = 13.0               # rad/s
-    lag_zeta: float = 0.7
-    lag_roll: float = 0.4                 # độ nghiêng mỗi độ lệch yaw
+    # lag theo chuột (core/sway.py MouseLag): súng bám góc nhìn qua hệ bậc hai, trễ theo VẬN TỐC quay; dừng chuột thì đuổi kịp, vượt, lắc về
+    lag_gain: float = 0.04                # s: xoay đều ve (độ/s) thì súng lệch lag_gain * ve độ (100 độ/s -> ~4 độ), vùng tuyến tính
+    lag_max: float = 8.0                  # độ: mức tiệm cận của lệch ổn định khi xoay rất mạnh (nén mềm tanh, không kẹp phẳng); đỉnh cú flick ~ngần này
+    lag_omega: float = 17.0               # rad/s: lớn = súng bắt kịp nhanh (không đổi biên độ)
+    lag_zeta: float = 0.60                # giảm chấn: nhỏ = nảy nhiều (0,6 ~ quá đà 13%, 0,45 ~ 25%); 0,99 = không quá đà
+    lag_roll: float = 0.5                 # độ nghiêng mỗi độ lệch yaw
+    lag_pitch_scale: float = 0.7          # trễ dọc (ngẩng/cúi) so với trễ ngang
+    lag_shift: float = 0.0015             # m dịch ngang/dọc mỗi độ lệch (cộng thêm cho chuyển động cung do xoay quanh mắt)
+    lag_deadzone: float = 25.0            # độ/s: dưới mức này (xoay chậm lúc ngắm kỹ) súng gần như đứng yên
+    lag_smooth: float = 0.02              # s: làm mượt tốc độ quay đo từ chuột (chuột bắn số đếm rời rạc)
+    lag_follow: float = 0.0               # 0 = trễ hoàn toàn theo tốc độ quay; 1 = súng bám sát, chỉ còn nảy khi đổi tốc độ
     # bob theo bước chân (pha tăng theo quãng đường, nên nhịp đúng ở mọi tốc độ)
     bob_stride: float = 2.4               # m đi được mỗi chu kỳ chân trái-phải (khi bob_rate = 1)
     bob_rate: float = 0.4                 # nhịp bob so với bob_stride khi đi/ngồi đi (0,4 = chậm còn 40%: 6 m mỗi chu kỳ)
@@ -221,6 +236,7 @@ class ShakeData:
     power: float = 1.5                    # biên độ = trauma^power (>1: phát lẻ khẽ, loạt dài rõ)
     fire_freq: float = 16.0               # Hz: tốc độ đổi của nhiễu
     fire_amp: tuple = (0.0010, 0.0010, 0.0015, 0.30, 0.30, 0.80)   # tại trauma = 1: (x, y, z, pitch, yaw, roll); roll là kênh thấy rõ vì recoil camera không có roll
+    fire_scale: float = 1.2               # nhân vào MỌI biên độ rung khi BẮN (camera + phần súng đi theo, cả khi ngắm); rung khi nạp không bị nhân. 1,2 = mạnh hơn 20% so với bản đầu
     # nạp: xung lò xo tại các mốc clip, không rung liên tục
     reload_beats: dict = field(default_factory=_m4_reload_beats)    # khoá clip -> ((khung, loại mốc), ...)
     beat_peaks: dict = field(default_factory=_beat_peaks)          # loại mốc -> độ lệch đỉnh
@@ -292,7 +308,7 @@ class GunData:
 M4 = GunData(
     name='M4',
     glb='guns/m4_-_fps_weapon_animations_pack_v.1.glb',
-    credit='M4: BarcodeGames (CC-BY 4.0)',
+    credit='M4: BarcodeGames (CC BY 4.0)',
     clips={
         # swap = khung băng mới vào chỗ (còn đạn: băng cũ rút ra rồi băng mới ấn vào lúc 2,0 s; cạn: 2,03 s, bolt nhả ở khung 190)
         'reload': Clip('Reload', 1, 110, swap=61, settle=88),
@@ -346,6 +362,8 @@ class LookData:
     shadows: object = True                    # True: bóng thật (bản đồ độ sâu 5 mặt cho từng đèn); 'fake': vệt tối giả dưới bia/cột + AO; False: không bóng
     shadow_face_size: int = 256               # điểm ảnh mỗi mặt của mỗi đèn (23 đèn x 5 mặt xếp chung một kết cấu)
     shadow_bias: tuple = (0.02, 0.012)        # m: đẩy điểm ra theo pháp tuyến = a + b * khoảng cách tới đèn (chống "acne")
+    mover_shadow_hz: float = 8.0              # bóng thật của bia chạy: mỗi bia được vẽ lại bóng bấy nhiêu lần/giây (lần lượt từng bia, mỗi lần chỉ vài đèn gần)
+    mover_shadow_reach: float = 0.60          # chỉ vẽ lại đèn cách bia dọc z trong phần này của lamp_radius (ngoài đó ánh sáng gần tắt, bóng cũ không lộ)
     fog_color: tuple = (0.030, 0.027, 0.024)  # bụi/khói trong phòng: xa dần chìm vào tối ấm
     fog_density: float = 0.0042               # exp: ~34% ở 100 m, ~57% ở 200 m
     detail_strength: float = 0.55             # độ sâu của nhiễu trên mặt đất (0 = tắt)
@@ -364,12 +382,13 @@ class SoundCue:
 M4_SOUND_CUES = {
     # Reload (1..110): chốt băng bấm ở 26, băng rời chỗ từ 27 (cách 6 cm, rồi 15 cm ở 29, 30 cm ở 31), băng mới trượt vào 49..60, vào chỗ 61 (= Clip.swap),
     # bolt/chốt đập nhẹ ở 74..76, băng lún thêm cho chắc ở 83
-    'reload': (SoundCue(26, 'mag_release', 0.9), SoundCue(28, 'mag_out', 0.8), SoundCue(50, 'mag_in', 0.7), SoundCue(61, 'mag_seat', 1.0),
-               SoundCue(76, 'bolt_tick', 0.7), SoundCue(83, 'mag_tap', 0.5)),
+    # Tiếng của người dùng (AudioData.sound_files): chốt băng 26, băng trượt vào 57..60 (rất nhỏ), băng vào chỗ 61, bolt 76. Bỏ mag_tap (83) vì clip của người dùng không có.
+    'reload': (SoundCue(26, 'mag_release', 0.9), SoundCue(28, 'mag_out', 0.8), SoundCue(57, 'mag_in', 0.7), SoundCue(61, 'mag_seat', 1.0),
+               SoundCue(76, 'bolt_tick', 0.8)),
     # Reload_Empty (111..224): bolt đang khoá sau. Băng rời từ 137, băng mới vào chỗ 172 (= Clip.swap), BOLT NHẢ về trước ở 190 (bolt 7,0 -> 4,4 -> 3,0 cm),
     # bolt về hẳn 197..199, băng lún thêm ở 201
-    'reload_empty': (SoundCue(136, 'mag_release', 0.9), SoundCue(138, 'mag_out', 0.8), SoundCue(162, 'mag_in', 0.7), SoundCue(172, 'mag_seat', 1.0),
-                     SoundCue(190, 'bolt_release', 1.0), SoundCue(198, 'bolt_tick', 0.5), SoundCue(201, 'mag_tap', 0.5)),
+    'reload_empty': (SoundCue(136, 'mag_release', 0.9), SoundCue(138, 'mag_out', 0.8), SoundCue(168, 'mag_in', 0.7), SoundCue(172, 'mag_seat', 1.0),
+                     SoundCue(190, 'bolt_release', 1.0)),
     # Draw (269..299): súng bắt đầu nhấc ở 270, nhấc nhanh nhất 272..280, gần yên từ 284, nằm hẳn ở ~287
     'draw': (SoundCue(271, 'draw_a', 0.8), SoundCue(285, 'draw_b', 0.6)),
 }
@@ -381,6 +400,15 @@ class AudioData:
     Âm lượng nhỏ hơn tiếng súng (GunData.shot_volume 0,8) để không át tiếng bắn."""
     folder: str = 'sounds/foley'
     pool: int = 2                         # số bản phát luân phiên cho mỗi file: tiếng sau không cắt đuôi tiếng trước
+    # tên logic của tiếng -> nhóm file thật trong folder (<nhóm>_<số>.wav). Mặc định dùng tiếng người dùng cung cấp (tools/prep_user_audio.py:
+    # reload cắt từ reload_user_original.wav, bước chân sàn gỗ cắt từ footstep_wood_user_original.wav). Tên không có ở đây thì dùng đúng tên nhóm
+    # tự tổng hợp (tools/prep_foley.py); xoá một dòng là quay về tiếng tổng hợp của tiếng đó.
+    sound_files: dict = field(default_factory=lambda: {
+        'mag_release': 'user_mag_release', 'mag_in': 'user_mag_in', 'mag_seat': 'user_mag_seat',
+        'bolt_tick': 'user_bolt', 'bolt_release': 'user_bolt',
+        'step_walk': 'user_step', 'step_run': 'user_step', 'land': 'user_step', 'jump': 'user_step'})
+    # nhân vào cao độ khi phát một tên logic (cùng một file bước chân dùng cho đi / chạy / chạm đất / nhảy: chạy nhanh hơn, chạm đất trầm và nặng hơn)
+    pitch_scale: dict = field(default_factory=lambda: {'step_run': 1.06, 'land': 0.78, 'jump': 1.12})
     # nạp / rút súng
     cues: dict = field(default_factory=lambda: dict(M4_SOUND_CUES))   # khoá clip (GunData.clips) -> các SoundCue; thời điểm thật = (frame - clip.start) / 30 / tốc độ clip
     reload_volume: float = 0.5

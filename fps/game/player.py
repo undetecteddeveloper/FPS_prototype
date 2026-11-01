@@ -34,6 +34,7 @@ class Player(Entity):
         self.crouching = False
         self.sprinting = False
         self.ads = False                      # đang giữ nút ngắm
+        self.ui_open = False                  # bảng debug F1 mở: chuột trái / phải không còn là bắn / ngắm
         self.ads_blocked = False              # đang nạp / rút súng: nút ngắm không có tác dụng (animation tay không khớp tư thế ngắm)
         self.ads_amount = 0.0                 # 0 hông .. 1 ngắm hẳn; spread (spread.py) nội suy theo số này
         self.sprint_amount = 0.0              # 0 .. 1 tiến độ hạ súng vào tư thế chạy; về 0 mới bắn được
@@ -53,14 +54,15 @@ class Player(Entity):
 
     # --- đọc phím ---
     def read_keys(self) -> dict:
+        free = not self.ui_open        # bảng debug (F1) đang mở: bấm chuột là để rê thanh trượt, không ngắm cũng không bắn
         return dict(
             forward=held_keys['w'] - held_keys['s'],
             strafe=held_keys['d'] - held_keys['a'],
             sprint=bool(held_keys['shift']),
             crouch=bool(held_keys['control'] or held_keys['c']),
             jump=bool(held_keys['space']),
-            ads=bool(held_keys['right mouse']) and not self.ads_blocked,
-            fire=bool(held_keys['left mouse']),
+            ads=bool(held_keys['right mouse']) and not self.ads_blocked and free,
+            fire=bool(held_keys['left mouse']) and free,
         )
 
     @property

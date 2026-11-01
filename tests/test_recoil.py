@@ -151,7 +151,7 @@ def test_total_recoil_does_not_depend_on_fps(fps):
 
 
 def test_gun_kick_returns_to_rest_and_peaks_near_the_setting():
-    kick = GunKick(GunKickData(random=(0, 0, 0, 0, 0, 0)), random.Random(1))
+    kick = GunKick(GunKickData(random=(0, 0, 0, 0, 0, 0), back_random=0.0), random.Random(1))
     kick.on_shot()
     zs, pitches = [], []
     for _ in range(120):
@@ -159,7 +159,7 @@ def test_gun_kick_returns_to_rest_and_peaks_near_the_setting():
         zs.append(kick.pose[2])
         pitches.append(kick.pose[3])
     d = GunKickData()
-    assert min(zs) == pytest.approx(d.peak[2], rel=0.01)                   # lùi về sau (z âm)
+    assert min(zs) == pytest.approx(d.back_peak, rel=0.01)                 # lùi về sau (z âm)
     assert max(pitches) == pytest.approx(d.peak[3], rel=0.01)
     for _ in range(240):
         kick.update(1 / 60)
@@ -168,24 +168,117 @@ def test_gun_kick_returns_to_rest_and_peaks_near_the_setting():
 
 def test_gun_kick_is_smaller_and_faster_than_camera_recoil():
     d = GunKickData()
-    assert abs(d.peak[2]) < 0.05 and d.peak[3] < M4_PATTERN[0][0] * 6
+    assert abs(d.back_peak) < 0.05 and d.peak[3] < M4_PATTERN[0][0] * 6
     kick = GunKick(d, random.Random(1))
     kick.on_shot()
     t = 0.0
     while t < 2.0:
         kick.update(1 / 240)
         t += 1 / 240
-        if max(abs(v) for v in kick.pose) < 0.05 * max(abs(p) for p in d.peak[:3]) and t > 0.05:
+        if max(abs(v) for v in kick.pose[:3]) < 0.05 * max(abs(d.back_peak), abs(d.peak[1])) and t > 0.05:
             break
-    assert t < 0.6
+    assert t < 0.8
 
 
-def test_gun_kick_accumulates_in_sustained_fire_but_stays_bounded():
-    kick = GunKick(GunKickData(), random.Random(3))
-    worst = 0.0
-    for i in range(60 * 3):
-        if i % 5 == 0:                                                     # 12 phát/giây ở 60 FPS
-            kick.on_shot()
-        kick.update(1 / 60)
-        worst = max(worst, abs(kick.pose[2]))
-    assert worst < 4 * abs(GunKickData().peak[2])
+# --- đẩy lùi (z) ---
+def burst_z(shots, fps, ads=0.0, settle=1.0, rpm=750.0, seed=3, data=None):
+    """Bắn `shots` phát liên tục ở `fps` như Combat (tuổi của phát trong khung). Trả về [(thời gian, z)] mỗi khung."""
+    kick = GunKick(data or GunKickData(), random.Random(seed))
+    interval, dt = 60.0 / rpm, 1.0 / fps
+    out, fired = [], 0
+    for i in range(1, round((shots * interval + settle) * fps) + 1):
+        t1 = i * dt
+        while fired < shots and fired * interval <= t1 + 1e-9:
+            kick.on_shot(ads, max(0.0, t1 - fired * interval))
+            fired += 1
+        kick.update(dt)
+        out.append((t1, kick.pose[2]))
+    return out
+
+
+NO_RANDOM = GunKickData(random=(0, 0, 0, 0, 0, 0), back_random=0.0)
+
+
+def test_pushback_single_shot_peaks_at_about_3cm_toward_the_eye():
+    z = min(v for _, v in burst_z(1, 480, data=NO_RANDOM))
+    assert z == pytest.approx(NO_RANDOM.back_peak, rel=0.03)
+    assert -0.0375 <= z <= -0.0225                     # 3 cm +-25%, âm = về phía mắt
+
+
+def test_pushback_burst_builds_to_about_5cm_and_saturates():
+    trace = burst_z(30, 480, data=NO_RANDOM)
+    peak = min(v for _, v in trace)
+    assert -0.065 <= peak <= -0.035                    # 5 cm +-30%
+    assert peak < NO_RANDOM.back_peak * 1.3            # nhiều hơn rõ rệt một phát đơn
+    # bão hoà: 30 phát không lùi xa hơn 15 phát quá nhiều (không tăng vô hạn)
+    half = min(v for t, v in trace if t <= 15 * 0.08)
+    assert peak >= half * 1.15
+    # bắn hai băng liền cũng không vượt: lò xo tắt dần nên dồn lên có trần
+    assert min(v for _, v in burst_z(90, 480, data=NO_RANDOM)) >= peak * 1.1
+
+
+def test_pushback_settles_after_the_burst_in_measurable_time():
+    trace = burst_z(30, 480, data=NO_RANDOM, settle=1.5)
+    last = 30 * 0.08
+    settled = next(t for t, v in trace if t > last and all(abs(w) < 0.001 for u, w in trace if u >= t))
+    assert 0.1 < settled - last < 0.6
+    assert all(abs(v) < 1e-5 for _, v in trace[-20:])
+
+
+def test_pushback_in_ads_is_half_of_hip():
+    hip = min(v for _, v in burst_z(30, 480, ads=0.0, data=NO_RANDOM))
+    ads = min(v for _, v in burst_z(30, 480, ads=1.0, data=NO_RANDOM))
+    assert ads / hip == pytest.approx(NO_RANDOM.back_ads_scale, abs=0.03)
+    mid = min(v for _, v in burst_z(30, 480, ads=0.5, data=NO_RANDOM))
+    assert hip < mid < ads                            # (âm) hông lùi sâu nhất, ngắm hẳn nông nhất; nửa chừng thì ở giữa (smoothstep(0,5) = 0,5)
+
+
+def test_pushback_does_not_touch_the_other_axes_or_the_vertical_kick():
+    kick = GunKick(NO_RANDOM, random.Random(1))
+    kick.on_shot()
+    for _ in range(8):                                # 33 ms: gần đỉnh của lò xo cũ
+        kick.update(1 / 240)
+    x, y, z, pitch, yaw, roll = kick.pose
+    assert (yaw, roll) == (0.0, 0.0)
+    assert x == pytest.approx(NO_RANDOM.back_x_ratio * z, rel=1e-9) and x < 0      # kéo vào giữa màn hình: nhích sang TRÁI khi lùi (lúc hông)
+    assert y > 0 and pitch > 0 and z < 0              # y/pitch vẫn do lò xo cũ
+    only_old = GunKick(GunKickData(random=(0, 0, 0, 0, 0, 0), back_random=0.0, back_peak=0.0), random.Random(1))
+    only_old.on_shot()
+    for _ in range(8):
+        only_old.update(1 / 240)
+    assert only_old.pose[1] == pytest.approx(y) and only_old.pose[3] == pytest.approx(pitch) and only_old.pose[2] == 0.0
+
+
+@pytest.mark.parametrize('fps', [30, 60, 144, 240, 1000])
+def test_pushback_burst_peak_is_independent_of_fps(fps):
+    ref = min(v for _, v in burst_z(30, 4000, data=NO_RANDOM))
+    got = min(v for _, v in burst_z(30, fps, data=NO_RANDOM))
+    assert got == pytest.approx(ref, rel=0.05)
+
+
+@pytest.mark.parametrize('fps', [30, 60, 144, 1000])
+def test_pushback_single_shot_curve_is_exact_at_any_dt(fps):
+    """Lò xo giải đúng nghiệm: một phát (nổ giữa khung) cho cùng đường cong ở mọi dt, kể cả dt rất lớn."""
+    def at(f, t_end=0.4, t_shot=0.0537):
+        kick = GunKick(NO_RANDOM, random.Random(1))
+        dt = 1.0 / f
+        frames = round(t_end * f)
+        for i in range(1, frames + 1):
+            t1 = i * dt
+            if t1 - dt < t_shot <= t1:
+                kick.on_shot(0.0, t1 - t_shot)
+            kick.update(dt)
+        return kick.pose[2]
+    assert at(fps) == pytest.approx(at(20000), abs=1.5e-4)
+
+
+def test_pushback_sideways_pull_is_off_when_aiming_down_sights():
+    """Ngắm hẳn: đường ngắm phải giữ trên trục nhìn nên x đi kèm bằng 0; hông thì x = back_x_ratio * z."""
+    for ads, expect_x in ((0.0, True), (1.0, False)):
+        kick = GunKick(NO_RANDOM, random.Random(1))
+        kick.on_shot(ads)
+        worst = 0.0
+        for _ in range(60):
+            kick.update(1 / 240)
+            worst = max(worst, abs(kick.pose[0]))
+        assert (worst > 0.005) == expect_x

@@ -183,7 +183,7 @@ class _Streak:
 class Tracers:
     def __init__(self, gun: GunData):
         self.data = gun.tracer
-        self.speed = gun.muzzle_velocity
+        self.gun = gun                                     # tốc độ đạn đọc lại mỗi lần sinh vệt (bảng debug đổi muzzle_velocity lúc đang chạy)
         d = self.data
         self.root = application.base.render.attach_new_node('tracers')
         _additive(self.root)
@@ -204,7 +204,7 @@ class Tracers:
         if not self.free:
             return False
         d = self.data
-        tracer = fx.Tracer(offset, d.length, d.blend_distance, self.speed)
+        tracer = fx.Tracer(offset, d.length, d.blend_distance, self.gun.muzzle_velocity)
         self.active.append(_Streak(tracer, bullet, *self.free.pop()))
         self.spawned += 1
         return True

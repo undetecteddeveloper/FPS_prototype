@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from fps.core.shake import Shake, hash_unit, smooth_noise
@@ -76,11 +78,53 @@ def test_burst_trauma_is_clamped_and_pose_within_ceiling(fps):
     ceiling = cap ** D.power
     for _, _, pose in trace:
         for v, amp in zip(pose, D.fire_amp):
-            assert abs(v) <= amp * ceiling + 1e-12
+            assert abs(v) <= amp * ceiling * D.fire_scale + 1e-12      # trần thật = biên độ x fire_scale
     # trần tuyệt đối, đủ "vừa phải": roll < 0,6 độ, pitch/yaw < 0,3 độ, dịch < 2 mm
     assert max(abs(p[5]) for _, _, p in trace) < 0.6
     assert max(abs(p[3]) for _, _, p in trace) < 0.3 and max(abs(p[4]) for _, _, p in trace) < 0.3
     assert max(abs(p[i]) for _, _, p in trace for i in range(3)) < 0.002
+
+
+def max_abs_per_axis(trace):
+    return [max(abs(p[i]) for _, _, p in trace) for i in range(6)]
+
+
+@pytest.mark.parametrize('fps', [60, 240])
+def test_fire_scale_multiplies_every_fire_amplitude_by_exactly_the_ratio(fps):
+    """fire_scale 1,2 so với 1,0: mọi trục của camera và của súng lớn đúng 1,2 lần ở mọi khung (không bị trần trauma cắt: trần kẹp trauma, không kẹp biên độ)."""
+    base = dataclasses.replace(D, fire_scale=1.0)
+    assert D.fire_scale == pytest.approx(1.2)
+    a, sa = burst_trace(30, fps, data=base, settle=0.3)
+    b, sb = burst_trace(30, fps, data=D, settle=0.3)
+    for (_, _, pa), (_, _, pb) in zip(a, b):
+        for x, y in zip(pa, pb):
+            assert y == pytest.approx(x * 1.2, abs=1e-12)
+    for ma, mb in zip(max_abs_per_axis(a), max_abs_per_axis(b)):
+        assert mb / ma == pytest.approx(1.2, rel=1e-9)
+    # phần súng đi theo cũng nhân 1,2
+    ga, gb = Shake(base), Shake(D)
+    for sh in (ga, gb):
+        for _ in range(12):
+            sh.on_shot(0.0)
+            sh.update(1 / 120)
+    for x, y in zip(ga.gun_pose(), gb.gun_pose()):
+        assert y == pytest.approx(x * 1.2, abs=1e-12)
+
+
+def test_fire_scale_does_not_touch_reload_beats():
+    base = dataclasses.replace(D, fire_scale=1.0)
+    for kind in D.beat_peaks:
+        poses = []
+        for data in (base, D):
+            sh = Shake(data)
+            sh.on_beat(kind)
+            sh.update(0.0)
+            row = []
+            for _ in range(40):
+                sh.update(1 / 240)
+                row.append(sh.camera_pose())
+            poses.append(row)
+        assert poses[0] == poses[1]
 
 
 def test_shake_dies_after_burst_ends():

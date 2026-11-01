@@ -11,7 +11,7 @@ uniform vec4 p3d_ColorScale;
 uniform vec3 look_camera_pos;
 uniform vec4 look_fog;              // rgb = màu bụi trong phòng, a = mật độ (exp)
 uniform float look_detail_strength;
-uniform float look_material;        // 0 thường, 1 sàn gạch, 2 tường bê tông, 3 cột/dầm, 4 trần, 5 tự phát sáng
+uniform float look_material;        // 0 thường, 1 sàn gạch, 2 tường bê tông, 3 cột/dầm, 4 trần, 5 tự phát sáng, 6 biển (nhận đèn + chữ phát sáng nhẹ)
 uniform vec4 look_lamp;             // x, y, z đèn đầu, khoảng cách giữa hai đèn
 uniform vec4 look_lamp2;            // số đèn, bán kính tắt hẳn, khoảng cách nửa độ rọi, cường độ
 uniform vec3 look_lamp_color;
@@ -220,6 +220,7 @@ void main() {
     float direct_ao = mix(1.0, ao, 0.45);                           // AO cũng làm tối nhẹ ánh đèn (bù cho thiếu ánh dội)
     ambient += look_bounce * bounce * ao * (1.0 - 0.6 * up);        // mặt đứng và trần nhận ánh dội nhiều hơn sàn
     vec3 lit = base.rgb * (ambient + look_lamp_color * light * direct_ao) + look_lamp_color * spec * gloss * 0.10;
+    if (mat == 6) lit += base.rgb * base.rgb * 0.9;                // biển khoảng cách: chữ sáng hơn nền (phát sáng nhẹ, tỉ lệ bình phương màu), đọc được từ xa
     lit = 1.0 - exp(-lit * look_exposure);
 
     frag_color = vec4(mix(lit, look_fog.rgb, fog), base.a);

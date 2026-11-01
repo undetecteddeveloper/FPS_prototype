@@ -1,23 +1,55 @@
 CREDITS
 
-M4 - FPS Weapon Animations Pack (v.1)
-  Tác giả: BarcodeGames (https://sketchfab.com/barcodegames)
-  Nguồn:   https://sketchfab.com/3d-models/m4-fps-weapon-animations-pack-v1-662fc74dda2646cfb48fc610705768ef
-  Giấy phép: CC-BY 4.0 (http://creativecommons.org/licenses/by/4.0/)
-  Thay đổi: nạp qua bản vá trình chuyển đổi glTF (gltf_patch.py), bỏ normal map, đổi đơn vị cm sang m.
+Ghi công cũng hiện trong game: dòng chữ nhỏ ở góc dưới bên trái ("M4: BarcodeGames (CC BY 4.0)").
 
-Tiếng súng M4 (sounds\m4_shot.wav, dựng từ sounds\source\m4_shot_original.wav bằng tools\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
-  Do chủ dự án cung cấp. Tác giả / nguồn / giấy phép: CHƯA GHI, cần chủ dự án điền trước khi phát hành.
+=== Mô hình 3D ===
+
+M4 - FPS Weapon Animations Pack (v.1)   [ĐANG DÙNG: guns\m4_-_fps_weapon_animations_pack_v.1.glb]
+  Tác giả:   BarcodeGames (https://sketchfab.com/barcodegames)
+  Nguồn:     https://sketchfab.com/3d-models/m4-fps-weapon-animations-pack-v1-662fc74dda2646cfb48fc610705768ef
+  Giấy phép: CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/) - được dùng và sửa, bắt buộc ghi công tác giả
+  Thay đổi:  nạp qua bản vá trình chuyển đổi glTF (fps\game\gltf_patch.py), bỏ normal map, đổi đơn vị cm sang m,
+             vẽ bằng shader riêng (shaders\viewmodel.*), tư thế đứng yên / ngắm / chạy / sway tự viết bằng mã.
+
+Animated FPS hands (rifle animation pack)   [CHƯA DÙNG: guns\animated_fps_hands_rifle_animation_pack.glb, 109 MB, không đưa lên git]
+  Tác giả:   Cransh (https://sketchfab.com/ccransh)
+  Giấy phép: CC BY 4.0. File có trong thư mục guns nhưng game chưa nạp nó. Nếu sau này dùng thì phải ghi công ở đây VÀ trong game.
+
+=== Âm thanh ===
+
+Tiếng súng M4 (sounds\m4_shot.wav; dựng từ sounds\source\m4_shot_original.wav bằng tools\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
+  Do chủ dự án cung cấp. Tác giả / nguồn / giấy phép: CHƯA RÕ. CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây);
+  nếu không chứng minh được quyền dùng thì phải thay bằng tiếng khác.
+
+Tiếng thay đạn (chốt băng, băng vào chỗ, kéo bolt) và bước chân trên sàn gỗ (sounds\foley\user_*.wav; cắt từ
+sounds\source\reload_user_original.wav và sounds\source\footstep_wood_user_original.wav bằng tools\prep_user_audio.py)
+  Do chủ dự án cung cấp (tên file gốc: "Reloading_gun_sound__#3" và "Footstep_on_the_wood_#2"). Tác giả / nguồn / giấy phép: CHƯA RÕ.
+  CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây); nếu không chứng minh được quyền dùng thì phải thay bằng tiếng khác.
+  Game dùng các tiếng này làm mặc định (AudioData.sound_files trong fps\weapon_data.py): cùng một file bước chân gỗ phát cho đi, chạy,
+  nhảy và chạm đất (đổi cao độ cho khác nhau).
+
+Tiếng nạp đạn (trượt băng ra), rút súng, hạ tay khi huỷ nạp (sounds\foley\*.wav, trừ các file user_*)
+  Tự tổng hợp bằng mã thuần (tools\prep_foley.py), không lấy mẫu từ nguồn nào, không dính bản quyền bên ngoài.
+  Các nhóm bước chân / nhảy / chạm đất tổng hợp (trên gạch) vẫn còn trong thư mục nhưng game không dùng khi có sound_files ở trên.
+
+=== Chữ ===
+
+Font Segoe UI Semilight (segoeuisl.ttf) là của Microsoft, có sẵn trong Windows. Game đọc từ thư mục Fonts của máy, KHÔNG đóng gói kèm dự án.
+Máy không có font này thì game dùng font mặc định của Ursina.
+
+=== Mã và hình ảnh tự sinh ===
 
 Shader (thư mục shaders\)
   viewmodel.vert: phần skin bộ xương trên GPU (p3d_TransformTable + transform_weight / transform_index + cờ F_hardware_skinning) theo mẫu của
-    panda3d-simplepbr, tác giả Mitchell Stokes, giấy phép BSD-3-Clause, https://github.com/Moguri/panda3d-simplepbr (đã có sẵn trong .venv). Phần ánh sáng tự viết.
-  world.vert: khung truyền toạ độ / UV theo unlit_with_fog_shader của Ursina (MIT), https://github.com/pokepetter/ursina. Phần đèn, sương mù, nhiễu mặt đất tự viết.
-  Đã xem và KHÔNG dùng: "3D Game Shaders For Beginners" của lettier (kho không có file giấy phép nên không sao chép mã), panda3d-simplepbr nguyên bộ (đường ống PBR + hậu xử lý toàn màn hình, nặng với máy này, chưa đo),
-  FXAA của Ursina (làm bầu trời xám phẳng khi có vùng vẽ súng riêng).
-Texture của tia lửa đầu nòng, tracer, nhiễu mặt đất và lớp tối góc màn hình: tự sinh bằng mã lúc khởi động, không có tài nguyên ngoài.
+    panda3d-simplepbr, tác giả Mitchell Stokes, giấy phép BSD-3-Clause, https://github.com/Moguri/panda3d-simplepbr (đã có sẵn trong .venv).
+    Phần ánh sáng tự viết.
+  world.vert: khung truyền toạ độ / UV theo unlit_with_fog_shader của Ursina (MIT), https://github.com/pokepetter/ursina.
+    Phần đèn trần, bóng, sương mù, nhiễu mặt đất tự viết.
+  Đã xem và KHÔNG dùng: "3D Game Shaders For Beginners" của lettier (kho không có file giấy phép nên không sao chép mã), panda3d-simplepbr nguyên bộ
+  (đường ống PBR + hậu xử lý toàn màn hình, nặng với máy này), FXAA của Ursina (làm bầu trời xám phẳng khi có vùng vẽ súng riêng).
 
-Chưa dùng ở phiên này: Animated FPS hands (rifle animation pack) của Cransh
-  (https://sketchfab.com/ccransh), CC-BY 4.0. Nếu dùng thì phải ghi công ở đây và trong game.
+Texture của tia lửa đầu nòng, tracer, nhiễu mặt đất, lớp tối góc màn hình, hình bia và lỗ đạn: tự sinh bằng mã lúc khởi động, không có tài nguyên ngoài.
 
-Thư viện: Ursina, Panda3D, panda3d-gltf (xem requirements.txt).
+=== Thư viện (xem requirements.txt) ===
+
+Ursina (MIT), Panda3D (BSD), panda3d-gltf (BSD), Pillow (HPND), pygltflib (MIT), pytest (MIT).

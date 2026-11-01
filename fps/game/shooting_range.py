@@ -11,6 +11,8 @@ from ursina import Entity, Mesh, color
 
 from fps.core.room import (RoomLayout, beam_boxes, ceiling_box, grouped, lamp_positions, panel_boxes, pillar_boxes,
                            walk_bounds, wall_boxes)
+from fps.core.signs import SignLayout, rod_xs, sign_rect
+from fps.game.signs import build_atlas
 from fps.weapon_data import LookData
 
 ROOM = RoomLayout()
@@ -50,21 +52,26 @@ class MeshBuilder:
 
     def __init__(self):
         self.vertices, self.triangles, self.colors = [], [], []
+        self.uvs = []                  # song song với vertices; chỉ đưa vào mesh nếu có mặt nào dùng texture (biển)
 
-    def quad(self, corners, normal, tint):
+    def quad(self, corners, normal, tint, uvs=None):
+        """`uvs`: 4 cặp (u, v) khớp thứ tự `corners` (mặc định (0, 0))."""
         a, b, c = corners[0], corners[1], corners[2]
         e1 = [b[i] - a[i] for i in range(3)]
         e2 = [c[i] - a[i] for i in range(3)]
         cross = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+        uvs = list(uvs) if uvs is not None else [(0.0, 0.0)] * 4
         if sum(cross[i] * normal[i] for i in range(3)) > 0:
             corners = corners[::-1]
+            uvs = uvs[::-1]
         n = len(self.vertices)
         self.vertices.extend(corners)
+        self.uvs.extend(uvs)
         self.colors.extend([color.rgba(*tint, 1.0)] * 4)
         self.triangles.extend([n, n + 1, n + 2, n, n + 2, n + 3])
 
-    def box(self, lo, hi, tint, skip=()):
-        """Hộp kín (đủ 6 mặt: mặt khuất vẫn cần cho bản đồ bóng, nơi chỉ vẽ mặt SAU để khỏi 'acne')."""
+    def box(self, lo, hi, tint, skip=(), uv=None):
+        """Hộp kín (đủ 6 mặt: mặt khuất vẫn cần cho bản đồ bóng, nơi chỉ vẽ mặt SAU để khỏi 'acne'). `uv`: một điểm texture cho cả hộp."""
         for axis in range(3):
             u, v = [a for a in range(3) if a != axis]
             for sign in (-1, 1):
@@ -78,7 +85,7 @@ class MeshBuilder:
                     corners.append(tuple(p))
                 normal = [0.0, 0.0, 0.0]
                 normal[axis] = float(sign)
-                self.quad(corners, normal, tint)
+                self.quad(corners, normal, tint, None if uv is None else [uv] * 4)
 
     def frustum(self, center, r_top, r_bottom, y_top, y_bottom, tint, inward=False, segments=10):
         """Mặt xung quanh của hình nón cụt (chóa đèn), pháp tuyến ra ngoài (hoặc vào trong nếu `inward`)."""
@@ -114,7 +121,8 @@ class MeshBuilder:
                 self.triangles.extend([m, m + 1, m + 2])
 
     def entity(self, **kwargs) -> Entity:
-        mesh = Mesh(vertices=self.vertices, triangles=self.triangles, colors=self.colors, static=True)
+        extra = {'uvs': self.uvs} if any(tuple(uv) != (0.0, 0.0) for uv in self.uvs) else {}
+        mesh = Mesh(vertices=self.vertices, triangles=self.triangles, colors=self.colors, static=True, **extra)
         return Entity(model=mesh, **kwargs)
 
 
@@ -186,6 +194,31 @@ def build_range(look: LookData = None) -> dict:
             world['posts'].append(Entity(model='cube', color=tint, scale=(0.3, h, 0.3),
                                          position=(side * (LANE_HALF_WIDTH + 0.5), h / 2, float(d))))
 
+    # biển khoảng cách treo trần, một cặp (trái, phải) ở mỗi mốc, mặt chữ quay về phía người bắn. Một mesh có texture (atlas chữ) +
+    # một mesh cột treo. Bố cục ở fps/core/signs.py, chữ ở fps/game/signs.py.
+    layout = SignLayout()
+    atlas, cells, patch = build_atlas(DISTANCE_MARKS)
+    boards, rods = MeshBuilder(), MeshBuilder()
+    world['sign_rects'] = []
+    for d in DISTANCE_MARKS:
+        u0, u1, v0, v1 = cells[d]
+        for side in (-1, 1):
+            r = sign_rect(layout, d, side)
+            lo, hi = r['lo'], r['hi']
+            boards.box(lo, hi, (1.0, 1.0, 1.0), skip=((2, -1),), uv=patch)                 # thân + mặt sau: nền phẳng
+            zf = lo[2]                                                                       # mặt trước (-z): chữ
+            boards.quad([(lo[0], lo[1], zf), (hi[0], lo[1], zf), (hi[0], hi[1], zf), (lo[0], hi[1], zf)], (0.0, 0.0, -1.0),
+                        (1.0, 1.0, 1.0), uvs=[(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
+            for rx in rod_xs(r):                                                             # cột treo từ đỉnh biển lên trần
+                if room.height - hi[1] > 0.08:
+                    h = layout.rod_half
+                    rods.box((rx - h, hi[1], r['cz'] - h), (rx + h, room.height, r['cz'] + h), SHADE_TINT)
+            world['sign_rects'].append((d, side, r))
+    world['signs'] = boards.entity(texture=atlas)
+    world['sign_rods'] = rods.entity()
+    world['sign_atlas'] = atlas
+    world['sign_cells'] = cells
+
     # bờ đất chắn đạn cuối làn, sát tường cuối
     earth = color.rgb(0.40, 0.31, 0.22)
     depth = room.z_end - LANE_END_Z
@@ -199,5 +232,5 @@ def build_range(look: LookData = None) -> dict:
                           + [(*ceiling_box(room), world['ceiling'])]
                           + grouped(pillar_boxes(room) + panel_boxes(room), world['pillars'], 30.0)
                           + grouped(beam_boxes(room), world['pillars'], 30.0))
-    world['shadow_casters'] = [world['walls'], world['pillars'], *world['posts'], *world['berms']]
+    world['shadow_casters'] = [world['walls'], world['pillars'], world['signs'], world['sign_rods'], *world['posts'], *world['berms']]
     return world

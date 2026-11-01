@@ -28,7 +28,7 @@ from fps.core.handling import Phase  # noqa: E402
 from fps.core.movement import MoveState  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=True)
+game = create_game(vsync=False, sound=False, draw=True, moving_targets=False)
 player, combat, viewmodel, hud = game.player, game.combat, game.viewmodel, game.hud
 handling, weapon = combat.handling, combat.weapon
 gun = game.params.gun

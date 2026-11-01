@@ -139,7 +139,7 @@ class Shake:
         if a <= 0:
             return (0.0,) * 6
         u = (self.t - delay) * d.fire_freq
-        return tuple(a * amp * smooth_noise(self.seed, axis, u) for axis, amp in enumerate(d.fire_amp))
+        return tuple(a * d.fire_scale * amp * smooth_noise(self.seed, axis, u) for axis, amp in enumerate(d.fire_amp))    # fire_scale: chỉ rung BẮN (xung nạp ở self.spring không nhân)
 
     def _ads_scale(self, ads: float) -> float:
         return 1.0 + (self.d.ads_multiplier - 1.0) * smoothstep(min(max(ads, 0.0), 1.0))

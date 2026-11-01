@@ -37,14 +37,15 @@ def setup_fonts():
 class UiText:
     """Chữ có bóng. `text` và `color` đặt cho cả hai bản."""
 
-    def __init__(self, text='', position=(0, 0), origin=(-0.5, 0.5), scale=1.0, tint=color.white, shadow=True):
+    def __init__(self, text='', position=(0, 0), origin=(-0.5, 0.5), scale=1.0, tint=color.white, shadow=True, parent=None, z=0.0):
         px = 1.3 / window.size[1]
+        parent = parent or camera.ui
         self.shadow = None
         if shadow:
-            self.shadow = Text(parent=camera.ui, text=text, origin=origin, scale=scale, z=0.001,
+            self.shadow = Text(parent=parent, text=text, origin=origin, scale=scale, z=z + 0.001,
                                position=(position[0] + px, position[1] - px),
                                color=color.rgba(0, 0, 0, SHADOW_ALPHA * tint.a))
-        self.main = Text(parent=camera.ui, text=text, origin=origin, scale=scale, position=position, color=tint)
+        self.main = Text(parent=parent, text=text, origin=origin, scale=scale, position=position, color=tint, z=z)
         self._text = text
         self.tint = tint
 
@@ -60,6 +61,16 @@ class UiText:
             if self.shadow:
                 self.shadow.text = value
 
+    @property
+    def enabled(self) -> bool:
+        return self.main.enabled
+
+    @enabled.setter
+    def enabled(self, value: bool):
+        self.main.enabled = value
+        if self.shadow:
+            self.shadow.enabled = value
+
     def set_alpha(self, a: float):
         self.main.color = color.rgba(self.tint.r, self.tint.g, self.tint.b, a * self.tint.a)
         if self.shadow:
@@ -72,9 +83,8 @@ class Hud:
         tl, bl, br = window.top_left, window.bottom_left, window.bottom_right
         faint = color.rgba(1, 1, 1, 0.75)
         self.fps_text = UiText('', tl + (0.012, -0.010), scale=0.95)
-        self.hint = UiText('Esc: nhả / bắt chuột   WASD đi   Shift chạy   Ctrl/C ngồi   Space nhảy   '
-                           'Chuột trái bắn   Chuột phải ngắm   B đổi chế độ   R nạp đạn',
-                           bl + (0.012, 0.034), origin=(-0.5, -0.5), scale=0.85, tint=faint)
+        self.hint = UiText('R nạp đạn    B đổi chế độ bắn    F1 bảng chỉnh thông số    Esc nhả chuột',
+                           bl + (0.012, 0.032), origin=(-0.5, -0.5), scale=0.75, tint=color.rgba(1, 1, 1, 0.45))
         self.credit = UiText(credit, bl + (0.012, 0.008), origin=(-0.5, -0.5), scale=0.75,
                              tint=color.rgba(1, 1, 1, 0.5))
 

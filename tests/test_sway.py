@@ -1,4 +1,3 @@
-import math
 from dataclasses import replace
 
 import pytest
@@ -106,35 +105,107 @@ def test_ads_calms_everything_to_the_configured_fraction():
     assert ratio == pytest.approx(D.ads_multiplier, rel=0.02)
 
 
-# --- lag theo chuột ---
-def test_mouse_lag_trails_the_turn_and_springs_back():
+# --- lag theo chuột: hệ bậc hai theo vận tốc quay (core/sway.py MouseLag) ---
+def flick(rate, seconds=0.15, fps=144, data=NO_BREATH, ads=0.0, total=1.5, axis=0, pattern=None):
+    """Quay đều `rate` độ/s trong `seconds` rồi dừng. Trả [(t, pose)]."""
+    sw = Sway(data)
+    dt = 1.0 / fps
+    out = []
+    for i in range(round(total * fps)):
+        t = i * dt
+        v = pattern(t) if pattern else (rate if t < seconds else 0.0)
+        look = (v * dt, 0.0) if axis == 0 else (0.0, v * dt)
+        out.append((t + dt, sw.update(dt, inp(ads=ads, look=look))))
+    return out
+
+
+def lag_stats(trace, end, axis=4):
+    """(lệch cực đại, quá đà % của cực đại, thời gian ổn định s sau khi dừng chuột), theo dấu: quay phải -> lệch âm."""
+    ys = [p[axis] for _, p in trace]
+    sign = -1.0 if min(ys) < -max(ys) else 1.0
+    ys = [sign * y for y in ys]
+    peak_i = max(range(len(ys)), key=lambda i: ys[i])
+    peak = ys[peak_i]
+    over = max(0.0, -min(ys[peak_i:]))
+    thresh = max(0.1 * peak, 0.05)
+    last_big = max((t for (t, _), y in zip(trace, ys) if abs(y) > thresh), default=end)
+    return peak, 100.0 * over / peak, max(0.0, last_big - end)
+
+
+def test_mouse_lag_trails_the_turn_with_roll_and_shift():
+    tr = flick(240)
+    pose = min((p for _, p in tr), key=lambda p: p[4])             # lúc súng bị bỏ lại xa nhất
+    assert pose[4] < -3.0                                         # quay phải: nòng bị bỏ lại bên TRÁI
+    assert pose[5] < 0 and pose[0] < 0                            # nghiêng trái + dịch trái, cùng chiều
+    assert abs(pose[5]) == pytest.approx(abs(pose[4]) * D.lag_roll, rel=0.01)
+    up = flick(240, axis=1)
+    assert min(p[3] for _, p in up) < -2.0                        # ngẩng lên thì súng trễ xuống
+    assert min(p[1] for _, p in up) < 0
+    left = flick(-240)
+    assert max(p[4] for _, p in left) > 3.0                       # quay trái: bỏ lại bên phải
+
+
+def test_mouse_lag_grows_with_turn_speed_and_is_soft_clamped_not_flat():
+    peaks = [lag_stats(flick(r), 0.15)[0] for r in (30, 60, 120, 240, 480, 960, 1920)]
+    assert all(b > a for a, b in zip(peaks, peaks[1:]))           # tăng đơn điệu, KHÔNG bị bẹt phẳng ở một mức
+    assert peaks[3] > 1.5 * 3.9                                   # cú flick vừa đã lệch hơn hẳn mức kẹp cứng cũ (~3,9 độ)
+    assert peaks[-1] < D.lag_max * 1.4                            # nhưng tiệm cận (đỉnh nảy tối đa ~ 1,3 x lag_max)
+    assert peaks[-1] - peaks[-2] < 0.5 * (peaks[3] - peaks[2])    # cong dần: mỗi lần gấp đôi tốc độ thêm ngày càng ít
+
+
+def test_mouse_lag_overshoots_a_little_and_settles_fast():
+    peak, over, settle = lag_stats(flick(240), 0.15)
+    assert 5.0 <= over <= 25.0                                    # súng đuổi kịp, vượt chút rồi lắc về
+    assert 0.1 <= settle <= 0.5
+    after = flick(240)[-1][1]
+    assert after == pytest.approx((0,) * 6, abs=1e-3)             # cuối cùng về hẳn giữa
+
+
+def test_small_slow_turns_barely_move_the_gun():
+    assert lag_stats(flick(10, 1.0), 1.0)[0] < 0.2                # rà tâm chậm: dưới 0,2 độ
+    assert lag_stats(flick(20, 1.0), 1.0)[0] < 0.6
+    assert lag_stats(flick(500, 0.02), 0.02)[0] < 0.6 * lag_stats(flick(240), 0.15)[0]   # giật ngắn 10 độ lệch ít hơn hẳn cú quay 36 độ
+
+
+@pytest.mark.parametrize('fps', [30, 60, 144, 500, 1000])
+def test_mouse_lag_does_not_depend_on_fps(fps):
+    ref = lag_stats(flick(240, fps=1000), 0.15)
+    got = lag_stats(flick(240, fps=fps), 0.15)
+    assert got[0] == pytest.approx(ref[0], rel=0.04)
+    assert got[1] == pytest.approx(ref[1], abs=2.5)
+    assert got[2] == pytest.approx(ref[2], abs=0.05)
+
+
+def test_mouse_lag_ignores_how_the_mouse_counts_are_quantized():
+    # cùng quãng đường 36 độ trong 0,15 s: một số đếm rời rạc dồn vào vài khung (chuột 125 Hz ở game 1000 FPS) vs xoay đều
+    smooth = lag_stats(flick(240, fps=1000), 0.15)[0]
     sw = Sway(NO_BREATH)
-    first = sw.update(1 / 60, inp(look=(5.0, 0.0)))               # quay phải 5 độ
-    assert first[4] == pytest.approx(-5.0 * D.lag_gain, rel=0.1)  # súng lệch TRÁI
-    assert first[5] < 0                                           # kèm nghiêng
-    up = Sway(NO_BREATH).update(1 / 60, inp(look=(0.0, 5.0)))
-    assert up[3] < 0                                              # ngẩng lên thì súng trễ xuống
-    tr = run(sw, 1.5, 60, lambda t: inp())
-    assert abs(tr[-1][4]) < 1e-3 and abs(tr[-1][3]) < 1e-3        # về giữa
+    trace = []
+    for i in range(1500):
+        look = (36.0 / 18 if i < 150 and i % 8 == 0 else 0.0, 0.0)   # 18 xung, mỗi xung 2 độ, cách 8 ms
+        trace.append(((i + 1) / 1000, sw.update(1 / 1000, inp(look=look))))
+    assert lag_stats(trace, 0.15)[0] == pytest.approx(smooth, rel=0.2)
 
 
-def test_mouse_lag_is_clamped():
-    sw = Sway(NO_BREATH)
-    p = sw.update(1 / 60, inp(look=(90.0, 0.0)))
-    assert abs(p[4]) <= D.lag_max + 1e-9
+def test_mouse_lag_when_aiming_is_the_configured_fraction():
+    hip = lag_stats(flick(240), 0.15)[0]
+    ads = lag_stats(flick(240, ads=1.0), 0.15)[0]
+    assert ads == pytest.approx(hip * D.ads_multiplier, rel=0.01)
+    mid = lag_stats(flick(240, ads=0.5), 0.15)[0]
+    assert ads < mid < hip
 
 
-@pytest.mark.parametrize('fps', [30, 60, 144, 500])
-def test_mouse_lag_return_does_not_depend_on_fps(fps):
-    sw = Sway(NO_BREATH)
-    sw.update(1 / fps, inp(look=(5.0, 0.0)))
-    tr = run(sw, 0.3, fps, lambda t: inp())
-    assert abs(tr[-1][4]) < 0.35                                   # từ 1,75 độ còn dưới 0,35 độ sau 0,3 s
-    ref = Sway(NO_BREATH)
-    ref.update(1 / 1000, inp(look=(5.0, 0.0)))
-    ref_tr = run(ref, 0.3, 1000, lambda t: inp())
-    assert tr[-1][4] == pytest.approx(ref_tr[-1][4], abs=0.12)
+def test_mouse_lag_follow_one_removes_the_steady_lag():
+    follow = replace(NO_BREATH, lag_follow=1.0)
+    steady = flick(100, 1.0, data=follow)
+    assert abs(steady[130][1][4]) < 0.3                           # xoay đều ~0,9 s: gần như không lệch
+    base = flick(100, 1.0)
+    assert abs(base[130][1][4]) > 2.0
 
+
+def test_mouse_lag_flick_pose_keeps_the_gun_inside_sane_bounds():
+    worst = [max(abs(c) for _, p in flick(r, 0.1) for c in (p[4], p[3], p[5])) for r in (400, 900, 3000)]
+    assert max(worst) < 12.0                                      # độ: kể cả giật chuột điên cuồng
 
 # --- bob ---
 def bob_y(state, speed, seconds=3.0, fps=120, data=NO_BREATH):

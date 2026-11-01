@@ -110,14 +110,35 @@ class LampShadows:
     def add_caster(nodepath):
         nodepath.show_through(SHADOW_MASK)
 
-    def refresh(self, z_min: float = None, z_max: float = None):
-        """Vẽ lại (ở khung kế tiếp) các đèn mà vùng chiếu chạm đoạn [z_min, z_max]; không truyền gì thì vẽ lại tất cả."""
-        for i, (_, _, z) in enumerate(self.lamps):
-            on = z_min is None or (z + self.radius >= z_min and z - self.radius <= z_max)
+    def lamps_near(self, z_min: float, z_max: float, reach: float = None) -> list:
+        """Chỉ số các đèn mà vùng chiếu (bán kính `reach`, mặc định `radius`) chạm đoạn [z_min, z_max]."""
+        reach = self.radius if reach is None else reach
+        return [i for i, (_, _, z) in enumerate(self.lamps) if z + reach >= z_min and z - reach <= z_max]
+
+    def refresh(self, z_min: float = None, z_max: float = None, reach: float = None):
+        """Vẽ lại ngay trong khung này (gọi trong phần update, TRƯỚC khi vẽ) các đèn mà vùng chiếu chạm đoạn [z_min, z_max];
+        không truyền gì thì vẽ lại tất cả. `reach` < bán kính đèn thì bỏ qua các đèn ở rìa, nơi ánh sáng gần như tắt.
+        Chỉ vẽ MỘT khung (gọi liên tiếp mỗi khung thì vẽ mỗi khung)."""
+        self.refresh_lamps(range(len(self.lamps)) if z_min is None else self.lamps_near(z_min, z_max, reach))
+
+    def refresh_lamps(self, indices):
+        """Như `refresh` nhưng theo chỉ số đèn (gộp nhiều đoạn z: gọi với hợp các `lamps_near`)."""
+        wanted = set(indices)
+        for i in range(len(self.lamps)):
             for dr in self.regions[i]:
-                dr.set_active(on)
+                dr.set_active(i in wanted)
         self.buffer.set_active(True)
-        self._frames_left = 1
+        self.render_count += 1
+        self._frames_left = 0                # khung này vẽ rồi; khung sau `update` tự tắt buffer (trừ khi lại có refresh)
+
+    def render_lamps_now(self, indices):
+        """Vẽ các đèn này NGAY (lúc dựng game), rồi tắt buffer: để vẽ bù những vật thêm vào atlas sau `render_now`."""
+        self.refresh_lamps(indices)
+        engine = application.base.graphicsEngine
+        engine.render_frame()
+        engine.render_frame()
+        self._frames_left = 0
+        self.buffer.set_active(False)
 
     def render_now(self):
         """Vẽ atlas NGAY (lúc dựng game, trước vòng lặp) rồi tắt buffer: khung đầu của game không phải gánh ~0,5 s vẽ

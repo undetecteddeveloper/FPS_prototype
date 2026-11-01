@@ -60,7 +60,6 @@ class Viewmodel:
         Skin trên CPU (mặc định của Panda) tính lại 2 875 đỉnh bàn tay mỗi khung ~1,3 ms; vì clip 30 fps được nội suy để mượt ở
         màn 60+ Hz nên bộ xương đổi MỌI khung hình và FPS tụt rõ lúc nạp đạn. Mesh có skin (cột transform_blend) dùng biến thể
         ENABLE_SKINNING + cờ F_hardware_skinning; mesh cứng (thân súng, băng đạn gắn vào khớp) dùng biến thể không skin."""
-        light = self.gun.view_light
         static = ShaderAttrib.make(load_glsl('viewmodel'))
         skinned = ShaderAttrib.make(load_glsl('viewmodel', ('ENABLE_SKINNING',))).set_flag(ShaderAttrib.F_hardware_skinning, True)
         self.root.set_attrib(static)
@@ -73,14 +72,8 @@ class Viewmodel:
                     self.skinned_vertices += vd.get_num_rows()
                     geom_np.set_attrib(skinned)
                     break
+        self.apply_light()
         r = self.root
-        norm = sum(c * c for c in light.sun_dir) ** 0.5
-        r.set_shader_input('sun_dir', Vec3(*(c / norm for c in light.sun_dir)))
-        r.set_shader_input('sun_color', Vec3(*light.sun_color))
-        r.set_shader_input('sky_color', Vec3(*light.sky_color))
-        r.set_shader_input('ground_color', Vec3(*light.ground_color))
-        r.set_shader_input('spec_strength', light.specular)
-        r.set_shader_input('rim_strength', light.rim)
         # đèn tia lửa đổi MỖI khung lúc bắn: đưa vào shader bằng mảng PTA sửa tại chỗ. Gọi set_shader_input lại mỗi khung thì trạng thái
         # vẽ của cả súng đổi theo, Panda phải ghép lại trạng thái cho từng mesh (khung bắn đầu tiên chậm ~40 ms và mỗi khung bắn đều tốn thêm)
         self._flash_pos = PTA_LVecBase3f.empty_array(1)
@@ -90,6 +83,17 @@ class Viewmodel:
         r.set_shader_input('flash_color', self._flash_color)
         r.set_shader_input('flash_falloff', float(self.gun.flash.light_attenuation[2]))
         self.set_flash_light(Vec3(0, 0, 0), Vec3(0, 0, 0))
+
+    def apply_light(self):
+        """Đẩy `GunData.view_light` vào shader của súng (lúc dựng, và mỗi khi bảng debug đổi một số ánh sáng; chỉ đổi vài uniform)."""
+        light, r = self.gun.view_light, self.root
+        norm = sum(c * c for c in light.sun_dir) ** 0.5 or 1.0
+        r.set_shader_input('sun_dir', Vec3(*(c / norm for c in light.sun_dir)))
+        r.set_shader_input('sun_color', Vec3(*light.sun_color))
+        r.set_shader_input('sky_color', Vec3(*light.sky_color))
+        r.set_shader_input('ground_color', Vec3(*light.ground_color))
+        r.set_shader_input('spec_strength', light.specular)
+        r.set_shader_input('rim_strength', light.rim)
 
     def set_flash_light(self, view_pos, color, falloff: float = None):
         """Đèn tia lửa đầu nòng. `view_pos` trong hệ của cảnh súng (x phải, y lên, z ra trước); `color` đen = tắt.

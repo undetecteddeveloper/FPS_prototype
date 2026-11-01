@@ -26,7 +26,7 @@ from fps.core.movement import MoveState  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.sway import ads_target_for  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False)
+game = create_game(vsync=False, sound=False, draw=False, moving_targets=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
 player, combat, viewmodel = game.player, game.combat, game.viewmodel
 gun = game.params.gun
 pp = game.params.player
@@ -162,6 +162,26 @@ class Script(Entity):
             t += min(time.dt, 0.05)
             out.append((t, getter()))
         return out
+
+    def flick(self, rate, seconds, axis=0, after=1.0, shot_name=None):
+        """Quay chuột đều `rate` độ/s (độ nhìn thực, đã bù độ nhạy ADS) trong `seconds`, rồi dừng; ghi tư thế sway mỗi khung
+        trong `seconds + after`. Trả [(giây, tư thế sway)]. Có `shot_name` thì chụp ảnh đúng lúc súng bị bỏ lại xa nhất (yaw)."""
+        sens = pp.mouse_sensitivity * (1.0 + (pp.ads_look_multiplier - 1.0) * (player.ads_amount * player.ads_amount * (3 - 2 * player.ads_amount)))
+        rec, t, low, shot_done = [], 0.0, 0.0, shot_name is None
+        while t < seconds + after:
+            dt = min(time.dt, 0.05)
+            if t < seconds:
+                v = rate * dt / sens
+                player.look(v if axis == 0 else 0.0, v if axis == 1 else 0.0)
+            yield
+            t += dt
+            pose = sway_pose()
+            rec.append((t, pose))
+            low = min(low, pose[4])
+            if not shot_done and low < -0.8 and pose[4] > low + 0.05:
+                shot(shot_name)
+                shot_done = True
+        return rec
 
     def reset_state(self, auto=True, mag=30):
         for k in ('w', 'a', 's', 'd', 'shift', 'control', 'space', 'left mouse', 'right mouse'):
@@ -325,21 +345,44 @@ class Script(Entity):
         shot('walk')
         held_keys['w'] = 0
 
-        # --- E. lag theo chuột ---
+        # --- E. lag theo chuột (MouseLag: hệ bậc hai theo vận tốc quay, nén mềm) ---
         phase['name'] = 'lag chuột'
         self.reset_state()
         yield from self.wait(0.8)
-        player.look(0.1, 0.0)                              # quay phải 4,5 độ
-        yaws = yield from self.sample(0.1, lambda: sway_pose()[4])
-        expect = -0.1 * pp.mouse_sensitivity * sw.lag_gain
-        check('quay chuột phải: súng trễ sang trái (độ)', round(min(yaws), 2), f'{expect:.2f} +-30%', abs(min(yaws) - expect) < 0.3 * abs(expect))
-        yield from self.wait(1.0)
-        yaw_now = (yield from self.sample(0.2, lambda: sway_pose()[4]))
-        check('rồi súng về giữa (độ)', round(yaw_now[-1], 3), '< 0.15', abs(yaw_now[-1]) < 0.15)
-        player.look(0.0, 0.1)                              # ngẩng lên
-        pitches = yield from self.sample(0.1, lambda: sway_pose()[3])
-        check('ngẩng lên: súng trễ xuống (độ)', round(min(pitches), 2), '< -0.8', min(pitches) < -0.8)
-        yield from self.wait(1.0)
+        rec = yield from self.flick(240, 0.15, after=1.0)               # 36 độ trong 0,15 s: cú flick vừa
+        yaws, pitches, rolls = ([p[i] for _, p in rec] for i in (4, 3, 5))
+        peak = -min(yaws)
+        check('flick phải 240 độ/s: súng bị bỏ lại bên trái (độ)', round(peak, 2), f'4.5 .. {sw.lag_max * 1.4:.1f}', 4.5 <= peak <= sw.lag_max * 1.4)
+        check('  kèm nghiêng trái cùng chiều (độ)', round(min(rolls), 2), f'~{-peak * sw.lag_roll:.2f}', min(rolls) < -peak * sw.lag_roll * 0.7)
+        t_peak = min(rec, key=lambda r: r[1][4])[0]
+        over = max(yaws)
+        check('  dừng chuột: quá đà sang phải rồi lắc về (độ)', round(over, 2), f'{0.04 * peak:.2f} .. {0.3 * peak:.2f}', 0.04 * peak <= over <= 0.3 * peak)
+        t_settle = max((t for t, p in rec if abs(p[4]) > max(0.1 * peak, 0.05)), default=0.0) - 0.15
+        check('  ổn định sau khi dừng chuột (s)', round(t_settle, 2), '<= 0.5', t_settle <= 0.5)
+        check('  rồi súng về giữa (độ)', round(yaws[-1], 3), '< 0.15', abs(yaws[-1]) < 0.15)
+        rec2 = yield from self.flick(60, 1.0, after=0.6)                # xoay chậm 60 độ/s
+        peak2 = -min(p[4] for _, p in rec2)
+        check('xoay chậm 60 độ/s: súng lệch nhẹ (độ)', round(peak2, 2), f'1 .. {peak * 0.6:.1f}', 1.0 <= peak2 <= peak * 0.6)
+        rec3 = yield from self.flick(10, 1.0, after=0.6)                # rà tâm chậm 10 độ/s
+        peak3 = -min(p[4] for _, p in rec3)
+        check('rà tâm chậm 10 độ/s: gần như không lệch (độ)', round(peak3, 3), '< 0.25', peak3 < 0.25)
+        rec4 = yield from self.flick(240, 0.15, axis=1, after=1.0)      # ngẩng lên
+        check('ngẩng lên: súng trễ xuống (độ)', round(min(p[3] for _, p in rec4), 2), '< -2', min(p[3] for _, p in rec4) < -2.0)
+        check('  kèm dịch xuống (m)', round(min(p[1] for _, p in rec4), 4), '< -0.003', min(p[1] for _, p in rec4) < -0.003)
+        player.yaw, player.pitch = 0.0, 0.0                               # các cú flick đã xoay camera: về hướng thẳng cho ảnh chụp
+        player._apply_view()
+        yield from self.wait(0.3)
+        # ảnh ở đỉnh một cú flick mạnh (hông), rồi lúc ngắm
+        yield from self.flick(600, 0.1, after=0.8, shot_name='sway_hip')
+        held_keys['right mouse'] = 1
+        yield from self.until(lambda: player.ads_amount >= 1.0)
+        yield from self.wait(0.4)
+        rec5 = yield from self.flick(240, 0.15, after=1.0)
+        peak5 = -min(p[4] for _, p in rec5)
+        check('ngắm (ADS): lệch còn ~20% (độ)', round(peak5, 2), f'{peak * sw.ads_multiplier:.2f} +-30%', abs(peak5 - peak * sw.ads_multiplier) < 0.3 * peak * sw.ads_multiplier)
+        yield from self.flick(600, 0.1, after=0.8, shot_name='sway_ads')
+        held_keys['right mouse'] = 0
+        yield from self.wait(0.5)
 
         # --- F. nhảy, chạm đất, ngồi ---
         phase['name'] = 'nhảy/ngồi'

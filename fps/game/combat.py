@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from ursina import color, held_keys, mouse
 
-from fps.core.ballistics import advance, distance_between, first_hit
+from fps.core.ballistics import advance, distance_between, first_hit, moving_hit
 from fps.core.handling import Handling, Phase
 from fps.core.movement import MoveState
 from fps.core.recoil import CameraRecoil, GunKick
@@ -84,6 +84,8 @@ class Combat:
         self.last_impact = None
         self.shots_fired = 0
         self.target_hits = 0
+        self.frame_dt = 1.0 / 60.0                 # độ dài khung đang xử lý (bia chạy nội suy vị trí theo khung này)
+        self._hit_frac = 1.0                       # phần của khung mà viên đạn vừa trúng nằm ở (cho lỗ đạn trên bia chạy)
 
     def request_reload(self):
         """Phím R. Có hiệu lực ở khung kế tiếp nếu nạp được (xem `_update_handling`)."""
@@ -107,14 +109,15 @@ class Combat:
     # --- mỗi khung hình ---
     def update(self, dt: float, real_dt: float = None):
         """`dt` đã cắt ở 50 ms cho vật lý; `real_dt` là thời gian thật của khung (cho clip nạp đạn chạy theo đồng hồ Panda)."""
-        for t in self.targets:
+        self.frame_dt = dt
+        for t in self.targets:             # bia chạy đi trước hết: đạn trong khung này dò va chạm theo vị trí bia từng bước nhỏ
             t.update(dt)
         self.hit_marker_left = max(0.0, self.hit_marker_left - dt)
         self.last_hit_left = max(0.0, self.last_hit_left - dt)
 
         self._step_bullets(dt)           # đạn cũ đi trước, đạn mới sinh ra sau (đã tự đẩy tới cuối khung)
 
-        mouse_ok = mouse.locked or not self.require_locked_mouse
+        mouse_ok = (mouse.locked or not self.require_locked_mouse) and not self.player.ui_open       # bảng debug (F1) mở: chuột là của bảng
         trigger = bool(held_keys['left mouse']) and mouse_ok
         self._update_handling(trigger, mouse_ok, dt if real_dt is None else real_dt)
         # đang hạ súng sau khi chạy (sprint-to-fire) hoặc đang nạp / rút súng thì chưa bắn được
@@ -135,7 +138,7 @@ class Combat:
                 self._fire(origin, direction, age)
                 self.accuracy.on_shot()
                 self.recoil.on_shot()
-                self.gun_kick.on_shot()
+                self.gun_kick.on_shot(ads, age)
                 if self.shake:
                     self.shake.on_shot(age)
                 if self.audio:
@@ -151,7 +154,8 @@ class Combat:
         self.spread_now = self.accuracy.angle(self.player.state, self.player.ads_amount)
 
     def _boxes(self) -> list:
-        return [(*t.aabb(), t) for t in self.targets] + self.static_boxes
+        """Hộp đứng yên của khung này: bia đứng yên + tường/cột/đất. Bia đang chạy xử lý riêng theo từng bước (`_advance`)."""
+        return [(*t.aabb(), t) for t in self.targets if not t.moving] + self.static_boxes
 
     def _fire(self, origin, direction, age: float):
         speed = self.gun.muzzle_velocity
@@ -159,25 +163,42 @@ class Combat:
         self.shots_fired += 1
         if self.fx:
             self.fx.on_shot(bullet, self.player.ads_amount)
-        if self._advance(bullet, age, self._boxes()):
+        # đạn sinh ra ở thời điểm (cuối khung - age) rồi tự đẩy tiếp tới cuối khung
+        if self._advance(bullet, age, self._boxes(), self.frame_dt - age):
             self.bullets.append(bullet)
 
     def _step_bullets(self, dt: float):
         if not self.bullets:
             return
         boxes = self._boxes()
-        self.bullets = [b for b in self.bullets if self._advance(b, dt, boxes)]
+        self.bullets = [b for b in self.bullets if self._advance(b, dt, boxes, 0.0)]
 
-    def _advance(self, bullet: Bullet, dt: float, boxes: list) -> bool:
+    def _advance(self, bullet: Bullet, dt: float, boxes: list, t_begin: float = 0.0) -> bool:
         """Đẩy đạn đi dt giây. Trả về False nếu đạn hết (trúng gì đó hoặc quá hạn).
 
         Chia nhỏ khung dài thành các bước <= MAX_BULLET_STEP: điểm trúng dò trên dây cung của từng bước nên lệch tối đa g*dt^2/8 so với
-        cung thật; khung treo 40 ms (vd. khung đầu tiên hiện tia lửa) cho lệch 2-3 mm ở 10 m nếu không chia."""
+        cung thật; khung treo 40 ms (vd. khung đầu tiên hiện tia lửa) cho lệch 2-3 mm ở 10 m nếu không chia.
+
+        `t_begin` (s kể từ đầu khung) là lúc đạn bắt đầu đoạn này. Bia chạy dịch từ `x_start` tới `x_end` trong khung, nên mỗi bước nhỏ
+        dò đạn với hộp bia ở ĐÚNG vị trí đầu bước và để hộp tịnh tiến theo trong bước (`moving_hit`: chính xác với chuyển động đều,
+        không lệch `tốc độ bia x dt` như khi lấy vị trí cuối khung)."""
         steps = max(1, math.ceil(dt / MAX_BULLET_STEP - 1e-9))
         step = dt / steps
-        for _ in range(steps):
+        movers = [t for t in self.targets if t.moving]
+        frame = max(self.frame_dt, 1e-9)
+        for i in range(steps):
             new_pos, new_vel = advance(bullet.pos, bullet.vel, self.gun.bullet_gravity, step)
             hit = first_hit(bullet.pos, new_pos, boxes)
+            if movers:
+                f0 = min(max((t_begin + i * step) / frame, 0.0), 1.0)
+                f1 = min(max((t_begin + (i + 1) * step) / frame, 0.0), 1.0)
+                for t in movers:
+                    x0, x1 = t.x_at(f0), t.x_at(f1)
+                    lo, hi = t.aabb_at_x(x0)
+                    h = moving_hit(bullet.pos, new_pos, lo, hi, (x1 - x0, 0.0, 0.0), t)
+                    if h and (hit is None or h.t < hit.t):
+                        hit = h
+                        self._hit_frac = f0 + (f1 - f0) * h.t
             if hit:
                 bullet.alive, bullet.end_pos = False, hit.point
                 self._on_hit(bullet, hit)
@@ -199,7 +220,12 @@ class Combat:
             self.hit_marker_left = self.fb.hit_marker_duration
             self.last_hit_distance = distance
             self.last_hit_left = self.fb.last_hit_display_time
-            self.decals.add(hit.point, hit.normal, distance, parent=hit.owner.root)
+            # Lỗ nằm ở chỗ đạn trúng TRÊN bia lúc trúng; bia đã đi tiếp tới cuối khung nên dời lỗ theo, để nó đứng đúng chỗ trên mặt bia
+            point = hit.point
+            if hit.owner.patrol is not None:
+                shift = hit.owner.x_end - hit.owner.x_at(self._hit_frac)
+                point = (point[0] + shift, point[1], point[2])
+            self.decals.add(point, hit.normal, distance, parent=hit.owner.root)
         else:
             self.decals.add(hit.point, hit.normal, distance, tint=DUST_TINT)
 

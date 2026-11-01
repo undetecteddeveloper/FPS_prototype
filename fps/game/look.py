@@ -12,14 +12,15 @@ import random
 
 from panda3d.core import (ColorBlendAttrib, LMatrix4f, PTA_LMatrix4f, TransparencyAttrib, PTA_LVecBase3f, SamplerState, Texture as PandaTexture, Vec3, Vec4)
 from PIL import Image
-from ursina import Entity, Shader, Texture, application, camera, color, window
+from ursina import Entity, Shader, Texture, application, camera, color, time, window
 from ursina.vec2 import Vec2
 
 from fps.core.room import FACE_COUNT
 from fps.game.shaders import SHADER_DIR
 from fps.weapon_data import LookData
 
-MATERIALS = {'floor': 1.0, 'walls': 2.0, 'pillars': 3.0, 'ceiling': 4.0, 'lamp_glow': 5.0, 'lamp_shades': 0.0}
+MATERIALS = {'floor': 1.0, 'walls': 2.0, 'pillars': 3.0, 'ceiling': 4.0, 'lamp_glow': 5.0, 'lamp_shades': 0.0,
+             'signs': 6.0, 'sign_rods': 0.0}      # 6 = biển khoảng cách (có chữ phát sáng nhẹ)
 SHADOW_MODES = {False: 0.0, True: 1.0, 'fake': 2.0}
 
 
@@ -105,6 +106,13 @@ class WorldLook:
         self.shader = self._make_shader()
         self.shadows = None                 # LampShadows khi bật bóng thật
         self.blobs = []
+        self.mover_blobs = []               # (bia chạy, vệt tối giả của nó): vệt đi theo bia
+        self.movers = [t for t in targets if t.patrol is not None]
+        self._mover_next = 0                # bia chạy kế tiếp được vẽ lại bóng
+        self._mover_clock = 0.0
+        self._mover_drawn_x = {}            # x của bia lúc vẽ bóng gần nhất: bia đứng im thì khỏi vẽ lại
+        self.mover_shadow_refreshes = 0     # số lần vẽ lại bóng bia chạy (để đo)
+        self._ready = False                 # False trong lúc dựng
         render = application.base.render
         room = world['room']
 
@@ -156,8 +164,18 @@ class WorldLook:
         # vẽ trước lúc dựng: dịch shader thế giới + vẽ atlas bóng không rơi vào khung đầu của game
         if self.shadows:
             self.shadows.render_now()
+            # bia chạy vào atlas SAU lần vẽ đầu (để không để lại bóng ma ở chỗ xuất phát trên các đèn xa), rồi vẽ riêng các đèn gần chúng
+            for t in self.movers:
+                self.shadows.add_caster(t.plate)
+            near = set()
+            for t in self.movers:
+                near.update(self._lamps_near_mover(t))
+                self._mover_drawn_x[t] = t.root.x
+            if near:
+                self.shadows.render_lamps_now(near)
         else:
             application.base.graphicsEngine.render_frame()
+        self._ready = True
 
     @staticmethod
     def _make_shader() -> Shader:
@@ -178,6 +196,9 @@ class WorldLook:
             b.set_depth_offset(1)
             b.set_bin('transparent', 0)
             self.blobs.append(b)
+        for t, b in zip(targets, self.blobs):             # spots bắt đầu bằng các bia, cùng thứ tự
+            if t.patrol is not None:
+                self.mover_blobs.append((t, b))
 
     @staticmethod
     def _make_halos(lamps, params) -> list:
@@ -201,9 +222,11 @@ class WorldLook:
             for e in self.world['shadow_casters']:
                 LampShadows.add_caster(e)
             for t in self.targets:
-                LampShadows.add_caster(t.plate)
+                if self._ready or t.patrol is None:          # lúc dựng: bia chạy vào atlas sau lần vẽ đầu (xem cuối __init__)
+                    LampShadows.add_caster(t.plate)
         render = application.base.render
         if mode is True:
+            self._mover_drawn_x.clear()                      # atlas có thể giữ bóng cũ của bia chạy: vẽ lại ở các lượt kế tiếp
             for k, v in self.shadows.shader_inputs().items():
                 render.set_shader_input(k, v)
         else:
@@ -216,8 +239,60 @@ class WorldLook:
             b.enabled = mode == 'fake'
         self.mode = mode
 
+    def apply_params(self):
+        """Bảng debug (G6): đẩy lại các số ánh sáng của `LookData` có hiệu lực TỨC THÌ (đèn, tông màu, bụi, bóng, tối góc...) vào shader
+        với đúng tên đầu vào như lúc dựng. Không đụng vị trí / số đèn và cỡ bản đồ bóng (nướng lúc dựng: cần khởi động lại)."""
+        p, render = self.p, application.base.render
+        radius = self.shadows.radius if self.shadows else p.lamp_radius        # bán kính đã nướng vào bản đồ bóng
+        render.set_shader_input('look_fog', (*p.fog_color, p.fog_density))
+        render.set_shader_input('look_detail_strength', float(p.detail_strength))
+        render.set_shader_input('look_lamp2', Vec4(float(p.lamp_count), radius, p.lamp_ref, p.lamp_intensity))
+        render.set_shader_input('look_lamp_color', Vec3(*p.lamp_color))
+        render.set_shader_input('look_lamp_cone', Vec3(math.cos(math.radians(p.lamp_cone)),
+                                                       math.cos(math.radians(p.lamp_cone_outer)), p.lamp_side))
+        render.set_shader_input('look_ambient_up', Vec3(*p.ambient_up))
+        render.set_shader_input('look_ambient_down', Vec3(*p.ambient_down))
+        render.set_shader_input('look_bounce', Vec3(*p.bounce_color))
+        render.set_shader_input('look_exposure', float(p.exposure))
+        self.set_shadow_mode(p.shadows)                      # cũng đẩy lại look_shadow (chống sọc bóng, độ chói bóng đèn)
+        window.color = color.rgb(*p.fog_color)
+        tint = color.rgba(*p.lamp_color, p.lamp_halo)
+        for h in self.halos:
+            h.color = tint
+        if self.vignette is not None:
+            self.vignette.color = color.rgba(1, 1, 1, p.vignette)
+
+    def _lamps_near_mover(self, target) -> list:
+        """Các đèn cần vẽ lại bóng khi bia chạy đổi chỗ: đèn cách bia dọc z trong `mover_shadow_reach` x bán kính đèn."""
+        z = target.root.z
+        return self.shadows.lamps_near(z, z, self.p.mover_shadow_reach * self.p.lamp_radius)
+
+    def _tick_movers(self):
+        """Bóng thật của bia chạy: đèn và tường đứng yên nên atlas chỉ vẽ một lần, còn bia chạy thì cứ 1/(hz x số bia) giây vẽ lại
+        riêng các đèn gần MỘT bia (lần lượt từng bia). Gọi từ `update` (trước khi vẽ), nên atlas vẽ ở đúng khung đó."""
+        if self.mode is not True or not self.movers or self.p.mover_shadow_hz <= 0:
+            return
+        self._mover_clock += time.dt
+        interval = 1.0 / (self.p.mover_shadow_hz * len(self.movers))
+        if self._mover_clock < interval:
+            return
+        self._mover_clock = min(self._mover_clock - interval, interval)
+        for _ in range(len(self.movers)):                    # bia kế tiếp CÓ đổi chỗ từ lần vẽ trước
+            t = self.movers[self._mover_next % len(self.movers)]
+            self._mover_next += 1
+            if abs(t.root.x - self._mover_drawn_x.get(t, 1e9)) > 1e-4:
+                self._mover_drawn_x[t] = t.root.x
+                self.shadows.refresh_lamps(self._lamps_near_mover(t))
+                self.mover_shadow_refreshes += 1
+                return
+
     def update(self):
-        """Mỗi khung: vị trí camera cho bụi trong phòng và độ mờ dần của chi tiết; tắt buffer bóng khi đã vẽ xong."""
+        """Mỗi khung: vị trí camera cho bụi trong phòng và độ mờ dần của chi tiết; tắt buffer bóng khi đã vẽ xong;
+        bóng của bia chạy (thật: vẽ lại đèn gần; giả: vệt tối đi theo bia)."""
         self._camera_pos.set_element(0, Vec3(*camera.world_position))
         if self.shadows:
             self.shadows.update()
+            self._tick_movers()
+        if self.mode == 'fake':
+            for t, b in self.mover_blobs:
+                b.x = t.root.x

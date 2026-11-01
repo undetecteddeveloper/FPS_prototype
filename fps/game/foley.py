@@ -63,9 +63,10 @@ class Foley:
 
     def _load_bank(self, name: str, project_root: Path) -> _Bank:
         folder = project_root / self.audio.folder
-        files = sorted(folder.glob(f'{name}_*.wav'))
+        group = self.audio.sound_files.get(name, name)             # tên logic -> nhóm file (tiếng người dùng cung cấp hoặc tổng hợp)
+        files = sorted(folder.glob(f'{group}_*.wav'))
         if not files:
-            raise FileNotFoundError(f'thiếu {folder}\\{name}_*.wav: chạy tools\\prep_foley.py')
+            raise FileNotFoundError(f'thiếu {folder}\\{group}_*.wav: chạy tools\\prep_foley.py (tiếng user_*: tools\\prep_user_audio.py)')
         loader = application.base.loader
         return _Bank([[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(max(1, self.audio.pool))] for f in files])
 
@@ -73,7 +74,7 @@ class Foley:
     def play(self, name: str, volume: float, pitch: float = 1.0, pan: float = 0.0):
         variant, sound = self.banks[name].next_sound(self.rng)
         sound.set_volume(min(max(volume, 0.0), 1.0))
-        sound.set_play_rate(pitch)
+        sound.set_play_rate(pitch * self.audio.pitch_scale.get(name, 1.0))
         sound.set_balance(min(max(pan, -1.0), 1.0))
         sound.play()                               # phát lại từ đầu nếu bản này còn đang vang (chỉ khi cả vòng đã quay hết)
         self.counts[name] += 1

@@ -58,6 +58,14 @@ def segment_vs_aabb(p0, p1, lo, hi):
     return tmin, normal
 
 
+def segment_vs_moving_aabb(p0, p1, lo, hi, displacement):
+    """Như `segment_vs_aabb` nhưng hộp [lo, hi] (vị trí LÚC ĐẦU đoạn) tịnh tiến đều `displacement` trong lúc đạn đi p0 -> p1.
+    Chính xác (không xấp xỉ): trong hệ của hộp, đạn đi từ p0 tới p1 - displacement, cùng tham số t; hai bên cùng tới điểm đó đúng một lúc.
+    Điểm trúng thật (toạ độ thế giới) vẫn là nội suy p0 -> p1 tại t."""
+    rel_end = (p1[0] - displacement[0], p1[1] - displacement[1], p1[2] - displacement[2])
+    return segment_vs_aabb(p0, rel_end, lo, hi)
+
+
 def segment_vs_ground(p0, p1, ground_y=0.0):
     """Đoạn đi từ trên mặt đất xuống tới hoặc dưới mặt đất: t hoặc None."""
     if p0[1] > ground_y >= p1[1]:
@@ -116,6 +124,12 @@ def first_hit(p0, p1, boxes, ground_y=0.0):
         if t is not None and (best is None or t < best.t):
             best = Hit(t, _lerp(p0, p1, t), (0.0, 1.0, 0.0), GROUND)
     return best
+
+
+def moving_hit(p0, p1, lo, hi, displacement, owner):
+    """`Hit` với một hộp đang chuyển động (xem `segment_vs_moving_aabb`), hoặc None. `point` là chỗ viên đạn đang ở lúc trúng."""
+    r = segment_vs_moving_aabb(p0, p1, lo, hi, displacement)
+    return Hit(r[0], _lerp(p0, p1, r[0]), r[1], owner) if r else None
 
 
 def distance_between(a, b):

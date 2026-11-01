@@ -65,6 +65,64 @@ def _add(total: list, pose, scale: float = 1.0):
         total[i] += pose[i] * scale
 
 
+class MouseLag:
+    """Súng bị bỏ lại phía sau khi xoay chuột (trễ theo VẬN TỐC quay), toán thuần, nghiệm chính xác theo dt.
+
+    Súng bám góc nhìn qua hệ bậc hai (tần số `lag_omega`, giảm chấn `lag_zeta`): g'' + 2ζω g' + ω² g = ω² x + r·2ζω x',
+    x = góc nhìn, g = góc súng, r = `lag_follow`. Màn hình thấy độ lệch e = g - x, nên
+        e'' + 2ζω e' + ω² e = -x'' - (1-r)·2ζω x'.
+    Mỗi khung x' (= ve) coi như hằng: vận tốc của SÚNG liên tục (e' nhảy -Δve), lực hằng đưa điểm cân bằng sang
+    e_eq = -(1-r)·2ζ·ve/ω, rồi giải chính xác như `Spring.step` (không Euler, ổn ở mọi FPS). Hệ tuyến tính nên khi chuột
+    dừng súng đuổi kịp, vượt (ζ<1) rồi lắc về chỗ cũ: độ quá đà do `lag_zeta` quyết định.
+
+    Phi tuyến chỉ nằm ở ĐẦU VÀO (vận tốc đã làm mượt `lag_smooth`, để chuột 1000 Hz rung số đếm không làm sai):
+      - ngưỡng mềm `lag_deadzone`: xoay chậm khi ngắm chính xác thì gần như không làm súng nhúc nhích;
+      - nén mềm tanh tới `lag_max / lag_gain` (độ/s): xoay rất mạnh không bị cắt phẳng (kẹp cứng gây cảm giác cứng) mà tiệm cận.
+    Chuẩn hoá: ở tốc độ quay ve cố định (vùng tuyến tính) súng lệch `lag_gain * ve` độ, không phụ thuộc omega/zeta.
+    """
+
+    def __init__(self, data: SwayData):
+        self.d = data
+        self.v_smooth = [0.0, 0.0]           # vận tốc quay đã làm mượt (độ/s): (yaw phải, pitch lên)
+        self.v_in = [0.0, 0.0]               # vận tốc sau ngưỡng + nén mềm
+        self.spring = Spring(2, data.lag_omega, data.lag_zeta)     # x = e - e_eq (độ), v = e' (độ/s)
+        self.e_eq = [0.0, 0.0]               # điểm cân bằng của e ở khung này; e = spring.x + e_eq
+
+    def shape(self, v: float) -> float:
+        """Vận tốc quay thô (độ/s) -> vận tốc đưa vào lò xo: ngưỡng mềm rồi nén tanh."""
+        d = self.d
+        knee = v * abs(v) / (abs(v) + d.lag_deadzone) if d.lag_deadzone > 0 else v
+        vmax = d.lag_max / d.lag_gain if d.lag_gain > 0 else 0.0
+        return vmax * math.tanh(knee / vmax) if vmax > 0 else 0.0
+
+    def update(self, dt: float, look: tuple) -> tuple:
+        """`look` = (yaw phải, pitch lên) độ mà chuột quay trong khung này. Trả (độ lệch yaw, độ lệch pitch) HIỂN THỊ, độ
+        (âm = súng trễ trái / xuống)."""
+        d = self.d
+        if dt <= 0.0:
+            return self.output()
+        k = 1.0 - math.exp(-dt / d.lag_smooth) if d.lag_smooth > 0 else 1.0
+        sp = self.spring
+        sp.omega, sp.zeta = d.lag_omega, d.lag_zeta
+        zeta = min(max(sp.zeta, 0.05), 0.999)
+        for i in (0, 1):
+            self.v_smooth[i] += (look[i] / dt - self.v_smooth[i]) * k
+            ve = self.shape(self.v_smooth[i])
+            sp.v[i] -= ve - self.v_in[i]                          # vận tốc của súng liên tục khi vận tốc nhìn đổi
+            self.v_in[i] = ve
+            eq = -(1.0 - d.lag_follow) * 2.0 * zeta * ve / sp.omega
+            sp.x[i] += self.e_eq[i] - eq                           # sp.x = u = e - e_eq: đổi điểm cân bằng mà e giữ nguyên
+            self.e_eq[i] = eq
+        sp.step(dt)
+        return self.output()
+
+    def output(self) -> tuple:
+        d = self.d
+        norm = d.lag_gain * d.lag_omega / (2.0 * min(max(d.lag_zeta, 0.05), 0.999))
+        e = [self.spring.x[i] + self.e_eq[i] for i in (0, 1)]
+        return (e[0] * norm, e[1] * norm * d.lag_pitch_scale)
+
+
 class Sway:
     def __init__(self, data: SwayData, ads_target: tuple = ZERO_POSE):
         self.d = data
@@ -72,7 +130,7 @@ class Sway:
         self.clock = 0.0
         self.phase = 0.0                           # pha bước chân (rad)
         self.bob_amount = 0.0                      # biên độ bob đang trượt về mức mục tiêu
-        self.lag = Spring(2, data.lag_omega, data.lag_zeta)       # (yaw phải, pitch lên)
+        self.lag = MouseLag(data)                                 # (yaw phải, pitch lên)
         self.jolt = Spring(6, data.jolt_omega, data.jolt_zeta)    # quán tính dọc + nhún chạm đất
 
     def update(self, dt: float, inp: SwayInput) -> tuple:
@@ -100,14 +158,10 @@ class Sway:
         return (d.breath_x * s1 * k, d.breath_y * s2 * k, 0.0, d.breath_pitch * s2 * k, d.breath_yaw * s1 * k, 0.0)
 
     def _lag(self, dt: float, inp: SwayInput) -> tuple:
-        """Chuột quay sang phải thì súng trễ sang trái (và ngược lại); lò xo kéo về."""
+        """Chuột quay sang phải thì súng bị bỏ lại bên trái (và ngược lại), kèm nghiêng + dịch nhẹ; xem MouseLag."""
         d = self.d
-        yaw, pitch = inp.look
-        self.lag.omega, self.lag.zeta = d.lag_omega, d.lag_zeta
-        self.lag.x[0] = max(-d.lag_max, min(d.lag_max, self.lag.x[0] - yaw * d.lag_gain))
-        self.lag.x[1] = max(-d.lag_max, min(d.lag_max, self.lag.x[1] - pitch * d.lag_gain))
-        self.lag.step(dt)
-        return (0.0, 0.0, 0.0, self.lag.x[1], self.lag.x[0], self.lag.x[0] * d.lag_roll)
+        yaw, pitch = self.lag.update(dt, inp.look)
+        return (yaw * d.lag_shift, pitch * d.lag_shift, 0.0, pitch, yaw, yaw * d.lag_roll)
 
     def _bob(self, dt: float, inp: SwayInput) -> tuple:
         d = self.d

@@ -27,7 +27,7 @@ from fps.core.movement import aim_direction  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False)
+game = create_game(vsync=False, sound=False, draw=False, moving_targets=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
 player, combat, viewmodel = game.player, game.combat, game.viewmodel
 shake = game.shake
 gun = game.params.gun
@@ -276,7 +276,8 @@ class Script(Entity):
         check('bắn: trauma lên sát trần mà không vượt (đo cuối khung)', round(tr_max, 3), f'{cap - D.fire_decay * 0.04:.2f} .. {cap}',
               cap - D.fire_decay * 0.04 <= tr_max <= cap + 1e-9)
         check('bắn: roll nhìn thấy được (độ)', round(roll_max, 3), '>= 0.15', roll_max >= 0.15)
-        check('bắn: roll vừa phải (độ)', round(roll_max, 3), f'<= {D.fire_amp[5] * ceiling + 0.02:.2f}', roll_max <= D.fire_amp[5] * ceiling + 0.02)
+        check('bắn: roll vừa phải (độ)', round(roll_max, 3), f'<= {D.fire_amp[5] * D.fire_scale * ceiling + 0.02:.2f}',
+              roll_max <= D.fire_amp[5] * D.fire_scale * ceiling + 0.02)
         check('bắn: lệch hướng nhìn (pitch/yaw) vừa phải (độ)', round(dev_max, 3), '<= 0.3', dev_max <= 0.3)
         check('bắn: dịch chuyển vừa phải (mm)', round(mm_max, 2), '<= 2.5', mm_max <= 2.5)
         check('bắn: dịch trên màn hình vừa phải (px)', round(px_max, 1), '2 .. 14', 2 <= px_max <= 14)
@@ -323,6 +324,32 @@ class Script(Entity):
         res_ads = self.deterministic_pass(True, ads=1.0)
         roll_hip, roll_ads = max(res_hip['rolls']), max(res_ads['rolls'])
         check('ADS: rung còn đúng tỉ lệ cấu hình', round(roll_ads / roll_hip, 3), D.ads_multiplier, abs(roll_ads / roll_hip - D.ads_multiplier) < 0.02)
+
+        # --- C2. hệ số rung bắn: cùng kịch bản (cùng seed, dt cố định) với fire_scale = 1,0 và hiện hành -> mọi biên độ lớn đúng tỉ lệ ---
+        saved_scale = D.fire_scale
+        D.fire_scale = 1.0
+        base_hip = self.deterministic_pass(True, ads=0.0)
+        base_ads = self.deterministic_pass(True, ads=1.0)
+        D.fire_scale = saved_scale
+        ratio_hip = roll_hip / max(base_hip['rolls'])
+        ratio_ads = roll_ads / max(base_ads['rolls'])
+        print(f'HỆ SỐ RUNG BẮN: roll tối đa hông {max(base_hip["rolls"]):.3f} -> {roll_hip:.3f} độ (x{ratio_hip:.3f}), ngắm {max(base_ads["rolls"]):.3f} -> {roll_ads:.3f} độ (x{ratio_ads:.3f}); '
+              f'fire_scale = {saved_scale}')
+        check('rung bắn hông: biên độ roll tăng đúng fire_scale (tỉ lệ)', round(ratio_hip, 3), f'{saved_scale} +-0.01', abs(ratio_hip - saved_scale) < 0.01)
+        check('rung bắn ngắm: cũng tăng đúng fire_scale (và vẫn ADS x ads_multiplier)', round(ratio_ads, 3), f'{saved_scale} +-0.01',
+              abs(ratio_ads - saved_scale) < 0.01)
+        # phần súng đi theo cũng nhân: độ lệch thân súng giữa rung bật / tắt, fire_scale 1,0 so với hiện hành
+        off_pass = self.deterministic_pass(False)
+        D.fire_scale = 1.0
+        on_base = self.deterministic_pass(True)
+        D.fire_scale = saved_scale
+        on_now = self.deterministic_pass(True)
+
+        def gun_dev_of(res):
+            return max(max(abs(a - b) for a, b in zip(g1, g0)) for g1, g0 in zip(res['gun'], off_pass['gun']))
+        ratio_gun = gun_dev_of(on_now) / gun_dev_of(on_base)
+        check('súng đi theo: độ lệch thân súng tăng cùng cỡ fire_scale', round(ratio_gun, 3), f'{saved_scale} +-0.1', abs(ratio_gun - saved_scale) < 0.1)
+        yield from self.wait(0.3)
         yield from self.wait(0.5)
 
         # --- D. nạp đạn ---

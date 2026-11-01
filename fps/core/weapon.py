@@ -11,7 +11,9 @@ from fps.weapon_data import GunData
 
 class Weapon:
     def __init__(self, gun: GunData):
-        self.interval = 60.0 / gun.rpm
+        self.gun = gun
+        self._rpm = gun.rpm
+        self.interval = 60.0 / gun.rpm       # đọc lại từ gun.rpm mỗi khung (bảng debug đổi rpm lúc đang chạy)
         self.mag_size = gun.magazine
         self.mag = gun.magazine
         self.reserve = gun.reserve
@@ -41,6 +43,9 @@ class Weapon:
 
     def update(self, dt: float, trigger_held: bool, trigger_pressed: bool) -> list:
         self.clock += dt
+        if self.gun.rpm != self._rpm and self.gun.rpm > 0:
+            self._rpm = self.gun.rpm
+            self.interval = 60.0 / self._rpm
         # đang nghỉ (cooldown <= 0) thì phát đầu nổ đúng "bây giờ" (age 0), không bị tính như nổ từ đầu khung
         self.cooldown = self.cooldown - dt if self.cooldown > 0 else 0.0
         wants = trigger_held if self.auto else trigger_pressed
