@@ -1,12 +1,13 @@
 """Kiểm tra đường âm thanh bằng game thật, BẬT tiếng (các selftest khác tắt tiếng). Không nghe được loa, nên đo gián tiếp:
   - Panda có trình phát âm thanh thật (OpenAL) hay chỉ là "âm câm" (không lỗi nhưng không có tiếng)
   - file nạp được, độ dài đúng, mỗi phát bắn kích hoạt đúng một lần phát, và các bản phát thật sự ở trạng thái PLAYING
-  - Foley (nạp đạn, bước chân, nhảy, chạm đất): đi N mét ra ~N/sải bước, dừng thì hết tiếng, trên không im, nạp thường / nạp cạn / rút súng ra đúng
+  - Foley (nạp đạn, bước chân, nhảy, chạm đất): bước chân phát theo nhịp bob của sway (hai tiếng mỗi chu kỳ bob, đo bằng pha sway thật), không chồng lên nhau, dừng thì hết tiếng, trên không im, nạp thường / nạp cạn / rút súng ra đúng
     số tiếng, đúng thứ tự và đúng thời điểm (cả khi đổi tốc độ clip), huỷ nạp thì bỏ các tiếng chưa tới mốc, tiếng vừa phát ở trạng thái PLAYING
 Cuối cùng vẫn cần tai người: chạy run.bat, bắn thử, đi bộ, nạp đạn.
 
 Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\audio_selftest.py        (thoát mã 1 nếu có mục trượt)
 """
+import math
 import sys
 from collections import Counter
 from pathlib import Path
@@ -134,6 +135,7 @@ class Script(Entity):
         yield from self.wait(0.15)
         t0, c0 = foley.clock, Counter(foley.counts)
         px, pz, dist, air_steps, t = player.x, player.z, 0.0, 0, 0.0
+        ph_last, ph_total = game.sway.phase, 0.0                  # pha bob đã đi được (rad): bước chân phải bằng 2 tiếng mỗi 2 pi
         for k, v in keys.items():
             held_keys[k] = v
         while t < seconds:
@@ -142,6 +144,8 @@ class Script(Entity):
             t += min(time.dt, 0.05)
             dist += ((player.x - px) ** 2 + (player.z - pz) ** 2) ** 0.5
             px, pz = player.x, player.z
+            ph_total += (game.sway.phase - ph_last) % (2.0 * math.pi)
+            ph_last = game.sway.phase
             if foley.counts['step_walk'] + foley.counts['step_run'] > before and not player.on_ground:
                 air_steps += 1
         for k in keys:
@@ -149,7 +153,10 @@ class Script(Entity):
         c1 = foley.counts
         steps = (c1['step_walk'] - c0['step_walk']) + (c1['step_run'] - c0['step_run'])
         vols = [e[2] for e in foley.log if e[0] >= t0 and e[1] in ('step_walk', 'step_run')]
+        times = [e[0] for e in foley.log if e[0] >= t0 and e[1] in ('step_walk', 'step_run')]
+        gaps = [b - a for a, b in zip(times, times[1:])]
         self.m = dict(dist=dist, steps=steps, air_steps=air_steps, mean_vol=sum(vols) / len(vols) if vols else 0.0,
+                      bob_steps=ph_total / math.pi, min_gap=min(gaps) if gaps else 9.0,
                       run=c1['step_run'] - c0['step_run'], walk=c1['step_walk'] - c0['step_walk'])
 
     def foley_checks(self):
@@ -164,10 +171,11 @@ class Script(Entity):
         a = game.params.audio
 
         # --- bước chân ---
-        yield from self.move_for(3.0, w=1)
+        yield from self.move_for(5.0, w=1)
         m = self.m
-        check('đi bộ: số tiếng bước ~ quãng / 0,75 m', f"{m['steps']} / {m['dist'] / a.step_stride_walk:.1f}", '+-2',
-              abs(m['steps'] - m['dist'] / a.step_stride_walk) <= 2 and m['steps'] >= 10)
+        check('đi bộ: số tiếng bước = 2 mỗi chu kỳ bob của sway', f"{m['steps']} / {m['bob_steps']:.1f}", '+-1.5',
+              abs(m['steps'] - m['bob_steps']) <= 1.5 and m['steps'] >= 4)
+        check('đi bộ: hai tiếng bước không chồng nhau (cách tối thiểu, s)', f"{m['min_gap']:.2f}", '> 0.4', m['min_gap'] > 0.4)
         check('đi bộ: dùng nhóm step_walk, không dùng step_run', f"{m['walk']} / {m['run']}", 'x / 0', m['run'] == 0 and m['walk'] == m['steps'])
         check('đi bộ: không có tiếng bước lúc ở trên không', m['air_steps'], 0, m['air_steps'] == 0)
         walk_vol = m['mean_vol']
@@ -176,17 +184,18 @@ class Script(Entity):
         yield from self.wait(1.0)
         check('dừng hẳn: không phát thêm tiếng nào', sum(foley.counts.values()) - c_stop, 0, sum(foley.counts.values()) == c_stop)
 
-        yield from self.move_for(2.5, w=1, shift=1)
+        yield from self.move_for(4.0, w=1, shift=1)
         m = self.m
-        check('chạy nước rút: số tiếng bước ~ quãng / 1,0 m', f"{m['steps']} / {m['dist'] / a.step_stride_sprint:.1f}", '+-2',
-              abs(m['steps'] - m['dist'] / a.step_stride_sprint) <= 2 and m['steps'] >= 8)
+        check('chạy nước rút: số tiếng bước = 2 mỗi chu kỳ bob của sway', f"{m['steps']} / {m['bob_steps']:.1f}", '+-1.5',
+              abs(m['steps'] - m['bob_steps']) <= 1.5 and m['steps'] >= 4)
+        check('chạy nước rút: hai tiếng bước không chồng nhau (cách tối thiểu, s)', f"{m['min_gap']:.2f}", '> 0.4', m['min_gap'] > 0.4)
         check('chạy nước rút: dùng nhóm step_run', f"{m['run']} / {m['walk']}", 'x / <=1', m['run'] >= m['steps'] - 1)
         check('chạy nước rút: tiếng to hơn đi bộ', f"{m['mean_vol']:.3f} > {walk_vol:.3f}", '>', m['mean_vol'] > walk_vol)
 
-        yield from self.move_for(4.0, w=1, control=1)
+        yield from self.move_for(6.0, w=1, control=1)
         m = self.m
-        check('ngồi đi: số tiếng bước ~ quãng / 0,5 m', f"{m['steps']} / {m['dist'] / a.step_stride_crouch:.1f}", '+-2',
-              abs(m['steps'] - m['dist'] / a.step_stride_crouch) <= 2 and m['steps'] >= 8)
+        check('ngồi đi: số tiếng bước = 2 mỗi chu kỳ bob của sway', f"{m['steps']} / {m['bob_steps']:.1f}", '+-1.5',
+              abs(m['steps'] - m['bob_steps']) <= 1.5 and m['steps'] >= 3)
         check('ngồi đi: âm lượng ~35% đi bộ', f"{m['mean_vol'] / walk_vol:.2f}", '0.25..0.45', 0.25 <= m['mean_vol'] / walk_vol <= 0.45)
         yield from self.wait(0.6)
 
@@ -216,6 +225,8 @@ class Script(Entity):
         seat = next((e[0] - t0 for e in foley.log if e[0] >= t0 and e[1] == 'mag_seat'), -9)
         want_t = (gun.clips['reload'].swap - gun.clips['reload'].start) / 30.0
         check('nạp thường: tiếng băng vào chỗ đúng khung 61 (s)', f'{seat:.2f}', f'{want_t:.2f}+-0.12', abs(seat - want_t) <= 0.12)
+        check('nạp thường: chỉ hai cú va đầu, không có bolt', str(got), "['mag_release', 'mag_in', 'mag_seat']",
+              got == ['mag_release', 'mag_in', 'mag_seat'] and 'bolt_release' not in got and 'bolt_tick' not in got)
         check('nạp thường: đạn được nạp đầy', combat.weapon.mag, gun.magazine, combat.weapon.mag == gun.magazine)
 
         # --- nạp cạn ---
@@ -225,6 +236,7 @@ class Script(Entity):
         yield from self.wait_idle()
         got = self.names_since(t0)
         check('nạp cạn: đúng số tiếng và thứ tự', f'{len(got)}/{len(want)}', 'bằng nhau', got == want)
+        check('nạp cạn: đủ ba cú va, có bolt ở cuối', str(got), "[..., 'mag_seat', 'bolt_release']", got[-2:] == ['mag_seat', 'bolt_release'])
         clip = gun.clips['reload_empty']
         bolt_t = (190 - clip.start) / 30.0
         bolt = next((e[0] - t0 for e in foley.log if e[0] >= t0 and e[1] == 'bolt_release'), -9)
@@ -248,7 +260,7 @@ class Script(Entity):
         handling.cancel()
         yield from self.wait(3.5)
         after = self.names_since(t0)
-        check('huỷ nạp giữa chừng: trước lúc huỷ đã có tiếng', str(before), 'mag_release, mag_out', before == ['mag_release', 'mag_out'])
+        check('huỷ nạp giữa chừng: trước lúc huỷ mới có tiếng chốt băng', str(before), "['mag_release']", before == ['mag_release'])
         check('huỷ nạp giữa chừng: sau đó chỉ còn tiếng tay trượt về', str(after[len(before):]), "['settle']", after[len(before):] == [a.cancel_sound])
         check('huỷ nạp giữa chừng: không có mag_in / mag_seat', 'mag_seat' in after or 'mag_in' in after, False, not ('mag_seat' in after or 'mag_in' in after))
         check('huỷ nạp giữa chừng: đạn y nguyên', combat.weapon.mag, mag_before, combat.weapon.mag == mag_before == 10)

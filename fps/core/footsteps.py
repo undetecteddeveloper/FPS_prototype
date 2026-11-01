@@ -1,11 +1,13 @@
 """Bước chân, nhảy, chạm đất (thuần, không import ursina, nên test được không cần cửa sổ).
 
-Nhịp bước tính theo QUÃNG ĐƯỜNG đi được khi đang chạm đất (pha 0..1 tăng `quãng / sải`), nên đúng nhịp ở mọi tốc độ và mọi FPS;
-không đọc pha bob của Sway (bob chỉnh riêng). Trên không: im. Chạm đất: một tiếng 'bịch' to theo tốc độ rơi (thay cho bước kế tiếp).
+Nhịp bước KHỚP SWAY súng: khi được đưa pha bob của Sway (`bob_phase`), mỗi lần pha đi qua điểm chân chạm đất (`step_bob_phase`, và cộng pi:
+hai bước mỗi chu kỳ bob; súng thấp nhất lúc đó) thì phát một tiếng, nên đổi `bob_rate` / `bob_stride` là nhịp bước đổi theo, đúng ở mọi FPS.
+Không có pha bob (test, dự phòng) thì tính theo QUÃNG ĐƯỜNG đi được (pha 0..1 tăng `quãng / sải`). Trên không: im. Chạm đất: một tiếng 'bịch' to theo tốc độ rơi (thay cho bước kế tiếp).
 Nhảy lên: một tiếng đế nhỏ. Dừng hẳn: không phát thêm, và bước đầu tiên sau khi đứng yên đến sớm (`step_start_phase`).
 
 Hàm `update` trả về danh sách `FootEvent`; việc chọn file và phát nằm ở game/foley.py.
 """
+import math
 import random
 from dataclasses import dataclass
 
@@ -36,6 +38,7 @@ class Footsteps:
         self.phase = audio.step_start_phase
         self.foot = 0
         self._was_on_ground = True
+        self._bob_last = None          # pha bob của khung trước (None: chưa có)
 
     def _vary(self, base_gain: float, foot: int, variation_pitch: float = None) -> tuple:
         a, rng = self.a, self.rng
@@ -44,10 +47,39 @@ class Footsteps:
         pitch = 1.0 + rng.uniform(-v, v) + (a.foot_pitch if foot else -a.foot_pitch)
         return gain, pitch
 
-    def update(self, dt: float, moved: float, on_ground: bool, vy: float, landed: float, sprinting: bool, crouching: bool) -> list:
-        """Một khung. `moved`: quãng đường ngang vừa đi (m); `vy`: tốc độ đứng sau bước vật lý; `landed`: tốc độ chạm đất (m/s) nếu khung này vừa chạm đất."""
+    def _bob_steps(self, last, phase: float, sprinting: bool, crouching: bool) -> list:
+        """Các lần pha bob đi qua điểm chân chạm đất trong khung này (pha đi từ `last` tới `phase`, luôn tiến). Chân 0 ở step_bob_phase, chân 1 cộng pi."""
+        a = self.a
+        if last is None or phase is None:
+            return []
+        delta = (phase - last) % (2.0 * math.pi)
+        if delta <= 0.0:
+            return []
+        hits = []
+        for foot, target in ((0, a.step_bob_phase), (1, a.step_bob_phase + math.pi)):
+            d = (target - last) % (2.0 * math.pi)
+            if 0.0 < d <= delta:
+                hits.append((d, foot))
+        if crouching:
+            mult = a.step_crouch_multiplier
+        elif sprinting:
+            mult = a.step_sprint_multiplier
+        else:
+            mult = 1.0
+        events = []
+        for _, foot in sorted(hits)[:2]:          # tối đa 2 bước mỗi khung (khung treo dài không xả cả loạt)
+            gain, pitch = self._vary(a.step_volume * mult, foot)
+            events.append(FootEvent('step', foot, gain, pitch, run=sprinting and not crouching))
+            self.foot = foot ^ 1
+        return events
+
+    def update(self, dt: float, moved: float, on_ground: bool, vy: float, landed: float, sprinting: bool, crouching: bool,
+               bob_phase: float = None) -> list:
+        """Một khung. `moved`: quãng đường ngang vừa đi (m); `vy`: tốc độ đứng sau bước vật lý; `landed`: tốc độ chạm đất (m/s) nếu khung này vừa chạm đất;
+        `bob_phase`: Sway.phase của khung này (rad), nếu có thì nhịp bước theo pha bob thay cho quãng đường."""
         a = self.a
         events = []
+        bob_last, self._bob_last = self._bob_last, bob_phase
         if self._was_on_ground and not on_ground and vy > 0.0:
             gain, pitch = self._vary(a.jump_volume, self.foot)
             events.append(FootEvent('jump', self.foot, gain, pitch))
@@ -63,6 +95,8 @@ class Footsteps:
             speed = moved / dt if dt > 0 else 0.0
             if speed < a.step_min_speed:
                 self.phase = a.step_start_phase        # đứng yên: không phát, và bước đầu tiên sau đó đến sớm
+            elif bob_phase is not None:
+                events += self._bob_steps(bob_last, bob_phase, sprinting, crouching)
             else:
                 if crouching:
                     stride, mult = a.step_stride_crouch, a.step_crouch_multiplier

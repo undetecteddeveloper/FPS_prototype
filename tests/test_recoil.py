@@ -3,6 +3,7 @@ import random
 import pytest
 
 from fps.core.recoil import CameraRecoil, GunKick
+from fps.core.spring import burst_peak_ratio
 from fps.weapon_data import M4, M4_PATTERN, GunKickData, RecoilData
 
 PATTERN_UP = sum(u for u, _ in M4_PATTERN)
@@ -199,16 +200,20 @@ def burst_z(shots, fps, ads=0.0, settle=1.0, rpm=750.0, seed=3, data=None):
 NO_RANDOM = GunKickData(random=(0, 0, 0, 0, 0, 0), back_random=0.0)
 
 
-def test_pushback_single_shot_peaks_at_about_3cm_toward_the_eye():
+def test_pushback_single_shot_peaks_at_back_peak_toward_the_eye():
     z = min(v for _, v in burst_z(1, 480, data=NO_RANDOM))
     assert z == pytest.approx(NO_RANDOM.back_peak, rel=0.03)
-    assert -0.0375 <= z <= -0.0225                     # 3 cm +-25%, âm = về phía mắt
+    assert z < 0                                       # âm = về phía mắt
+    assert 0.02 <= abs(z) <= 0.06                      # cỡ vài cm (không thành 0 hay nửa mét nếu ai gõ nhầm đơn vị)
 
 
-def test_pushback_burst_builds_to_about_5cm_and_saturates():
+def test_pushback_burst_builds_up_and_saturates():
     trace = burst_z(30, 480, data=NO_RANDOM)
     peak = min(v for _, v in trace)
-    assert -0.065 <= peak <= -0.035                    # 5 cm +-30%
+    ratio = peak / NO_RANDOM.back_peak                 # cả băng so với một phát (hệ tuyến tính: không phụ thuộc back_peak)
+    assert 1.17 <= ratio <= 2.17                       # trước đây 5 cm +-30% của 3 cm: cùng biên, tính theo tỉ lệ
+    model = burst_peak_ratio(NO_RANDOM.back_omega, NO_RANDOM.back_zeta, 30, 60.0 / 750.0)
+    assert ratio == pytest.approx(model, rel=0.02)     # khớp công thức đóng của lò xo (cộng chồng 30 xung cách 0,08 s), độc lập với Spring.step
     assert peak < NO_RANDOM.back_peak * 1.3            # nhiều hơn rõ rệt một phát đơn
     # bão hoà: 30 phát không lùi xa hơn 15 phát quá nhiều (không tăng vô hạn)
     half = min(v for t, v in trace if t <= 15 * 0.08)
@@ -225,12 +230,15 @@ def test_pushback_settles_after_the_burst_in_measurable_time():
     assert all(abs(v) < 1e-5 for _, v in trace[-20:])
 
 
-def test_pushback_in_ads_is_half_of_hip():
+def test_pushback_in_ads_is_back_ads_scale_times_hip():
+    s = NO_RANDOM.back_ads_scale
+    assert s != 1.0                                   # nếu bằng 1 thì ngắm/hông không khác nhau và test này vô nghĩa
     hip = min(v for _, v in burst_z(30, 480, ads=0.0, data=NO_RANDOM))
     ads = min(v for _, v in burst_z(30, 480, ads=1.0, data=NO_RANDOM))
-    assert ads / hip == pytest.approx(NO_RANDOM.back_ads_scale, abs=0.03)
+    assert ads / hip == pytest.approx(s, abs=0.03)
     mid = min(v for _, v in burst_z(30, 480, ads=0.5, data=NO_RANDOM))
-    assert hip < mid < ads                            # (âm) hông lùi sâu nhất, ngắm hẳn nông nhất; nửa chừng thì ở giữa (smoothstep(0,5) = 0,5)
+    assert mid / hip == pytest.approx(1.0 + (s - 1.0) * 0.5, abs=0.03)    # nửa chừng: nội suy smoothstep(0,5) = 0,5
+    assert min(hip, ads) < mid < max(hip, ads)        # nằm giữa hai đầu, bất kể ngắm lùi ít hơn (s < 1) hay nhiều hơn (s > 1) hông
 
 
 def test_pushback_does_not_touch_the_other_axes_or_the_vertical_kick():

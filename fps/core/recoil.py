@@ -75,7 +75,7 @@ class GunKick:
         self._pending = []                                           # (tuổi trong khung, xung 6 thành phần, xung đẩy lùi) chờ `update`
 
     def on_shot(self, ads: float = 0.0, age: float = None):
-        """Một phát bắn. `ads` 0 hông .. 1 ngắm hẳn: đẩy lùi giảm còn `back_ads_scale` (nội suy smoothstep như các hiệu ứng hình ảnh khác).
+        """Một phát bắn. `ads` 0 hông .. 1 ngắm hẳn: đẩy lùi nhân với `back_ads_scale` (nội suy smoothstep như các hiệu ứng hình ảnh khác; < 1 lùi ít hơn hông, > 1 lùi nhiều hơn).
         `age` = phát này nổ cách cuối khung bao lâu (như `Weapon.update` trả về): xung được áp đúng thời điểm đó trong `update`, nên
         đỉnh dồn của loạt đúng ở mọi FPS. Bỏ trống = áp ngay (đầu khung)."""
         d = self.d

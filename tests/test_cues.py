@@ -68,8 +68,8 @@ def test_cue_times_divide_by_clip_speed(speed):
 
 def test_cancel_drops_pending_cues_and_adds_one_settle_sound():
     sch = start('reload')
-    fired = [n for n, _ in run_schedule(sch, 1.0)]                   # t = 1,0 s: chốt băng + băng rời; băng mới chưa vào
-    assert fired == ['mag_release', 'mag_out']
+    fired = [n for n, _ in run_schedule(sch, 1.0)]                   # t = 1,0 s: mới chốt băng (0,83 s); băng mới chưa vào
+    assert fired == ['mag_release']
     sch.cancel(AUDIO)
     assert sch.pending_names == [AUDIO.cancel_sound]
     later = [n for n, _ in run_schedule(sch, 3.0)]
@@ -86,9 +86,9 @@ def test_cancel_before_the_first_cue_is_silent():
 
 def test_flush_plays_the_rest_when_the_clip_finishes():
     sch = start('reload_empty')
-    run_schedule(sch, 1.0)
+    first = run_schedule(sch, 1.0)                                   # t = 1,0 s: mới chốt băng
     rest = [n for n, _ in sch.flush()]
-    assert rest == [c.sound for c in AUDIO.cues['reload_empty']][2:]
+    assert rest == [c.sound for c in AUDIO.cues['reload_empty']][len(first):]
     assert sch.flush() == []
 
 
@@ -134,10 +134,24 @@ def test_cancelling_a_real_reload_stops_the_remaining_sounds():
     sch = CueSchedule()
     h.start_reload()
     heard, _ = drive(h, sch, 1.2)
-    assert [n for _, n in heard] == ['mag_release', 'mag_out']
+    assert [n for _, n in heard] == ['mag_release']
     h.cancel()
     heard, _ = drive(h, sch, 4.0)
     assert [n for _, n in heard] == [AUDIO.cancel_sound]
+
+
+def test_normal_reload_has_only_the_first_two_hits_and_empty_reload_has_all_three():
+    # file của người dùng có 3 cú va: chốt băng, băng vào chỗ (kèm tiếng trượt rất nhỏ trước đó), bolt. Nạp thường chỉ chạy hai cú đầu; nạp cạn mới chạy hết.
+    assert [c.sound for c in AUDIO.cues['reload']] == ['mag_release', 'mag_in', 'mag_seat']
+    assert [c.sound for c in AUDIO.cues['reload_empty']] == ['mag_release', 'mag_in', 'mag_seat', 'bolt_release']
+    assert 'bolt_release' not in [c.sound for c in AUDIO.cues['reload']] and 'bolt_tick' not in [c.sound for c in AUDIO.cues['reload']]
+
+
+def test_reload_uses_only_the_users_recording():
+    # không còn tiếng tổng hợp cũ (mag_out, mag_tap...) lẫn vào cú va đầu tiên
+    for key in ('reload', 'reload_empty'):
+        for c in AUDIO.cues[key]:
+            assert AUDIO.sound_files.get(c.sound, '').startswith('user_'), (key, c.sound)
 
 
 def test_draw_has_two_quiet_cues():

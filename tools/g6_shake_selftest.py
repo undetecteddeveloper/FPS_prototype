@@ -139,9 +139,14 @@ class Script(Entity):
             yield
             samples.append((combat.weapon.mag, shake.trauma) + shake_metrics())
         held_keys['left mouse'] = 0
-        for _ in range(60):                       # ~1 s sau loạt cuối
+        after, t = [], 0.0
+        while t < 1.0:                            # 1 s (đồng hồ game) sau loạt cuối: tính theo giây chứ không theo số khung, vì trauma tắt theo THỜI GIAN
             yield
-            samples.append((0, shake.trauma) + shake_metrics())
+            t += min(time.dt, 0.05)
+            after.append((t, (0, shake.trauma) + shake_metrics()))
+        samples.extend(x for _, x in after)
+        settle = D.fire_max_trauma / D.fire_decay + 0.1       # trauma tắt hẳn sau cap / decay giây kể từ phát cuối (+ chút dư)
+        self.spray_tail = [x for tt, x in after if tt >= settle]
         self.spray_samples = samples
 
     def reload_run(self, mag, label, cancel_after_frame=None):
@@ -278,15 +283,17 @@ class Script(Entity):
         check('bắn: roll nhìn thấy được (độ)', round(roll_max, 3), '>= 0.15', roll_max >= 0.15)
         check('bắn: roll vừa phải (độ)', round(roll_max, 3), f'<= {D.fire_amp[5] * D.fire_scale * ceiling + 0.02:.2f}',
               roll_max <= D.fire_amp[5] * D.fire_scale * ceiling + 0.02)
-        check('bắn: lệch hướng nhìn (pitch/yaw) vừa phải (độ)', round(dev_max, 3), '<= 0.3', dev_max <= 0.3)
+        dev_cap = ceiling * D.fire_scale * math.hypot(D.fire_amp[3], D.fire_amp[4]) + 0.02   # tối đa của mô hình: pitch và yaw cùng đạt đỉnh
+        check('bắn: lệch hướng nhìn (pitch/yaw) vừa phải (độ)', round(dev_max, 3), f'<= {dev_cap:.2f}', dev_max <= dev_cap)
         check('bắn: dịch chuyển vừa phải (mm)', round(mm_max, 2), '<= 2.5', mm_max <= 2.5)
         check('bắn: dịch trên màn hình vừa phải (px)', round(px_max, 1), '2 .. 14', 2 <= px_max <= 14)
         late = [x for x in firing if x[0] <= 10]
         early = [x for x in firing if x[0] >= 25]
         check('bắn: rung dựng dần (10 viên cuối > 3 viên đầu)', f'{max(x[2] for x in late):.2f} vs {max(x[2] for x in early):.2f}', 'lớn hơn',
               max(x[2] for x in late) > max(x[2] for x in early))
-        tail = s[-30:]
-        check('bắn: ~0,5 s sau loạt cuối rung đã tắt hẳn', round(max(x[2] for x in tail), 4), '0', max(x[2] + x[3] + x[4] for x in tail) < 0.01)
+        tail = self.spray_tail
+        check('bắn: sau khi trauma tắt hết (cap / decay + 0,1 s) rung đã tắt hẳn', round(max(x[2] for x in tail), 4) if tail else None, '0',
+              bool(tail) and max(x[2] + x[3] + x[4] for x in tail) < 0.01)
         check('bắn: camera về đúng 0 (độ)', tuple(round(c, 6) for c in camera.rotation), '(0,0,0)', not any(camera.rotation))
         yield from self.wait(0.3)
 

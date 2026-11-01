@@ -274,11 +274,11 @@ class Script(Entity):
         check('khởi động: băng đạn / dự trữ theo file (cần khởi động lại)', (weapon.mag, weapon.mag_size, weapon.reserve), '(20, 20, 90)',
               (weapon.mag, weapon.mag_size, weapon.reserve) == (20, 20, 90))
         check('khởi động: rpm theo file', gun.rpm, '800', gun.rpm == 800.0 and abs(weapon.interval - 60 / 800) < 1e-9)
-        check('khởi động: giá trị sai kiểu giữ mặc định (ads_time)', gun.ads_time, '0,25', gun.ads_time == 0.25)
-        from fps.weapon_data import M4
+        from fps.weapon_data import LookData, M4
+        check('khởi động: giá trị sai kiểu giữ mặc định (ads_time)', gun.ads_time, f'{M4.ads_time}', gun.ads_time == M4.ads_time)
         check('M4 toàn cục không bị làm bẩn', (M4.rpm, M4.magazine), '(750, 30)', (M4.rpm, M4.magazine) == (750.0, 30))
         store.reset_all()
-        weapon.mag_size, weapon.mag, weapon.reserve = 30, 30, 150           # chỉ làm lại phần chép lúc dựng (số liệu đã về mặc định)
+        weapon.mag_size, weapon.mag, weapon.reserve = gun.magazine, gun.magazine, gun.reserve    # chỉ làm lại phần chép lúc dựng (số liệu đã về mặc định)
 
         # --- B. F1 mở / đóng, chuột ---
         check('chưa mở F1: bảng chưa dựng, không tốn gì', (panel.is_open, panel._built), '(False, False)', not panel.is_open and not panel._built)
@@ -458,7 +458,8 @@ class Script(Entity):
         yield from self.close_panel()
         ads = yield from self.measure_ads_time()
         store.reset(spec('gun.ads_time'))
-        check('ads_time 0,25 -> 0,5: thời gian vào ngắm đo được (s)', f'{base_ads:.2f} -> {ads:.2f}', '0,25 -> 0,50', abs(base_ads - 0.25) < 0.06 and abs(ads - 0.5) < 0.08)
+        check(f'ads_time {M4.ads_time} -> 0,5: thời gian vào ngắm đo được (s)', f'{base_ads:.2f} -> {ads:.2f}', f'{M4.ads_time:.2f} -> 0,50',
+              abs(base_ads - M4.ads_time) < 0.06 and abs(ads - 0.5) < 0.08)
 
         yield from self.open_panel()
         yield from self.slide_to('gun.recoil.up_scale', 1.0)
@@ -525,17 +526,22 @@ class Script(Entity):
         img_b = shot('debug', 'light_dim')
         yield from self.wait(0.1, frames=3)
         b_a, b_b = brightness(img_a, box), brightness(img_b, box)
-        check('lamp_intensity 3 -> 0,5: đầu vào shader look_lamp2.w đổi theo', f'{lamp0:.2f} -> {lamp1:.2f}', '3,00 -> 0,50', abs(lamp0 - 3.0) < 1e-3 and abs(lamp1 - 0.5) < 1e-3)
+        lamp_default = LookData().lamp_intensity                    # mặc định hiện hành (không chép số cứng)
+        check(f'lamp_intensity {lamp_default} -> 0,5: đầu vào shader look_lamp2.w đổi theo', f'{lamp0:.2f} -> {lamp1:.2f}', f'{lamp_default:.2f} -> 0,50',
+              abs(lamp0 - lamp_default) < 1e-3 and abs(lamp1 - 0.5) < 1e-3)
         check('  ảnh chụp tối đi thật (độ sáng giữa màn hình)', f'{b_a:.1f} -> {b_b:.1f}', 'giảm > 15%', b_b < b_a * 0.85)
         store.reset_group('look')
         yield from self.wait(0.1, frames=3)
         lamp2 = render.get_shader_input('look_lamp2').get_vector()[3]
-        check('đặt lại nhóm Ánh sáng: đèn sáng lại như cũ', round(lamp2, 2), '3,00', abs(lamp2 - 3.0) < 1e-3)
+        check('đặt lại nhóm Ánh sáng: đèn sáng lại như cũ', round(lamp2, 2), f'{lamp_default:.2f}', abs(lamp2 - lamp_default) < 1e-3)
+        spec_default = M4.view_light.specular
+        spec_target = 1.0 if abs(spec_default - 1.0) > 0.05 else 0.5          # kéo tới số KHÁC mặc định hiện hành
         yield from self.open_panel()
-        yield from self.slide_to('gun.view_light.specular', 1.0)
+        yield from self.slide_to('gun.view_light.specular', spec_target)
         yield from self.close_panel()
         spec_in = viewmodel.root.get_shader_input('spec_strength').get_vector()[0]
-        check('view_light.specular 0,3 -> 1,0: shader của súng nhận số mới', round(spec_in, 2), '1,00', abs(spec_in - 1.0) < 0.01)
+        check(f'view_light.specular {spec_default} -> {spec_target}: shader của súng nhận số mới', round(spec_in, 2), f'{spec_target:.2f}',
+              abs(spec_in - spec_target) < 0.01)
         store.reset_group('look')
 
         relief0 = game.sway.ads_target[2]

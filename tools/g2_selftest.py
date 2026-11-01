@@ -90,7 +90,7 @@ class Script(Entity):
         combat.last_impact = None
         combat.weapon.auto = auto
         combat.weapon.mag = mag
-        combat.weapon.reserve = 150
+        combat.weapon.reserve = gun.reserve
         combat.weapon.cooldown = 0.0
 
     def fire_single(self):
@@ -104,8 +104,8 @@ class Script(Entity):
         yield from self.wait(0.6)
         frame_dts.clear()
         shot('hud')
-        check('ban đầu: đạn trong băng / dự trữ', f'{combat.weapon.mag}/{combat.weapon.reserve}', '30/150',
-              (combat.weapon.mag, combat.weapon.reserve) == (30, 150))
+        check('ban đầu: đạn trong băng / dự trữ', f'{combat.weapon.mag}/{combat.weapon.reserve}', f'{gun.magazine}/{gun.reserve}',
+              (combat.weapon.mag, combat.weapon.reserve) == (gun.magazine, gun.reserve))
         check('ban đầu: chế độ tự động', combat.weapon.auto, True, combat.weapon.auto is True)
         check('số bia', len(game.targets), 6, len(game.targets) == 6)
 
@@ -221,8 +221,8 @@ class Script(Entity):
         held_keys['left mouse'] = 0
         combat.handling.cancel()                      # giữ cò khi băng cạn đã tự nạp (G5): ở đây chỉ kiểm phép đếm đạn
         taken = combat.weapon.load_magazine()
-        check('nạp lại: lấy 30 từ dự trữ', f'{combat.weapon.mag}/{combat.weapon.reserve} (lấy {taken})', '30/120 (lấy 30)',
-              (combat.weapon.mag, combat.weapon.reserve, taken) == (30, 120, 30))
+        check('nạp lại: lấy 30 từ dự trữ', f'{combat.weapon.mag}/{combat.weapon.reserve} (lấy {taken})', f'30/{gun.reserve - 30} (lấy 30)',
+              (combat.weapon.mag, combat.weapon.reserve, taken) == (30, gun.reserve - 30, 30))
         yield from self.wait(3.2)
 
         # --- cảnh chụp: loạt đạn vào bia 50 m, và 150 m ---

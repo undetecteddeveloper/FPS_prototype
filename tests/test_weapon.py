@@ -42,7 +42,7 @@ def test_several_shots_in_one_slow_frame_are_ordered_in_time():
 def test_ammo_counts_down_and_stops_when_empty():
     w = Weapon(M4)
     shots = run(w, 5.0, 60)
-    assert len(shots) == 30 and w.mag == 0 and w.reserve == 150
+    assert len(shots) == M4.magazine and w.mag == 0 and w.reserve == M4.reserve   # bắn cạn băng, kho dự trữ nguyên
     assert w.update(1 / 60, True, False) == []              # hết đạn thì không bắn được nữa
 
 
@@ -86,11 +86,11 @@ def test_single_fire_respects_rpm():
 def test_load_magazine_takes_from_reserve():
     w = Weapon(M4)
     run(w, 1.0, 60)
-    fired = 30 - w.mag
+    fired = M4.magazine - w.mag
     assert fired > 0
     assert w.can_reload
     assert w.load_magazine() == fired
-    assert w.mag == 30 and w.reserve == 150 - fired
+    assert w.mag == M4.magazine and w.reserve == M4.reserve - fired
     assert not w.can_reload                                 # băng đầy rồi
     w.reserve = 5
     w.mag = 0

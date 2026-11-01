@@ -46,3 +46,22 @@ def impulse_gain(omega: float, zeta: float) -> float:
     wd = omega * math.sqrt(1.0 - zeta * zeta)
     t_peak = math.atan2(wd, a) / wd
     return wd / (math.exp(-a * t_peak) * math.sin(wd * t_peak))
+
+
+def burst_peak_ratio(omega: float, zeta: float, shots: int, interval: float) -> float:
+    """Đỉnh của `shots` xung GIỐNG NHAU cách nhau `interval` giây, chia cho đỉnh của MỘT xung (hệ tuyến tính nên không phụ thuộc độ lớn xung).
+
+    Công thức đóng, độc lập với `Spring.step`: đáp ứng một xung h(t) = e^(-a t) sin(wd t) chuẩn hoá cho đỉnh = 1, cộng chồng các bản dịch
+    thời gian. Dùng để test và selftest suy ra "cả băng lùi bao nhiêu lần một phát" từ lò xo thay vì chép số cứng."""
+    zeta = clamp_zeta(zeta)
+    a = zeta * omega
+    wd = omega * math.sqrt(1.0 - zeta * zeta)
+    t_peak = math.atan2(wd, a) / wd
+    norm = math.exp(-a * t_peak) * math.sin(wd * t_peak)
+    step = 0.0005
+    best = 0.0
+    for k in range(int(((shots - 1) * interval + 3.0 * t_peak) / step)):
+        t = k * step
+        total = sum(math.exp(-a * (t - i * interval)) * math.sin(wd * (t - i * interval)) for i in range(shots) if t > i * interval)
+        best = max(best, total / norm)
+    return best

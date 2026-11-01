@@ -25,6 +25,7 @@ from fps.game.hud import CROSSHAIR_LEN  # noqa: E402
 from fps.core.movement import MoveState, aim_direction  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between, crosshair_gap  # noqa: E402
+from fps.core.spring import burst_peak_ratio  # noqa: E402
 from fps.weapon_data import M4_PATTERN  # noqa: E402
 
 game = create_game(vsync=False, sound=False, draw=False, shake=False, moving_targets=False)     # bia đứng yên (G6); camera shake (G6) làm camera.forward / vị trí súng lệch khỏi tia ngắm: tắt khi đo recoil/tâm ngắm
@@ -409,8 +410,13 @@ class Script(Entity):
         # --- G. đẩy lùi (z của kick súng): một phát, cả băng, về chỗ, ADS, camera/đạn không đổi ---
         phase['name'] = 'đẩy lùi'
         pb = gun.kick.back_peak
+        # cả băng 30 viên lùi bao nhiêu lần một phát: suy ra từ lò xo đẩy lùi (công thức đóng), không chép số cứng; đỉnh cả băng kỳ vọng = pb * tỉ lệ
+        burst_ratio = burst_peak_ratio(gun.kick.back_omega, gun.kick.back_zeta, 30, 60.0 / gun.rpm)
+        burst_exp = pb * burst_ratio
+        print(f'ĐẨY LÙI kỳ vọng từ cấu hình: một phát {pb * 1000:.1f} mm, cả băng x{burst_ratio:.2f} = {burst_exp * 1000:.1f} mm, '
+              f'ngắm x{gun.kick.back_ads_scale}')
 
-        # G1. bắn đơn: đỉnh ~3 cm, trên màn hình lùi đúng chừng đó, rồi về chỗ
+        # G1. bắn đơn: đỉnh = back_peak, trên màn hình lùi đúng chừng đó, rồi về chỗ
         self.reset_state(auto=False, mag=30)
         yield from self.wait(0.4)
         rest1 = gun_center()
@@ -427,13 +433,13 @@ class Script(Entity):
             if abs(z) >= 0.001:
                 last_one = t_one
         single = min(one_z)
-        check('đẩy lùi MỘT phát: đỉnh ~3 cm (mm)', round(single * 1000, 1), f'{pb * 1000:.0f} +-25%', abs(single - pb) <= 0.25 * abs(pb))
+        check('đẩy lùi MỘT phát: đỉnh = back_peak (mm)', round(single * 1000, 1), f'{pb * 1000:.0f} +-25%', abs(single - pb) <= 0.25 * abs(pb))
         check('  trên màn hình thân súng lùi đúng chừng đó (mm)', round(min(one_scr) * 1000, 1), f'{pb * 1000:.0f} +-30%',
               abs(min(one_scr) - pb) <= 0.30 * abs(pb))
         check('  về chỗ cũ (|z| < 1 mm) sau phát đơn (s)', round(last_one, 2), '<= 0.6', last_one <= 0.6)
         print(f'ĐẨY LÙI một phát: đỉnh {single * 1000:.1f} mm, về chỗ (< 1 mm) sau {last_one:.2f} s')
 
-        # G2. cả băng 30 viên hông: đỉnh ~5 cm; ngừng bắn thì về chỗ trong thời gian đo được
+        # G2. cả băng 30 viên hông: đỉnh = back_peak x tỉ lệ lò xo; ngừng bắn thì về chỗ trong thời gian đo được
         self.reset_state(auto=True, mag=30)
         yield from self.wait(0.4)
         rest2 = gun_center()
@@ -460,17 +466,23 @@ class Script(Entity):
             if abs(combat.gun_kick.pose[2]) >= 0.001:
                 last_big = t_stop
         burst = min(z_hip)
-        check('đẩy lùi cả băng 30 viên hông: đỉnh ~5 cm (mm)', round(burst * 1000, 1), '-35 .. -65', -0.065 <= burst <= -0.035)
-        check('  nhiều hơn một phát đơn nhưng có trần (x so với phát đơn)', round(burst / single, 2), '1.3 .. 2.0', 1.3 <= burst / single <= 2.0)
-        check('  trên màn hình thân súng lùi cùng cỡ (mm)', round(min(scr_hip) * 1000, 1), '-35 .. -70', -0.070 <= min(scr_hip) <= -0.035)
-        check('  hông: thân súng nhích vào giữa (sang trái) cùng lúc (mm)', round(min(scr_x_hip) * 1000, 1), '-30 .. -6', -0.030 <= min(scr_x_hip) <= -0.006)
+        # biên giữ nguyên tỉ lệ cũ so với giá trị kỳ vọng (cũ: -35 .. -65 quanh ~-51 mm => x0,7 .. x1,3; màn hình x0,7 .. x1,4; ngang x0,4 .. x2)
+        check('đẩy lùi cả băng 30 viên hông: đỉnh = back_peak x tỉ lệ lò xo (mm)', round(burst * 1000, 1),
+              f'{burst_exp * 1300:.0f} .. {burst_exp * 700:.0f}', burst_exp * 1.3 <= burst <= burst_exp * 0.7)
+        check('  nhiều hơn một phát đơn nhưng có trần (x so với phát đơn)', round(burst / single, 2),
+              f'{0.75 * burst_ratio:.2f} .. {1.17 * burst_ratio:.2f} (mô hình {burst_ratio:.2f})', 0.75 * burst_ratio <= burst / single <= 1.17 * burst_ratio)
+        check('  trên màn hình thân súng lùi cùng cỡ (mm)', round(min(scr_hip) * 1000, 1), f'{burst_exp * 1400:.0f} .. {burst_exp * 700:.0f}',
+              burst_exp * 1.4 <= min(scr_hip) <= burst_exp * 0.7)
+        x_exp = gun.kick.back_x_ratio * burst_exp                       # nhích ngang theo đẩy lùi (âm: sang trái)
+        check('  hông: thân súng nhích vào giữa (sang trái) cùng lúc (mm)', round(min(scr_x_hip) * 1000, 1),
+              f'{x_exp * 2000:.0f} .. {x_exp * 400:.0f}', x_exp * 2.0 <= min(scr_x_hip) <= x_exp * 0.4)
         check('  ngừng bắn: về chỗ cũ (|z| < 1 mm) sau (s)', round(last_big, 2), '<= 0.7', last_big <= 0.7)
         check('  camera thế giới KHÔNG lùi (độ lệch vị trí, mm)', round(max(cam_dev) * 1000, 4), '< 0.01', max(cam_dev) < 1e-5)
         print(f'ĐẨY LÙI cả băng (hông): đỉnh {burst * 1000:.1f} mm ({burst / single:.2f}x một phát), trên màn hình {min(scr_hip) * 1000:.1f} mm, '
               f'về chỗ sau {last_big:.2f} s kể từ phát cuối')
         yield from self.wait(0.6)
 
-        # G3. ADS: còn khoảng một nửa
+        # G3. ADS: đỉnh cả băng = back_ads_scale x hông (< 1 lùi ít hơn hông, > 1 lùi nhiều hơn)
         self.reset_state(auto=True, mag=30, ads=1.0)
         yield from self.wait(0.5)
         rest3 = gun_center()
@@ -493,7 +505,7 @@ class Script(Entity):
         yield from self.wait(0.02)
         shot('ads_end', prefix='kick_')
         ratio = min(z_ads) / burst
-        check('đẩy lùi khi ngắm hẳn ~ một nửa hông (tỉ lệ đỉnh cả băng)', round(ratio, 2), f'{gun.kick.back_ads_scale} +-0.12',
+        check('đẩy lùi khi ngắm hẳn = back_ads_scale x hông (tỉ lệ đỉnh cả băng)', round(ratio, 2), f'{gun.kick.back_ads_scale} +-0.12',
               abs(ratio - gun.kick.back_ads_scale) <= 0.12)
         check('  vẫn thấy được khi ngắm (mm)', round(min(scr_ads) * 1000, 1), '< -10', min(scr_ads) < -0.010)
         print(f'ĐẨY LÙI khi ngắm: đỉnh {min(z_ads) * 1000:.1f} mm ({ratio:.2f} so với hông), trên màn hình {min(scr_ads) * 1000:.1f} mm')

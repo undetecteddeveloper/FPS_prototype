@@ -180,7 +180,7 @@ def test_defaults_are_snapshotted_before_changes_and_m4_stays_clean():
 
 # --- lưu / nạp ---
 def test_save_load_roundtrip(tmp_path, store):
-    for sid, v in (('gun.rpm', 820), ('gun.kick.peak[1]', 0.01), ('gun.tracer.every', 2), ('player.sprint_blocks_fire', False),
+    for sid, v in (('gun.rpm', 820), ('gun.kick.peak[1]', 0.01), ('gun.tracer.every', 4), ('player.sprint_blocks_fire', False),
                    ('look.shadows', 'fake'), ('look.lamp_color[1]', 0.5), ('gun.recoil.right_scale', -0.5)):
         store.set(store.by_id[sid], v)
     want = {s.id: store.get(s) for s in store.specs}
@@ -192,7 +192,7 @@ def test_save_load_roundtrip(tmp_path, store):
     rep = other.load(path)
     assert rep.ok and rep.applied == 7 and not rep.ignored
     assert {s.id: other.get(s) for s in other.specs} == want
-    assert other.root.look.shadows == 'fake' and other.root.gun.kick.peak[1] == 0.01 and other.root.gun.tracer.every == 2
+    assert other.root.look.shadows == 'fake' and other.root.gun.kick.peak[1] == 0.01 and other.root.gun.tracer.every == 4
     assert isinstance(other.root.gun.kick.peak, tuple) and isinstance(other.root.gun.tracer.every, int)
 
 

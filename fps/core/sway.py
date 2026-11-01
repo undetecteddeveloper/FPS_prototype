@@ -137,7 +137,7 @@ class Sway:
         d = self.d
         ads = smoothstep(inp.ads_amount)
         sprint = smoothstep(inp.sprint_amount) * (1.0 - ads)
-        calm = 1.0 + (d.ads_multiplier - 1.0) * ads            # ngắm: thở, lag, bob, quán tính còn ~20%
+        calm = 1.0 + (d.ads_multiplier - 1.0) * ads            # ngắm: thở, lag, bob, quán tính còn ads_multiplier (0,4)
         total = [0.0] * 6
         self.clock += dt
 

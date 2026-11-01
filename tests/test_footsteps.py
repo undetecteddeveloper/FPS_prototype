@@ -125,3 +125,90 @@ def test_pick_variant_never_repeats_and_covers_all():
         last = v
     assert seen == set(range(5))
     assert pick_variant(rng, 1, 0) == 0
+
+
+# --- nhịp bước KHỚP pha bob của Sway ---
+import dataclasses  # noqa: E402
+import math  # noqa: E402
+
+from fps.core.movement import MoveState as S  # noqa: E402
+from fps.core.sway import Sway, SwayInput  # noqa: E402
+from fps.weapon_data import SwayData  # noqa: E402
+
+
+def bob_walk(meters, state=S.WALK, speed=4.5, fps=60.0, seed=1, sway_data=None, hitch=None):
+    """Đi `meters` mét với Sway thật; trả về [(giây, sự kiện bước, pha bob, bước pha mỗi khung)]."""
+    sd = sway_data or SwayData()
+    sway, fs = Sway(sd), Footsteps(A, random.Random(seed))
+    dt, t, moved, out = 1.0 / fps, 0.0, 0.0, []
+    sprint = 1.0 if state is S.SPRINT else 0.0
+    while moved < meters:
+        step = dt if not (hitch and abs(t - hitch[0]) < dt / 2) else hitch[1]
+        d = speed * step
+        moved += d
+        t += step
+        sway.update(step, SwayInput(state, speed, 0.0, sprint))
+        for ev in fs.update(step, d, True, 0.0, 0.0, state is S.SPRINT, state is S.CROUCH_WALK, sway.phase):
+            rate = sd.bob_sprint_rate if state is S.SPRINT else sd.bob_rate
+            out.append((t, ev, sway.phase, 2 * math.pi * speed * step * rate / sd.bob_stride))
+    return out, sway
+
+
+@pytest.mark.parametrize('state,speed,rate_name', [(S.WALK, 4.5, 'bob_rate'), (S.SPRINT, 6.8, 'bob_sprint_rate'), (S.CROUCH_WALK, 2.2, 'bob_rate')])
+def test_bob_steps_follow_the_bob_cadence(state, speed, rate_name):
+    sd = SwayData()
+    out, _ = bob_walk(30.0, state, speed)
+    expect = 2 * 30.0 * getattr(sd, rate_name) / sd.bob_stride        # hai bước mỗi chu kỳ bob
+    assert abs(len(out) - expect) <= 1.0
+
+
+@pytest.mark.parametrize('fps', [30, 60, 144, 240])
+def test_bob_steps_do_not_depend_on_fps(fps):
+    out, _ = bob_walk(30.0, fps=fps)
+    assert abs(len(out) - 10) <= 1
+
+
+def test_step_lands_on_the_lowest_point_of_the_bob():
+    out, _ = bob_walk(30.0)
+    for _, ev, phase, dphase in out:
+        off = (phase - A.step_bob_phase) % math.pi
+        assert off <= dphase + 1e-6 or math.pi - off <= 1e-6, (phase, dphase)       # vừa đi qua mốc, cùng lắm một khung trước
+
+
+def test_bob_feet_alternate():
+    out, _ = bob_walk(30.0)
+    feet = [ev.foot for _, ev, _, _ in out]
+    assert len(feet) >= 6 and all(a != b for a, b in zip(feet, feet[1:]))
+
+
+def test_bob_steps_never_pile_up_into_continuous_noise():
+    """Lỗi đã gặp: bước theo quãng đường 0,75 m ở 4,5 m/s = 6 tiếng/s, mỗi tiếng dài 0,31 s nên kêu liên tục. Theo bob thì thưa hơn nhiều."""
+    for state, speed in ((S.WALK, 4.5), (S.SPRINT, 6.8), (S.CROUCH_WALK, 2.2)):
+        out, _ = bob_walk(30.0, state, speed)
+        gaps = [b[0] - a[0] for a, b in zip(out, out[1:])]
+        assert min(gaps) > 0.4, (state, min(gaps))
+
+
+def test_bob_steps_scale_with_bob_rate():
+    base, _ = bob_walk(30.0)
+    fast, _ = bob_walk(30.0, sway_data=dataclasses.replace(SwayData(), bob_rate=0.8))
+    assert abs(len(fast) - 2 * len(base)) <= 2
+
+
+def test_bob_silent_when_standing_and_airborne():
+    out, sway = bob_walk(5.0)
+    fs = Footsteps(A, random.Random(2))
+    fs.update(1 / 60, 0.0, True, 0.0, 0.0, False, False, sway.phase)
+    for _ in range(180):                                              # đứng yên 3 s: pha bob đứng yên, không có bước
+        sway.update(1 / 60, SwayInput(S.IDLE, 0.0, 0.0, 0.0))
+        assert fs.update(1 / 60, 0.0, True, 0.0, 0.0, False, False, sway.phase) == []
+    for _ in range(60):                                               # trên không: im dù có di chuyển ngang
+        assert [e for e in fs.update(1 / 60, 0.08, False, -1.0, 0.0, False, False, (sway.phase + 1.0) % (2 * math.pi)) if e.kind == 'step'] == []
+
+
+def test_a_long_frame_does_not_burst():
+    out, _ = bob_walk(40.0, S.SPRINT, 6.8, hitch=(1.0, 0.6))
+    per_frame = {}
+    for t, *_ in out:
+        per_frame[round(t, 4)] = per_frame.get(round(t, 4), 0) + 1
+    assert max(per_frame.values()) <= 2

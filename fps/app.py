@@ -91,10 +91,10 @@ class Game(Entity):
             self.viewmodel.on_event(event)
             if self.foley:
                 self.foley.on_handling_event(event)
-        if self.foley:
-            self.foley.update(dt)
         self.viewmodel.animate(dt, self.combat.weapon.mag == 0)
         sway_pose = self.sway.update(min(dt, 0.05), self.player.sway_input())
+        if self.foley:
+            self.foley.update(dt, self.sway.phase)       # sau sway: bước chân phát đúng lúc súng chạm điểm thấp nhất của bob
         shake_pose = self.shake_view.apply(self.player.ads_amount) if self.shake_view else None    # camera thế giới rung + tư thế rung của súng
         self.viewmodel.update(self.combat.gun_kick.pose, sway_pose, *((shake_pose,) if shake_pose else ()))
         self.hud.update(dt, self.combat)

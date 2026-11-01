@@ -2,7 +2,7 @@
 
 Điều khiển qua đúng đường phím của game (held_keys, combat.pressed, player.look). Đo:
   - ADS: thời gian vào/ra, FOV, tốc độ đi, độ nhạy chuột, đường ngắm (vòng sau + cột trước) trùng tâm màn hình theo phép chiếu thật
-  - sway: biên độ thở và ADS còn ~20%, nhịp bob theo quãng đường, lag ngược hướng chuột, quán tính khi nhảy/ngồi, nhún khi chạm đất
+  - sway: biên độ thở và ADS còn `ads_multiplier`, nhịp bob theo quãng đường, lag ngược hướng chuột, quán tính khi nhảy/ngồi, nhún khi chạm đất
   - chạy: tư thế hạ súng, bóp cò khi đang chạy thì trễ ~0,25 s mới bắn, bắn đơn không mất cú bóp
 Ảnh vào shots\\g4_*.png.
 
@@ -200,7 +200,7 @@ class Script(Entity):
         combat.pressed = False
         combat.weapon.auto = auto
         combat.weapon.mag = mag
-        combat.weapon.reserve = 150
+        combat.weapon.reserve = gun.reserve
         combat.weapon.cooldown = 0.0
 
     def run(self):
@@ -305,7 +305,7 @@ class Script(Entity):
         yield from self.wait(0.6)
         xs_ads = yield from self.sample(5.0, lambda: sway_pose()[0])
         ptp_ads = max(xs_ads) - min(xs_ads)
-        check('ADS: thở còn ~20%', round(ptp_ads / ptp, 3), f'{sw.ads_multiplier} +-0.05', abs(ptp_ads / ptp - sw.ads_multiplier) < 0.05)
+        check('ADS: thở còn ads_multiplier', round(ptp_ads / ptp, 3), f'{sw.ads_multiplier} +-0.05', abs(ptp_ads / ptp - sw.ads_multiplier) < 0.05)
         held_keys['right mouse'] = 0
         yield from self.wait(0.4)
 
@@ -379,7 +379,7 @@ class Script(Entity):
         yield from self.wait(0.4)
         rec5 = yield from self.flick(240, 0.15, after=1.0)
         peak5 = -min(p[4] for _, p in rec5)
-        check('ngắm (ADS): lệch còn ~20% (độ)', round(peak5, 2), f'{peak * sw.ads_multiplier:.2f} +-30%', abs(peak5 - peak * sw.ads_multiplier) < 0.3 * peak * sw.ads_multiplier)
+        check('ngắm (ADS): lệch còn ads_multiplier (độ)', round(peak5, 2), f'{peak * sw.ads_multiplier:.2f} +-30%', abs(peak5 - peak * sw.ads_multiplier) < 0.3 * peak * sw.ads_multiplier)
         yield from self.flick(600, 0.1, after=0.8, shot_name='sway_ads')
         held_keys['right mouse'] = 0
         yield from self.wait(0.5)

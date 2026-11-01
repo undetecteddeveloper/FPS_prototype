@@ -102,8 +102,9 @@ class Foley:
         elif kind == 'cancel':
             self.schedule.cancel(self.audio)
 
-    def update(self, dt: float):
-        """Mỗi khung, SAU khi đã xử lý các sự kiện của Handling (cùng `dt` thật với Handling.update)."""
+    def update(self, dt: float, bob_phase: float = None):
+        """Mỗi khung, SAU khi đã xử lý các sự kiện của Handling (cùng `dt` thật với Handling.update) và SAU `Sway.update` (để pha bob là của khung này).
+        `bob_phase` = Sway.phase: bước chân phát đúng lúc súng chạm điểm thấp nhất của bob."""
         self.clock += dt
         self._play_cues(self.schedule.update(dt))
         p = self.player
@@ -111,5 +112,5 @@ class Foley:
         self._px, self._pz = p.x, p.z
         if moved > TELEPORT_DISTANCE:
             moved = 0.0
-        for ev in self.steps.update(dt, moved, p.on_ground, p.vy, p.landed, p.sprinting, p.crouching):
+        for ev in self.steps.update(dt, moved, p.on_ground, p.vy, p.landed, p.sprinting, p.crouching, bob_phase):
             self._play_foot(ev)
