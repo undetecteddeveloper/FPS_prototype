@@ -56,7 +56,7 @@ class ShotInfo:
 
 class Combat:
     def __init__(self, params: GameParams, player, targets: list, static_boxes: list, rng: random.Random = None,
-                 audio=None, fx=None):
+                 audio=None, fx=None, shake=None):
         self.gun = params.gun
         self.fb = params.feedback
         self.player = player
@@ -65,6 +65,7 @@ class Combat:
         self.rng = rng or random.Random()
         self.audio = audio                         # GunAudio hoặc None (tắt tiếng)
         self.fx = fx                               # Effects (tia lửa đầu nòng, tracer) hoặc None
+        self.shake = shake                         # core.shake.Shake (rung thuần hình ảnh, không đổi hướng đạn) hoặc None
         self.weapon = Weapon(self.gun)
         self.handling = Handling(self.gun, self.weapon)     # rút súng / nạp đạn
         self.reload_requested = False                       # vừa bấm R
@@ -92,6 +93,8 @@ class Combat:
         """Nạp đạn: tiến clip, chạy nước rút cắt reload, bắt đầu nạp (phím R, hoặc bóp cò khi băng cạn)."""
         h, r = self.handling, self.gun.reload
         h.update(real_dt)
+        if self.shake:
+            self.shake.watch_reload(h.key, h.frame, 30.0 * h.speed)    # mốc rung của clip nạp (băng vào chỗ, bolt); huỷ nạp thì các mốc chưa tới bị bỏ
         sprinting = r.sprint_cancels and self.player.sprint_amount > 0
         if h.phase is Phase.RELOAD and sprinting:
             h.cancel()
@@ -133,12 +136,16 @@ class Combat:
                 self.accuracy.on_shot()
                 self.recoil.on_shot()
                 self.gun_kick.on_shot()
+                if self.shake:
+                    self.shake.on_shot(age)
                 if self.audio:
                     self.audio.play_shot()
         up, right = self.recoil.step(dt)
         if up or right:
             self.player.kick_view(up, right)       # sau khi bắn: phát này đã đi theo hướng nhìn trước cú giật
         self.gun_kick.update(dt)
+        if self.shake:
+            self.shake.update(dt)          # sau mọi sự kiện rung của khung (phát bắn có tuổi, mốc nạp): xử lý theo đúng thời điểm
         if self.fx:
             self.fx.update(dt)
         self.spread_now = self.accuracy.angle(self.player.state, self.player.ads_amount)

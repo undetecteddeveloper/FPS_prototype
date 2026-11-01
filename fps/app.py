@@ -12,8 +12,11 @@ import ursina  # noqa: E402
 from panda3d.core import Filename, loadPrcFileData  # noqa: E402
 from ursina import Entity, Ursina, application, mouse, time, window  # noqa: E402
 
+from fps.core.shake import Shake  # noqa: E402
+from fps.game.camera_shake import ShakeView  # noqa: E402
 from fps.game.combat import Combat  # noqa: E402
 from fps.game.effects import Effects  # noqa: E402
+from fps.game.foley import Foley  # noqa: E402
 from fps.game.gun_audio import GunAudio  # noqa: E402
 from fps.game.hud import Hud, setup_fonts  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
@@ -29,19 +32,22 @@ class Game(Entity):
     """Gom các phần lại và chạy vòng lặp mỗi khung hình."""
 
     def __init__(self, params: GameParams, quit_after: float = 0.0, sound: bool = True, draw: bool = True,
-                 effects: bool = True, look: bool = True):
+                 effects: bool = True, look: bool = True, shake: bool = True):
         super().__init__()
         self.params = params
         self.quit_after = quit_after
         self._age = 0.0
         self._draw_pending = draw         # rút súng ở khung đầu tiên (không phải lúc dựng: nạp mô hình làm khung đầu rất dài)
-        self.world = build_range()
+        self.world = build_range(params.look)
         self.targets = build_targets(params.feedback)
         self.player = Player(params.player, WALK_BOUNDS, params.gun)
         self.audio = GunAudio(params.gun, ROOT) if sound and params.gun.shot_sound else None
+        self.foley = Foley(params.audio, params.gun, self.player, ROOT) if sound else None    # nạp đạn, bước chân (tắt cùng cờ sound / --mute)
         self.viewmodel = Viewmodel(params.gun, ROOT)
         self.fx = Effects(params.gun, self.viewmodel) if effects else None
-        self.combat = Combat(params, self.player, self.targets, self.world['colliders'], audio=self.audio, fx=self.fx)
+        self.shake = Shake(params.gun.shake) if shake else None                # rung thuần hình ảnh (không đổi hướng đạn)
+        self.shake_view = ShakeView(self.shake) if shake else None
+        self.combat = Combat(params, self.player, self.targets, self.world['colliders'], audio=self.audio, fx=self.fx, shake=self.shake)
         self.look = WorldLook(params.look, self.world, self.targets, self.combat.decals) if look else None
         self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.hud = Hud(params.gun.credit)
@@ -58,9 +64,14 @@ class Game(Entity):
             self.combat.handling.start_draw()
         for event in self.combat.handling.drain():
             self.viewmodel.on_event(event)
+            if self.foley:
+                self.foley.on_handling_event(event)
+        if self.foley:
+            self.foley.update(dt)
         self.viewmodel.animate(dt, self.combat.weapon.mag == 0)
         sway_pose = self.sway.update(min(dt, 0.05), self.player.sway_input())
-        self.viewmodel.update(self.combat.gun_kick.pose, sway_pose)
+        shake_pose = self.shake_view.apply(self.player.ads_amount) if self.shake_view else None    # camera thế giới rung + tư thế rung của súng
+        self.viewmodel.update(self.combat.gun_kick.pose, sway_pose, *((shake_pose,) if shake_pose else ()))
         self.hud.update(dt, self.combat)
         self._age += time.dt
         if self.quit_after and self._age >= self.quit_after:
@@ -78,7 +89,7 @@ class Game(Entity):
 
 
 def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, quit_after: float = 0.0,
-                sound: bool = True, draw: bool = True, effects: bool = True, look: bool = True) -> Game:
+                sound: bool = True, draw: bool = True, effects: bool = True, look: bool = True, shake: bool = True) -> Game:
     # Ursina(vsync=False) một mình không tắt được vsync; phải đặt thẳng cấu hình Panda
     loadPrcFileData('', f'sync-video {int(vsync)}')
     icon = Path(ursina.__file__).parent / 'textures' / 'ursina.ico'   # tuyệt đối, nếu không Ursina tìm trong thư mục game
@@ -87,7 +98,7 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     application.asset_folder = ROOT
     window.fps_counter.enabled = False
     setup_fonts()
-    game = Game(GameParams(), quit_after, sound, draw, effects, look)
+    game = Game(GameParams(), quit_after, sound, draw, effects, look, shake=shake)
     game.app = app
     return game
 

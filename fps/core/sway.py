@@ -119,7 +119,8 @@ class Sway:
                 target *= d.bob_sprint_multiplier
             elif inp.state is MoveState.CROUCH_WALK:
                 target *= d.bob_crouch_multiplier
-            self.phase = (self.phase + 2.0 * math.pi * inp.speed * dt / d.bob_stride) % (2.0 * math.pi)
+            rate = d.bob_sprint_rate if inp.state is MoveState.SPRINT else d.bob_rate
+            self.phase = (self.phase + 2.0 * math.pi * inp.speed * dt * rate / d.bob_stride) % (2.0 * math.pi)
         self.bob_amount += (target - self.bob_amount) * (1.0 - math.exp(-dt * d.bob_blend))
         a, ph = self.bob_amount, self.phase
         return (a * d.bob_x * math.sin(ph), a * d.bob_y * math.sin(2.0 * ph), 0.0,

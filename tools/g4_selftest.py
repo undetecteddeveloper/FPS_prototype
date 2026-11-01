@@ -301,7 +301,8 @@ class Script(Entity):
             ys = yield from self.sample_timed(4.0, lambda: sway_pose()[1])
             freq, amp = oscillation(ys)
             bob[name] = (freq, amp)
-            expect = 2 * speed / sw.bob_stride
+            rate = sw.bob_sprint_rate if state is S.SPRINT else sw.bob_rate
+            expect = 2 * speed * rate / sw.bob_stride
             check(f'bob khi {name}: nhịp (lần/s) theo quãng đường', round(freq, 2), f'{expect:.2f} +-10%', abs(freq - expect) < 0.1 * expect)
             for k in keys:
                 held_keys[k] = 0

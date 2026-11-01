@@ -147,14 +147,16 @@ class Script(Entity):
         yield from self.wait(0.5)
         check('hit marker tắt sau 0,15 s', round(combat.hit_marker_left, 3), 0, combat.hit_marker_left == 0)
 
-        # --- bắn trượt: lên trời ---
+        # --- bắn trượt: lên trần (phòng tập kín, không còn trời) ---
         phase['name'] = 'bắn trượt'
         aim(0, -25)
         marker_before = combat.target_hits
         yield from self.fire_single()
-        yield from self.wait(2.3)          # đạn bay lên trời sống tối đa bullet_lifetime = 3 s
-        check('bắn lên trời: không trúng gì', combat.last_impact is None, True, combat.last_impact is None)
-        check('bắn lên trời: không có hit marker', combat.hit_marker_left == 0 and combat.target_hits == marker_before, True,
+        yield from self.wait(2.3)
+        imp = combat.last_impact
+        ceiling_ok = imp is not None and not isinstance(imp.owner, Target) and imp.normal == (0.0, -1.0, 0.0)
+        check('bắn lên trần: trúng trần (pháp tuyến -y)', imp.normal if imp else None, (0.0, -1.0, 0.0), ceiling_ok)
+        check('bắn lên trần: không có hit marker', combat.hit_marker_left == 0 and combat.target_hits == marker_before, True,
               combat.hit_marker_left == 0 and combat.target_hits == marker_before)
         check('đạn lạc bị xoá sau khi hết hạn bay', len(combat.bullets), 0, len(combat.bullets) == 0)
 
@@ -168,11 +170,11 @@ class Script(Entity):
         check('  lỗ đạn trên đất', combat.decals.count - holes, 1, combat.decals.count - holes == 1)
         check('  bắn đất không bật hit marker', combat.hit_marker_left, 0, combat.hit_marker_left == 0)
         shot('ground_hit')
-        aim(-90, 10)
+        aim(-90, 2)                        # tường trái cách ~12 m: chúc 10 độ như trước thì chạm sàn ở 9 m
         yield from self.fire_single()
         imp = combat.last_impact
         ok = imp is not None and imp.owner not in (GROUND,) and not isinstance(imp.owner, Target) and imp.normal == (1.0, 0.0, 0.0)
-        check('bắn sang bên trái: trúng bờ đất (pháp tuyến +x)', imp.normal if imp else None, (1.0, 0.0, 0.0), ok)
+        check('bắn sang bên trái: trúng tường (pháp tuyến +x)', imp.normal if imp else None, (1.0, 0.0, 0.0), ok)
 
         # --- bắn đơn: một lần bóp một phát ---
         phase['name'] = 'bắn đơn'

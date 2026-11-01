@@ -1,41 +1,226 @@
 #version 140
-// Ánh sáng nửa cầu + mặt trời (pháp tuyến lấy từ đạo hàm vị trí nên không phụ thuộc mesh có normal hay không),
-// nhiễu chi tiết hai tỉ lệ trên mặt nằm ngang (phá ô lưới lặp, mờ dần ở xa), và sương mù theo khoảng cách
-// hoà vào màu chân trời: xa dần nhạt đi, mặt đất không còn bị cắt ngang bởi đường chân trời.
+// Thế giới trong phòng tập kín: đèn trần (đèn điểm, suy giảm theo khoảng cách) + bóng thật từ atlas độ sâu (lamp_shadows.py)
+// hoặc bóng giả, AO giả ở chân tường / quanh cột / dưới trần, vân vật liệu vẽ theo toạ độ thế giới (gạch lát sàn, bê tông
+// đổ cốp pha, trần tấm), sương bụi trong phòng hoà vào tối ấm.
+// Pháp tuyến lấy từ đạo hàm vị trí (mesh không cần normal). Mọi uniform riêng có tiền tố look_ (đầu vào mặc định của shader
+// Ursina như fog_color đặt trên từng vật thể sẽ đè lên đầu vào cùng tên đặt ở render).
 uniform sampler2D p3d_Texture0;
 uniform sampler2D look_detail_tex;
+uniform sampler2DShadow look_shadow_atlas;
 uniform vec4 p3d_ColorScale;
 uniform vec3 look_camera_pos;
-uniform vec3 look_sun_dir;          // hướng TỚI mặt trời, thế giới
-uniform vec3 look_sun_color;
-uniform vec3 look_sky_color;
-uniform vec3 look_ground_color;
-uniform vec4 look_fog;        // rgb = màu chân trời, a = mật độ (exp); tên có tiền tố look_ để không trùng đầu vào mặc định của shader Ursina (camera_world_position, fog_color...), thứ đặt riêng cho từng vật thể và đè lên đầu vào của render
+uniform vec4 look_fog;              // rgb = màu bụi trong phòng, a = mật độ (exp)
 uniform float look_detail_strength;
+uniform float look_material;        // 0 thường, 1 sàn gạch, 2 tường bê tông, 3 cột/dầm, 4 trần, 5 tự phát sáng
+uniform vec4 look_lamp;             // x, y, z đèn đầu, khoảng cách giữa hai đèn
+uniform vec4 look_lamp2;            // số đèn, bán kính tắt hẳn, khoảng cách nửa độ rọi, cường độ
+uniform vec3 look_lamp_color;
+uniform vec3 look_lamp_cone;        // cos góc nón rọi đủ sáng, cos góc nón ngoài, phần sáng lọt ra ngoài nón
+uniform vec3 look_ambient_up;
+uniform vec3 look_ambient_down;
+uniform vec3 look_bounce;           // màu x cường độ ánh sáng dội giả từ sàn
+uniform vec4 look_room;             // nửa bề rộng, z tường sau, z tường cuối, chiều cao trần
+uniform vec4 look_pillar;           // z cột đầu, khoảng cách cột, nửa bề rộng cột (dọc z), độ nhô cột
+uniform vec4 look_shadow;           // chế độ (0 tắt, 1 thật, 2 giả), bias hằng (m), bias theo khoảng cách (m/m), độ phát sáng
+uniform vec4 look_shadow_grid;      // số cột ô, số hàng ô, 1/rộng atlas, 1/cao atlas
+uniform mat4 look_face_mat[5];      // vector đèn->điểm sang clip của mặt +x, -x, -y, +z, -z
+uniform float look_exposure;
 
 in vec2 uvs;
 in vec4 vertex_color;
 in vec3 world_pos;
 out vec4 frag_color;
 
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+// Phần "đặc" (không phải rãnh) của một lưới rãnh, đã lọc hộp theo kích thước điểm ảnh: rãnh chiếm [0, g) của mỗi ô.
+// Ở xa (ô nhỏ hơn điểm ảnh) kết quả tiến về giá trị trung bình 1 - g thay vì nhấp nháy (moiré).
+vec2 groove_solid(vec2 p, vec2 w, vec2 g) {
+    w = max(w, vec2(1e-4));
+    vec2 a = p + 0.5 * w, b = p - 0.5 * w;
+    vec2 ia = floor(a) * g + min(fract(a), g);
+    vec2 ib = floor(b) * g + min(fract(b), g);
+    return 1.0 - (ia - ib) / w;
+}
+
+// dải [y0, y1] theo một toạ độ, mép làm mềm theo điểm ảnh
+float band(float y, float y0, float y1, float fw) {
+    return smoothstep(y0 - fw, y0 + fw, y) * (1.0 - smoothstep(y1 - fw, y1 + fw, y));
+}
+
+// --- vật liệu ---
+vec3 brick_floor(vec3 p_w, out float gloss) {
+    vec2 size = vec2(0.30, 0.15);                         // gạch lát 30 x 15 cm, xếp so le theo hàng
+    vec2 p = p_w.xz / size;
+    vec2 w = fwidth(p);                                   // lấy trước khi so le (so le làm p.x nhảy ở mép hàng)
+    float row = floor(p.y);
+    p.x += 0.5 * mod(row, 2.0);
+    vec2 cell = floor(p);
+    vec2 s = groove_solid(p, w, vec2(0.012) / size);      // mạch vữa 1,2 cm
+    float solid = s.x * s.y;
+    float near = 1.0 - smoothstep(0.25, 0.8, max(w.x, w.y));      // ô gạch nhỏ hơn ~1/4 điểm ảnh: bỏ khác biệt từng viên
+    float h = hash12(cell + 17.0);
+    float h2 = hash12(cell * 1.7 + 3.1);
+    vec3 brick = vec3(0.47, 0.30, 0.24) * (1.0 + (h - 0.5) * 0.38 * near);
+    brick = mix(brick, vec3(0.43, 0.32, 0.26), step(0.82, h2) * 0.7 * near);   // vài viên nâu xám
+    // mép viên gạch tối nhẹ (gờ vát), cũng mờ dần ở xa
+    vec2 f = fract(p);
+    float edge = min(min(f.x, 1.0 - f.x) * size.x, min(f.y, 1.0 - f.y) * size.y);
+    brick *= mix(1.0, 0.82 + 0.18 * smoothstep(0.0, 0.025, edge), near);
+    vec3 mortar = vec3(0.27, 0.26, 0.24);
+    gloss = solid;
+    return mix(mortar, brick, solid);
+}
+
+vec3 paint(vec3 concrete, float y, float fw) {
+    // chân tường sơn xanh xám tới 1,1 m, một vạch vàng an toàn 1,1-1,2 m
+    vec3 c = mix(concrete, vec3(0.20, 0.25, 0.29), 1.0 - smoothstep(1.1 - fw, 1.1 + fw, y));
+    return mix(c, vec3(0.78, 0.58, 0.14), band(y, 1.1, 1.2, fw));
+}
+
+vec3 concrete_wall(vec3 base, vec3 p_w, vec3 n, bool panels) {
+    vec2 q = abs(n.x) > 0.5 ? p_w.zy : p_w.xy;
+    float blotch = texture(look_detail_tex, q * 0.17).r * 0.6 + texture(look_detail_tex, q * 0.045 + 0.31).r * 0.4;
+    vec3 c = base * (0.82 + 0.36 * blotch);
+    if (panels) {
+        // cốp pha 2,5 x 1,25 m: mạch nối mảnh, lỗ ty giằng ở 1/4 tấm
+        vec2 pp = q / vec2(2.5, 1.25);
+        vec2 s = groove_solid(pp, fwidth(pp), vec2(0.008) / vec2(2.5, 1.25));
+        c *= mix(0.62, 1.0, s.x * s.y);
+        vec2 t = q / 0.625;
+        vec2 ft = fract(t) - 0.5;
+        float fw = length(fwidth(t)) * 0.625;
+        float hole = 1.0 - smoothstep(0.012 - fw, 0.012 + fw, length(ft) * 0.625);
+        c *= 1.0 - 0.55 * hole * (1.0 - smoothstep(0.02, 0.05, fw));
+    }
+    float fwy = fwidth(p_w.y);
+    return paint(c, p_w.y, fwy);
+}
+
+vec3 ceiling_panels(vec3 base, vec3 p_w) {
+    vec2 pp = p_w.xz / 1.25;
+    vec2 s = groove_solid(pp, fwidth(pp), vec2(0.02) / 1.25);
+    float blotch = texture(look_detail_tex, p_w.xz * 0.13).r;
+    return base * (0.85 + 0.3 * blotch) * mix(0.55, 1.0, s.x * s.y);
+}
+
+// --- AO giả: tối dần ở chân tường, quanh cột, dưới trần, sát dầm ---
+float fake_ao(vec3 p, vec3 n) {
+    float W = look_room.x;
+    float dx = W - abs(p.x);                                       // tới mặt tường bên
+    float dzw = min(p.z - look_room.y, look_room.z - p.z);         // tới tường sau / tường cuối
+    float kp = floor((p.z - look_pillar.x) / look_pillar.y + 0.5);
+    float dpz = abs(p.z - (look_pillar.x + kp * look_pillar.y)) - look_pillar.z;   // tới mép cột gần nhất (dọc z)
+    float ao = 1.0;
+    if (n.y > 0.5) {                                               // sàn
+        ao *= mix(0.45, 1.0, smoothstep(0.0, 1.1, dx));
+        ao *= mix(0.45, 1.0, smoothstep(0.0, 1.1, dzw));
+        vec2 d = vec2(dx - look_pillar.w, dpz);
+        float sd = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+        ao *= mix(0.55, 1.0, smoothstep(0.0, 0.8, sd));
+    } else if (n.y < -0.5) {                                       // trần, đáy dầm
+        ao *= mix(0.5, 1.0, smoothstep(0.0, 1.4, dx));
+        ao *= mix(0.55, 1.0, smoothstep(0.0, 0.6, abs(dpz + look_pillar.z) - 0.2));
+    } else {                                                       // mặt đứng
+        ao *= mix(0.5, 1.0, smoothstep(0.0, 0.7, p.y));
+        ao *= mix(0.6, 1.0, smoothstep(0.0, 0.9, look_room.w - p.y));
+        if (abs(n.x) > 0.5 && dx < 0.02) ao *= mix(0.6, 1.0, smoothstep(0.0, 0.45, dpz));   // tường sát cột
+        if (abs(n.z) > 0.5) ao *= mix(0.6, 1.0, smoothstep(0.0, 0.45, min(dx, dzw)));     // mặt bên cột / góc phòng
+    }
+    return ao;
+}
+
+// --- bóng thật: một đèn, vector đèn -> điểm v ---
+float lamp_shadow(float lamp, vec3 v) {
+    vec3 a = abs(v);
+    int f;
+    if (a.x >= a.y && a.x >= a.z) f = v.x > 0.0 ? 0 : 1;
+    else if (a.y >= a.z) { if (v.y > 0.0) return 1.0; f = 2; }
+    else f = v.z > 0.0 ? 3 : 4;
+    vec4 c = look_face_mat[f] * vec4(v, 1.0);
+    vec3 ndc = c.xyz / c.w;
+    float ref = ndc.z * 0.5 + 0.5;
+    if (ref >= 1.0) return 1.0;
+    float tile = lamp * 5.0 + float(f);
+    float col = mod(tile, look_shadow_grid.x);
+    float row = floor(tile / look_shadow_grid.x + 1e-4);
+    vec2 uv = (vec2(col, row) + ndc.xy * 0.5 + 0.5) / look_shadow_grid.xy;
+    vec2 t = look_shadow_grid.zw;
+    float s = texture(look_shadow_atlas, vec3(uv + vec2(-0.5, -0.5) * t, ref));
+    s += texture(look_shadow_atlas, vec3(uv + vec2(0.5, -0.5) * t, ref));
+    s += texture(look_shadow_atlas, vec3(uv + vec2(-0.5, 0.5) * t, ref));
+    s += texture(look_shadow_atlas, vec3(uv + vec2(0.5, 0.5) * t, ref));
+    return s * 0.25;
+}
+
 void main() {
     vec4 base = texture(p3d_Texture0, uvs) * p3d_ColorScale * vertex_color;
+    int mat = int(look_material + 0.5);
     vec3 to_cam = look_camera_pos - world_pos;
     float dist = length(to_cam);
+    float fog = clamp(1.0 - exp(-look_fog.a * dist), 0.0, 1.0);
+
+    if (mat == 5) {                                                // bóng đèn, lòng chóa: tự sáng
+        vec3 e = 1.0 - exp(-base.rgb * look_shadow.w * look_exposure);
+        frag_color = vec4(mix(e, look_fog.rgb, fog * 0.6), 1.0);
+        return;
+    }
 
     vec3 n = normalize(cross(dFdx(world_pos), dFdy(world_pos)));
     if (dot(n, to_cam) < 0.0) n = -n;
 
-    // chi tiết: chỉ mặt hướng lên; hai lớp nhiễu khác tỉ lệ, mờ dần từ 40 m tới 160 m (xa hơn thì nhấp nháy)
+    float gloss = 0.0;
+    if (mat == 1) base.rgb *= brick_floor(world_pos, gloss);
+    else if (mat == 2) base.rgb = concrete_wall(base.rgb, world_pos, n, true);
+    else if (mat == 3) base.rgb = concrete_wall(base.rgb, world_pos, n, false);
+    else if (mat == 4) base.rgb = ceiling_panels(base.rgb, world_pos);
+
+    // nhiễu chi tiết trên mặt hướng lên (sàn, nóc vật), mờ dần từ 40 m tới 160 m (xa hơn thì nhấp nháy)
     float up = smoothstep(0.6, 0.9, n.y);
     float fade = 1.0 - smoothstep(40.0, 160.0, dist);
     float noise = texture(look_detail_tex, world_pos.xz * 0.21).r * 0.6 + texture(look_detail_tex, world_pos.xz * 0.043 + 0.37).r * 0.4;
-    base.rgb *= 1.0 + (noise - 0.5) * look_detail_strength * up * fade;
+    float detail = mat == 1 ? 0.6 : 1.0;
+    base.rgb *= 1.0 + (noise - 0.5) * look_detail_strength * detail * up * fade;
 
-    vec3 ambient = mix(look_ground_color, look_sky_color, n.y * 0.5 + 0.5);
-    float ndl = max(dot(n, look_sun_dir), 0.0);
-    vec3 lit = base.rgb * (ambient + look_sun_color * ndl);
+    float ao = fake_ao(world_pos, n);
+    vec3 ambient = mix(look_ambient_down, look_ambient_up, n.y * 0.5 + 0.5) * ao;
 
-    float fog = 1.0 - exp(-look_fog.a * dist);
-    frag_color = vec4(mix(lit, look_fog.rgb, clamp(fog, 0.0, 1.0)), base.a);
+    // đèn trần: xét đèn gần nhất theo z và hai đèn mỗi bên (bán kính <= 2 khoảng cách đèn)
+    int mode = int(look_shadow.x + 0.5);
+    float count = look_lamp2.x, R = look_lamp2.y, ref2 = look_lamp2.z * look_lamp2.z;
+    float kc = floor((world_pos.z - look_lamp.z) / look_lamp.w + 0.5);
+    vec3 v_dir = to_cam / max(dist, 1e-4);
+    float light = 0.0, spec = 0.0, bounce = 0.0;
+    for (int j = -2; j <= 2; j++) {
+        float k = kc + float(j);
+        if (k < 0.0 || k > count - 1.0) continue;
+        vec3 lp = vec3(look_lamp.x, look_lamp.y, look_lamp.z + k * look_lamp.w);
+        vec3 L = lp - world_pos;
+        float d2 = dot(L, L);
+        float d = sqrt(d2);
+        if (d >= R) continue;
+        L /= d;
+        float x = d / R;
+        float win = 1.0 - x * x * x * x;
+        // ánh sáng dội giả: sàn dưới đèn hắt lại lên tường/trần gần đó (không bóng, không hướng), giảm theo khoảng cách tới đèn
+        bounce += win * win / (1.0 + d2 / (4.0 * ref2));
+        float ndl = dot(n, L);
+        if (ndl <= 0.0 || L.y <= 0.0) continue;                    // quay lưng với đèn, hoặc ở trên mép chóa (chóa che)
+        float cone = mix(look_lamp_cone.z, 1.0, smoothstep(look_lamp_cone.y, look_lamp_cone.x, L.y));
+        float att = look_lamp2.w * cone * win * win / (1.0 + d2 / ref2);
+        float sh = 1.0;
+        if (mode == 1) sh = lamp_shadow(k, world_pos + n * (look_shadow.y + look_shadow.z * d) - lp);
+        light += att * ndl * sh;
+        if (mat == 1) spec += att * sh * pow(max(dot(n, normalize(L + v_dir)), 0.0), 40.0);
+    }
+    float direct_ao = mix(1.0, ao, 0.45);                           // AO cũng làm tối nhẹ ánh đèn (bù cho thiếu ánh dội)
+    ambient += look_bounce * bounce * ao * (1.0 - 0.6 * up);        // mặt đứng và trần nhận ánh dội nhiều hơn sàn
+    vec3 lit = base.rgb * (ambient + look_lamp_color * light * direct_ao) + look_lamp_color * spec * gloss * 0.10;
+    lit = 1.0 - exp(-lit * look_exposure);
+
+    frag_color = vec4(mix(lit, look_fog.rgb, fog), base.a);
 }

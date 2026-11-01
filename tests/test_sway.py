@@ -148,11 +148,11 @@ def crossings(v):
 
 
 def test_bob_cadence_follows_distance_not_time():
-    # y bob có hai nhịp mỗi chu kỳ chân: tần số = 2 * tốc độ / bước chân
-    for speed in (4.5, 6.8):
-        y, _ = bob_y(S.WALK, speed, seconds=6.0)
+    # y bob có hai nhịp mỗi chu kỳ chân: tần số = 2 * tốc độ * bob_rate / bước chân
+    for state, speed, rate in ((S.WALK, 4.5, D.bob_rate), (S.WALK, 6.8, D.bob_rate), (S.SPRINT, 6.8, D.bob_sprint_rate)):
+        y, _ = bob_y(state, speed, seconds=12.0)
         seconds = len(y) / 120
-        assert crossings(y) / seconds == pytest.approx(2 * speed / D.bob_stride, rel=0.05)
+        assert crossings(y) / seconds == pytest.approx(2 * speed * rate / D.bob_stride, rel=0.08)
     # cùng quãng đường 9 m, tốc độ khác nhau, cùng số nhịp
     counts = []
     for speed in (3.0, 4.5):

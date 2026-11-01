@@ -107,7 +107,9 @@ class SwayData:
     lag_zeta: float = 0.7
     lag_roll: float = 0.4                 # độ nghiêng mỗi độ lệch yaw
     # bob theo bước chân (pha tăng theo quãng đường, nên nhịp đúng ở mọi tốc độ)
-    bob_stride: float = 2.4               # m đi được mỗi chu kỳ chân trái-phải
+    bob_stride: float = 2.4               # m đi được mỗi chu kỳ chân trái-phải (khi bob_rate = 1)
+    bob_rate: float = 0.4                 # nhịp bob so với bob_stride khi đi/ngồi đi (0,4 = chậm còn 40%: 6 m mỗi chu kỳ)
+    bob_sprint_rate: float = 0.3          # nhịp bob khi chạy nước rút (30%)
     bob_x: float = 0.0045
     bob_y: float = 0.0060
     bob_pitch: float = 0.5
@@ -190,6 +192,47 @@ class TracerData:
     pool: int = 16                        # số vệt tối đa cùng lúc
 
 
+def _m4_reload_beats() -> dict:
+    """Mốc rung khi nạp, theo khung của clip (đo bằng tools/g5_reload_probe.py): băng cũ bung ra, băng mới vào chỗ (= Clip.swap), bolt nhả.
+    Khung tính theo dòng thời gian chung của file; Handling.frame đã nhân ReloadData.speed nên mốc đúng ở mọi tốc độ nạp."""
+    return {
+        'reload': ((27, 'mag_out'), (61, 'seat')),
+        'reload_empty': ((137, 'mag_out'), (172, 'seat'), (190, 'bolt')),
+    }
+
+
+def _beat_peaks() -> dict:
+    # độ lệch đỉnh của camera cho MỘT mốc: (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải), mét và độ. Nhẹ: tối đa ~0,2 độ, ~2 mm
+    return {
+        'mag_out': (0.0, -0.0004, 0.0, -0.06, 0.03, 0.10),
+        'seat': (0.0, -0.0010, -0.0012, -0.20, 0.05, 0.22),
+        'bolt': (0.0, 0.0005, -0.0020, 0.15, 0.06, 0.18),
+    }
+
+
+@dataclass
+class ShakeData:
+    """Camera shake: rung thuần hình ảnh (không đổi hướng đạn), xem core/shake.py. Mét và độ."""
+    seed: int = 7
+    # bắn: trauma cộng mỗi phát, tắt tuyến tính; biên độ = trauma^power * fire_amp * nhiễu mượt
+    fire_trauma: float = 0.22             # cộng mỗi phát
+    fire_max_trauma: float = 0.70         # trần: loạt dài không rung mạnh hơn mức này
+    fire_decay: float = 2.0               # trauma/giây (0,22 -> 0 sau 0,11 s; 750 phát/phút tắt 0,16 mỗi nhịp nên trauma tăng dần ~9 phát rồi chững ở trần)
+    power: float = 1.5                    # biên độ = trauma^power (>1: phát lẻ khẽ, loạt dài rõ)
+    fire_freq: float = 16.0               # Hz: tốc độ đổi của nhiễu
+    fire_amp: tuple = (0.0010, 0.0010, 0.0015, 0.30, 0.30, 0.80)   # tại trauma = 1: (x, y, z, pitch, yaw, roll); roll là kênh thấy rõ vì recoil camera không có roll
+    # nạp: xung lò xo tại các mốc clip, không rung liên tục
+    reload_beats: dict = field(default_factory=_m4_reload_beats)    # khoá clip -> ((khung, loại mốc), ...)
+    beat_peaks: dict = field(default_factory=_beat_peaks)          # loại mốc -> độ lệch đỉnh
+    beat_omega: float = 42.0              # rad/s (chu kỳ ~0,15 s)
+    beat_zeta: float = 0.45               # nảy 1-2 lần rồi yên trong ~0,15 s
+    # khi ngắm hẳn rung giảm còn ngần này
+    ads_multiplier: float = 0.5
+    # súng trên màn hình đi theo thế giới (đảo dấu) ngần này và trễ `gun_delay` giây: súng rung ít hơn và hơi trễ hơn thế giới thì tự nhiên hơn
+    gun_follow: float = 0.6
+    gun_delay: float = 0.02
+
+
 # Mẫu recoil 30 phát của M4: mỗi phát (lên, phải) độ. Hay lên, trôi phải, lắc nhẹ sang trái giữa băng.
 M4_PATTERN = (
     (0.42, 0.04), (0.40, 0.08), (0.38, 0.11), (0.37, 0.14), (0.36, 0.16),
@@ -216,6 +259,7 @@ class GunData:
     view_light: ViewLightData = field(default_factory=ViewLightData)
     flash: FlashData = field(default_factory=FlashData)
     tracer: TracerData = field(default_factory=TracerData)
+    shake: ShakeData = field(default_factory=ShakeData)
     # ngắm (ADS)
     ads_time: float = 0.25                # s để vào / ra
     ads_fov: float = 65.0                 # FOV ngang của thế giới khi ngắm hẳn
@@ -278,15 +322,90 @@ class FeedbackParams:
 
 @dataclass
 class LookData:
-    """Giao diện hình ảnh của thế giới (shader shaders/world.*) và lớp phủ màn hình. Hướng tính trong thế giới (y lên, z ra trước)."""
-    sun_dir: tuple = (0.40, 0.72, -0.56)  # hướng TỚI mặt trời: từ trên, từ phía sau lưng người chơi (mặt bia hướng về người chơi được chiếu sáng)
-    sun_color: tuple = (0.68, 0.62, 0.48)
-    sky_color: tuple = (0.66, 0.72, 0.80)     # ánh sáng môi trường từ trời
-    ground_color: tuple = (0.46, 0.43, 0.38)  # từ đất nảy lên
-    fog_color: tuple = (0.75, 0.84, 0.87)     # màu chân trời (khớp ảnh trời)
-    fog_density: float = 0.0032               # exp: ~46% ở 200 m, ~85% ở 600 m
+    """Giao diện hình ảnh của thế giới (shader shaders/world.*) và lớp phủ màn hình. Hướng tính trong thế giới (y lên, z ra trước).
+    Phòng tập kín (kích thước ở core/room.RoomLayout), không có trời/mặt trời: nguồn sáng là một dãy bóng đèn treo trần dọc giữa làn."""
+    # đèn trần: một dãy cách đều dọc làn; vị trí đèn i = (lamp_x, lamp_y, lamp_z0 + i * lamp_spacing)
+    lamp_x: float = 0.0
+    lamp_y: float = 4.6                       # bóng đèn (trần ở 5,5 m; chóa đèn treo bằng ống)
+    lamp_z0: float = -15.0                    # giữa hai dầm trần (dầm ở -10, 0, 10, ...)
+    lamp_spacing: float = 10.0
+    lamp_count: int = 23                      # tới z = 205
+    lamp_color: tuple = (1.0, 0.80, 0.58)     # ấm (~3000 K)
+    lamp_intensity: float = 3.00             # độ rọi = intensity / (1 + (d / lamp_ref)^2), nhân cửa sổ tắt dần tới lamp_radius
+    lamp_ref: float = 4.5                     # m: ở khoảng cách này độ rọi còn một nửa
+    lamp_radius: float = 20.0                 # m: ngoài bán kính này đèn không chiếu (shader chỉ xét 5 đèn gần nhất theo z)
+    lamp_emissive: float = 3.0                # độ sáng của bóng đèn / lòng chóa (tự phát sáng, không nhận đèn)
+    lamp_cone: float = 30.0                   # độ: trong nón này (tính từ phương thẳng đứng) chóa đèn rọi đủ sáng
+    lamp_cone_outer: float = 62.0             # độ: ra ngoài nón này chỉ còn lamp_side (tạo quầng sáng dưới mỗi đèn)
+    lamp_side: float = 0.35                   # phần ánh sáng lọt ra ngang mép chóa; trên mép chóa thì 0
+    lamp_halo: float = 0.80                  # độ sáng quầng mờ quanh bóng đèn (thẻ cộng sáng, 0 = tắt)
+    ambient_up: tuple = (0.045, 0.055, 0.075)    # ánh sáng hắt chung lên mặt hướng lên (sàn), lạnh: chỗ khuất đèn ngả xanh, đối lại đèn ấm
+    ambient_down: tuple = (0.095, 0.070, 0.055)  # lên mặt hướng xuống (trần): ánh sáng dội từ sàn gạch, ấm
+    bounce_color: tuple = (0.36, 0.25, 0.19)    # ánh sáng dội giả từ sàn gạch dưới đèn lên tường/trần gần đó (ấm)
+    exposure: float = 1.25                    # ánh xạ tông 1 - exp(-màu * exposure)
+    shadows: object = True                    # True: bóng thật (bản đồ độ sâu 5 mặt cho từng đèn); 'fake': vệt tối giả dưới bia/cột + AO; False: không bóng
+    shadow_face_size: int = 256               # điểm ảnh mỗi mặt của mỗi đèn (23 đèn x 5 mặt xếp chung một kết cấu)
+    shadow_bias: tuple = (0.02, 0.012)        # m: đẩy điểm ra theo pháp tuyến = a + b * khoảng cách tới đèn (chống "acne")
+    fog_color: tuple = (0.030, 0.027, 0.024)  # bụi/khói trong phòng: xa dần chìm vào tối ấm
+    fog_density: float = 0.0042               # exp: ~34% ở 100 m, ~57% ở 200 m
     detail_strength: float = 0.55             # độ sâu của nhiễu trên mặt đất (0 = tắt)
     vignette: float = 0.30                    # độ tối ở góc màn hình (0 = tắt)
+
+
+@dataclass(frozen=True)
+class SoundCue:
+    """Một tiếng gắn vào khung của clip: phát khi clip chạy tới `frame` (khung tuyệt đối trên dòng thời gian của glb, như Clip.swap)."""
+    frame: int
+    sound: str                            # tên nhóm trong sounds/foley (tools/prep_foley.py): file <sound>_<số>.wav
+    volume: float = 1.0                   # nhân vào AudioData.reload_volume
+
+
+# Mốc âm thanh của M4, đo bằng tools/g5_reload_probe.py (khoảng cách băng / bolt / chốt so với tư thế sẵn sàng theo từng khung).
+M4_SOUND_CUES = {
+    # Reload (1..110): chốt băng bấm ở 26, băng rời chỗ từ 27 (cách 6 cm, rồi 15 cm ở 29, 30 cm ở 31), băng mới trượt vào 49..60, vào chỗ 61 (= Clip.swap),
+    # bolt/chốt đập nhẹ ở 74..76, băng lún thêm cho chắc ở 83
+    'reload': (SoundCue(26, 'mag_release', 0.9), SoundCue(28, 'mag_out', 0.8), SoundCue(50, 'mag_in', 0.7), SoundCue(61, 'mag_seat', 1.0),
+               SoundCue(76, 'bolt_tick', 0.7), SoundCue(83, 'mag_tap', 0.5)),
+    # Reload_Empty (111..224): bolt đang khoá sau. Băng rời từ 137, băng mới vào chỗ 172 (= Clip.swap), BOLT NHẢ về trước ở 190 (bolt 7,0 -> 4,4 -> 3,0 cm),
+    # bolt về hẳn 197..199, băng lún thêm ở 201
+    'reload_empty': (SoundCue(136, 'mag_release', 0.9), SoundCue(138, 'mag_out', 0.8), SoundCue(162, 'mag_in', 0.7), SoundCue(172, 'mag_seat', 1.0),
+                     SoundCue(190, 'bolt_release', 1.0), SoundCue(198, 'bolt_tick', 0.5), SoundCue(201, 'mag_tap', 0.5)),
+    # Draw (269..299): súng bắt đầu nhấc ở 270, nhấc nhanh nhất 272..280, gần yên từ 284, nằm hẳn ở ~287
+    'draw': (SoundCue(271, 'draw_a', 0.8), SoundCue(285, 'draw_b', 0.6)),
+}
+
+
+@dataclass
+class AudioData:
+    """Foley: tiếng kim loại khi nạp / rút súng (theo khung animation) và bước chân trên gạch (theo quãng đường). Tiếng dựng bằng tools/prep_foley.py.
+    Âm lượng nhỏ hơn tiếng súng (GunData.shot_volume 0,8) để không át tiếng bắn."""
+    folder: str = 'sounds/foley'
+    pool: int = 2                         # số bản phát luân phiên cho mỗi file: tiếng sau không cắt đuôi tiếng trước
+    # nạp / rút súng
+    cues: dict = field(default_factory=lambda: dict(M4_SOUND_CUES))   # khoá clip (GunData.clips) -> các SoundCue; thời điểm thật = (frame - clip.start) / 30 / tốc độ clip
+    reload_volume: float = 0.5
+    cancel_sound: str = 'settle'          # tay trượt về tư thế sẵn sàng khi huỷ nạp (chỉ khi đã có ít nhất một tiếng của lần nạp đó)
+    cancel_delay: float = 0.06            # s sau lúc huỷ
+    cancel_volume: float = 0.6
+    # bước chân: pha tăng theo quãng đường đi được khi CHẠM ĐẤT (không dùng pha bob của Sway)
+    step_stride_walk: float = 0.75        # m mỗi bước
+    step_stride_sprint: float = 1.0
+    step_stride_crouch: float = 0.5
+    step_start_phase: float = 0.5         # 0..1: bước đầu tiên sau khi đứng yên đến sớm (nửa sải)
+    step_min_speed: float = 0.5           # m/s: chậm hơn thì không tính là đi
+    step_volume: float = 0.30
+    step_sprint_multiplier: float = 1.25
+    step_crouch_multiplier: float = 0.35
+    step_pitch_variation: float = 0.05    # +- tỉ lệ cao độ ngẫu nhiên
+    step_volume_variation: float = 0.10   # +- tỉ lệ âm lượng ngẫu nhiên
+    foot_pitch: float = 0.02              # chân trái thấp hơn, chân phải cao hơn ngần này (luân phiên)
+    foot_pan: float = 0.15                # lệch kênh trái / phải (-1..1)
+    # chạm đất / nhảy
+    land_min_speed: float = 2.0           # m/s: rơi chậm hơn thì chỉ là bước chân
+    land_reference_speed: float = 6.4     # tốc độ rơi cho âm lượng chuẩn (nhảy tại chỗ rồi hạ xuống)
+    land_volume: float = 0.50
+    land_gain_range: tuple = (0.45, 1.3)  # nhân âm lượng theo tốc độ rơi / tốc độ chuẩn, kẹp trong khoảng này
+    jump_volume: float = 0.25
 
 
 @dataclass
@@ -295,3 +414,4 @@ class GameParams:
     gun: GunData = field(default_factory=lambda: M4)
     feedback: FeedbackParams = field(default_factory=FeedbackParams)
     look: LookData = field(default_factory=LookData)
+    audio: AudioData = field(default_factory=AudioData)

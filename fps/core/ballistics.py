@@ -65,10 +65,49 @@ def segment_vs_ground(p0, p1, ground_y=0.0):
     return None
 
 
+class BoxGroup:
+    """Nhiều hộp gom dưới một hộp bao (vd. một dãy cột dọc tường): `first_hit` chỉ dò từng hộp con khi đoạn bay chạm
+    hộp bao, nên hàng chục cột không làm chậm mọi bước của mọi viên đạn. Đưa vào danh sách hộp dạng `group.entry()`."""
+
+    def __init__(self, boxes):
+        self.boxes = list(boxes)                       # [(lo, hi, owner)]
+        self.lo = tuple(min(b[0][i] for b in self.boxes) for i in range(3))
+        self.hi = tuple(max(b[1][i] for b in self.boxes) for i in range(3))
+
+    def entry(self) -> tuple:
+        return self.lo, self.hi, self
+
+
+def segment_touches_aabb(p0, p1, lo, hi):
+    """Đoạn p0 -> p1 có điểm nào nằm trong hộp không (kể cả khi xuất phát bên trong)."""
+    tmin, tmax = 0.0, 1.0
+    for axis in range(3):
+        d = p1[axis] - p0[axis]
+        if abs(d) < 1e-12:
+            if p0[axis] < lo[axis] or p0[axis] > hi[axis]:
+                return False
+            continue
+        t1 = (lo[axis] - p0[axis]) / d
+        t2 = (hi[axis] - p0[axis]) / d
+        if t1 > t2:
+            t1, t2 = t2, t1
+        tmin, tmax = max(tmin, t1), min(tmax, t2)
+        if tmin > tmax:
+            return False
+    return True
+
+
 def first_hit(p0, p1, boxes, ground_y=0.0):
-    """Va chạm sớm nhất của đoạn p0 -> p1 với danh sách boxes [(lo, hi, owner)] và mặt đất; hoặc None."""
+    """Va chạm sớm nhất của đoạn p0 -> p1 với danh sách boxes [(lo, hi, owner)] và mặt đất; hoặc None.
+    owner là `BoxGroup` thì (lo, hi) là hộp bao của nhóm, chỉ dò các hộp con khi đoạn chạm hộp bao."""
     best = None
     for lo, hi, owner in boxes:
+        if isinstance(owner, BoxGroup):
+            if segment_touches_aabb(p0, p1, lo, hi):
+                h = first_hit(p0, p1, owner.boxes, ground_y=None)
+                if h and (best is None or h.t < best.t):
+                    best = h
+            continue
         r = segment_vs_aabb(p0, p1, lo, hi)
         if r and (best is None or r[0] < best.t):
             best = Hit(r[0], _lerp(p0, p1, r[0]), r[1], owner)
