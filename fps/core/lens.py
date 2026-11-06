@@ -1,4 +1,4 @@
-"""Toán của ống kính mắt cá, đúng công thức của shaders/lens.frag (toán thuần, để pytest kiểm được).
+"""Toán của ống kính mắt cá, đúng công thức của assets/shaders/lens.frag (toán thuần, để pytest kiểm được).
 
 Toạ độ màn hình p trong [-1, 1]^2. Đo bán kính theo đơn vị nửa bề ngang: q = (p.x, p.y / tỉ lệ khung), r^2 = dot(q, q).
 Ảnh ra lấy mẫu ảnh vào tại p * f(r), f = (1 + k r^2) / (1 + k): mép ngang (r = 1) khớp đúng mép ảnh, giữa khung phóng (1 + k) lần, gần góc khung vượt ra

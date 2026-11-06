@@ -2,7 +2,7 @@ import wave
 
 import pytest
 
-from tools import prep_foley as pf
+from tools.build import prep_foley as pf
 
 ALL = [(name, i) for name, (variants, _, _) in pf.SOUNDS.items() for i in range(variants)]
 
@@ -66,7 +66,7 @@ def test_attack_is_sharp(rendered):
 def test_files_match_the_standard_of_the_gun_shot(tmp_path):
     paths = pf.build_all(tmp_path)
     assert len(paths) == len(ALL)
-    with wave.open(str(pf.ROOT / 'sounds' / 'm4_shot.wav'), 'rb') as ref:
+    with wave.open(str(pf.ROOT / 'assets' / 'sounds' / 'm4_shot.wav'), 'rb') as ref:
         want = (ref.getnchannels(), ref.getsampwidth(), ref.getframerate(), ref.getcomptype())
     for p in paths:
         with wave.open(str(p), 'rb') as w:
@@ -74,10 +74,10 @@ def test_files_match_the_standard_of_the_gun_shot(tmp_path):
 
 
 def test_committed_files_are_up_to_date():
-    """sounds/foley/*.wav phải đúng là đầu ra hiện tại của tools/prep_foley.py (sửa công thức thì phải chạy lại và commit)."""
+    """assets/sounds/foley/*.wav phải đúng là đầu ra hiện tại của tools/build/prep_foley.py (sửa công thức thì phải chạy lại và commit)."""
     for name, i in ALL:
-        path = pf.ROOT / 'sounds' / 'foley' / f'{name}_{i}.wav'
-        assert path.exists(), f'thiếu {path.name}: chạy tools\\prep_foley.py'
+        path = pf.ROOT / 'assets' / 'sounds' / 'foley' / f'{name}_{i}.wav'
+        assert path.exists(), f'thiếu {path.name}: chạy tools\\build\\prep_foley.py'
         x, fmt = pf.read_mono(path)
         want = pf.render(name, i)
         assert len(x) == len(want), path.name

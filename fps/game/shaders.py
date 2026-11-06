@@ -1,4 +1,4 @@
-"""Nạp shader GLSL từ thư mục `shaders/` (mỗi shader hai file .vert / .frag). Có thể bật cờ biên dịch bằng `defines`.
+"""Nạp shader GLSL từ thư mục `assets/shaders/` (mỗi shader hai file .vert / .frag). Có thể bật cờ biên dịch bằng `defines`.
 
 `#include "tên.glsl"` chèn file cùng thư mục (GLSL 1.40 không có sẵn cách dùng chung mã giữa hai shader). File không có dòng `#version` thì được thêm
 `#version 140`; `#define` chèn ngay sau dòng version.
@@ -7,7 +7,7 @@ from pathlib import Path
 
 from panda3d.core import Shader
 
-SHADER_DIR = Path(__file__).resolve().parent.parent.parent / 'shaders'
+SHADER_DIR = Path(__file__).resolve().parent.parent.parent / 'assets' / 'shaders'
 
 
 def expand_includes(text: str) -> str:

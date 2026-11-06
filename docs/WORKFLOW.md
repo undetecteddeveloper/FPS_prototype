@@ -29,7 +29,9 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 - Agent chính không bao giờ nói "xong" thay subagent: đọc kết quả, chạy lại kiểm tra.
 
 ## 4. Chốt số từ bảng F1
-- Hiện chép tay `user_params.json` -> `weapon_data.py`. CHƯA LÀM: viết `tools\bake_params.py` so file lưu với mặc định, in bảng thay đổi, ghi vào `weapon_data.py` sau khi người dùng nói "chốt", rồi chuyển file cũ sang `user_params.baked.json`. Phiên đầu tiên có điều chỉnh cảm giác thì làm công cụ này trước.
+- Người chơi chỉnh bằng F1 rồi bấm Lưu (`user_params.json`). Khi người dùng nói "chốt": `.venv\Scripts\python.exe -X utf8 tools\build\bake_params.py` (in bảng thay đổi, không ghi), xác nhận với người dùng, rồi thêm `--apply`.
+  Công cụ sửa đúng giá trị trong `weapon_data.py` (giữ chú thích), chạy lại để đối chiếu từng số (sai thì tự khôi phục), chuyển bản cũ vào `backups\`. Sau đó chạy pytest và commit.
+  Lõi ở `fps/core/bake.py`, `tests/test_bake.py` kiểm cả 231 thanh. Số nào có mặc định không phải số viết thẳng thì công cụ báo để sửa tay.
 
 ## 5. Phương án ngang sức
 - Chỉ dùng cho quyết định KHÓ ĐẢO NGƯỢC hoặc đổi cảm giác chơi. Mẫu: mỗi phương án 3 dòng bằng nhau — được gì / tốn gì / hỏng khi nào. Không đánh dấu "khuyên dùng" trừ khi người dùng hỏi ý kiến.
@@ -55,12 +57,14 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 - Supabase: game gọi TRỰC TIẾP lúc chạy (khoá anon + RLS). Composio chỉ cho agent quản trị lúc dựng (tạo bảng, truy vấn kiểm).
 - Chưa dựng gì cho đến khi game một người xong phần cảm giác và có phiên riêng cho mạng.
 
-## 8. Sổ luật hai tầng (CHƯA LÀM)
-- Tầng 1 `CLAUDE.md`: lệnh, cấu trúc, quy ước, bẫy còn hiệu lực (~5 KB, luôn nạp).
-- Tầng 2 `docs/`: mục G1-G7 hiện nằm trong `CLAUDE.md` (~50 KB) chuyển sang `docs/gN.md`; `CLAUDE.md` chỉ giữ một dòng trỏ tới và dòng "đọc khi đụng tới ...".
-- Cần thực hiện cẩn thận vì `CLAUDE.md` đang có thay đổi chưa commit của G7.
+## 8. Sổ luật hai tầng (ĐÃ LÀM 6/11/2026)
+- Tầng 1 `CLAUDE.md` (~10 KB, từ 50 KB): lệnh, cấu trúc, quy ước, bẫy nạp M4, bẫy Windows, và danh sách "mở khi đụng tới ...".
+- Tầng 2 `docs/notes/*.md`: nội dung G1-G7 và danh mục công cụ, trích nguyên văn. Agent chỉ mở file khớp việc đang làm; cuối phiên cập nhật đúng file đó (không thêm lịch sử vào `CLAUDE.md`).
+- Cấu trúc thư mục: `assets/` (guns, sounds, shaders), `tools/{selftests,measure,build}`, `docs/{notes,images}`, `backups/`.
 
 ## 9. Việc còn mở
+- NỢ HIỆU NĂNG: `perf_scenarios` bắn liên thanh khi ngắm 51,7 FPS (ngưỡng 55); tổng 77,1 đạt. Cần phiên tối ưu riêng.
+- NỢ KIỂM TRA: sau G7 `tools\selftests\audio_selftest.py` trượt 11/50 mục (kỳ vọng cũ: chưa tính tiếng thở `breath`, tiếng ElevenLabs dài hơn, số nhóm tiếng 15 thay vì 11); g1-g7 và g5/g6 chưa chạy lại đầy đủ.
 - Xác minh ID model giọng nói của ElevenLabs V3 trước khi dùng.
 - Xác minh Cloudflare có đủ cho tần số cập nhật của FPS 4 người (đo thật, đừng đoán).
 - Tripo không có trong 3D AI Studio: hỏi người dùng muốn dùng đường khác hay thay bằng Prism/P2.

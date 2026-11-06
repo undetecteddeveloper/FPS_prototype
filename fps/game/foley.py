@@ -1,7 +1,7 @@
 """Foley: tiếng kim loại khi nạp / rút súng (theo khung animation) và bước chân, nhảy, chạm đất trên gạch.
 
 Toán nằm ở core: `core.cues.CueSchedule` (khi nào tới mốc nào, huỷ thì bỏ mốc chưa tới) và `core.footsteps.Footsteps` (nhịp bước theo quãng đường).
-Ở đây chỉ ghép với Panda: nạp file `sounds/foley/<tên>_<số>.wav` (dựng bằng tools/prep_foley.py), phát từ vòng luân phiên (mỗi file `AudioData.pool` bản,
+Ở đây chỉ ghép với Panda: nạp file `assets/sounds/foley/<tên>_<số>.wav` (dựng bằng tools/build/prep_foley.py), phát từ vòng luân phiên (mỗi file `AudioData.pool` bản,
 tiếng sau không cắt đuôi tiếng trước), đổi cao độ / âm lượng / lệch kênh theo sự kiện. Không có thiết bị âm thanh thì Panda phát âm câm, không lỗi.
 
 Móc vào `Game.update` (không có update riêng): `on_handling_event(event)` cho từng sự kiện của Handling, rồi `update(dt)` một lần mỗi khung.
@@ -69,7 +69,7 @@ class Foley:
         group = self.audio.sound_files.get(name, name)             # tên logic -> nhóm file (tiếng người dùng cung cấp hoặc tổng hợp)
         files = sorted(folder.glob(f'{group}_*.wav'))
         if not files:
-            raise FileNotFoundError(f'thiếu {folder}\\{group}_*.wav: chạy tools\\prep_foley.py (tiếng user_*: tools\\prep_user_audio.py; el_*: tools\\prep_elevenlabs.py)')
+            raise FileNotFoundError(f'thiếu {folder}\\{group}_*.wav: chạy tools\\build\\prep_foley.py (tiếng user_*: tools\\build\\prep_user_audio.py; el_*: tools\\build\\prep_elevenlabs.py)')
         loader = application.base.loader
         return _Bank([[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(max(1, self.audio.pool))] for f in files])
 

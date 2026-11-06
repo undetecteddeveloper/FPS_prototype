@@ -1,5 +1,5 @@
 """Bóng thật của các đèn trần: mỗi đèn một cubemap 5 mặt (bỏ mặt hướng lên trần), mọi mặt của mọi đèn xếp thành các ô
-trong MỘT kết cấu độ sâu (atlas, xem core/room.py). shaders/world.frag lấy mẫu atlas này bằng so sánh độ sâu phần cứng
+trong MỘT kết cấu độ sâu (atlas, xem core/room.py). assets/shaders/world.frag lấy mẫu atlas này bằng so sánh độ sâu phần cứng
 (sampler2DShadow) + 4 mẫu PCF.
 
 Đèn và tường đứng yên nên atlas chỉ VẼ MỘT LẦN lúc khởi động (115 mặt, vài ms), sau đó buffer tắt: mỗi khung chỉ còn chi

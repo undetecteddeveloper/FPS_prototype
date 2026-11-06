@@ -550,8 +550,8 @@ GROUPS = (
 # --- trường KHÔNG có trên bảng, kèm lý do (test kiểm mọi trường của GameParams hoặc ở GROUPS hoặc ở đây) ---
 EXCLUDED = {
     'gun.name': 'chữ', 'gun.glb': 'chữ', 'gun.credit': 'chữ', 'gun.clips': 'bảng clip animation của file glb',
-    'gun.ads_sights': 'điểm ngắm đo trên mô hình (tools/g4_ads_align.py)',
-    'gun.muzzle': 'miệng nòng đo trên mô hình (tools/g5_muzzle_align.py)',
+    'gun.ads_sights': 'điểm ngắm đo trên mô hình (tools/measure/g4_ads_align.py)',
+    'gun.muzzle': 'miệng nòng đo trên mô hình (tools/measure/g5_muzzle_align.py)',
     'gun.hip_offset': 'căn mô hình lúc dựng, không đổi được lúc chạy',
     'gun.shot_sound': 'chữ', 'gun.shot_pool': 'số bản phát tạo lúc dựng', 'gun.eye_joint': 'chữ', 'gun.model_scale': 'đơn vị file glb',
     'gun.full_auto': 'phím B đổi lúc chạy',

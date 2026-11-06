@@ -1,4 +1,4 @@
-"""Ánh sáng đèn trần tính trên CPU (cùng công thức với shaders/light_common.glsl, không tính bóng) và phơi sáng tự động của camera.
+"""Ánh sáng đèn trần tính trên CPU (cùng công thức với assets/shaders/light_common.glsl, không tính bóng) và phơi sáng tự động của camera.
 
 Phơi sáng dựa trên độ sáng đo được ngay tại chỗ camera đứng và hướng nhìn, không đọc ngược ảnh từ GPU (đọc ảnh rất chậm trên chip đồ hoạ tích hợp):
 vào chỗ tối thì mở dần (chậm), ra chỗ sáng hoặc nhìn thẳng vào đèn thì khép nhanh hơn.

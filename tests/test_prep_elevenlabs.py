@@ -1,4 +1,4 @@
-"""Tiếng tạo bằng ElevenLabs (tools/prep_elevenlabs.py): đủ file, đúng định dạng, cú va nằm ngay đầu file, không méo; và toán của tiếng đạn trúng."""
+"""Tiếng tạo bằng ElevenLabs (tools/build/prep_elevenlabs.py): đủ file, đúng định dạng, cú va nằm ngay đầu file, không méo; và toán của tiếng đạn trúng."""
 import math
 import shutil
 import subprocess
@@ -41,7 +41,7 @@ def test_every_wav_has_its_source_mp3():
         stem = f.stem[3:]
         if stem.startswith('shot_'):
             stem = 'shot_0'                                         # mọi biến thể súng dựng từ một nguồn (đổi cao độ)
-        assert (ROOT / 'sounds' / 'source' / 'elevenlabs' / (stem + '.mp3')).exists(), f.name
+        assert (ROOT / 'assets' / 'sounds' / 'source' / 'elevenlabs' / (stem + '.mp3')).exists(), f.name
 
 
 @pytest.mark.parametrize('path', all_files(), ids=lambda p: p.stem)
@@ -68,7 +68,7 @@ def test_gun_has_several_shot_variants_short_enough_for_the_pool():
 
 @pytest.mark.skipif(shutil.which('ffmpeg') is None, reason='cần ffmpeg')
 def test_wavs_match_the_tool_output():
-    proc = subprocess.run([sys.executable, '-X', 'utf8', str(ROOT / 'tools' / 'prep_elevenlabs.py'), '--check'], capture_output=True, encoding='utf-8', errors='replace', cwd=ROOT)
+    proc = subprocess.run([sys.executable, '-X', 'utf8', str(ROOT / 'tools' / 'build' / 'prep_elevenlabs.py'), '--check'], capture_output=True, encoding='utf-8', errors='replace', cwd=ROOT)
     assert proc.returncode == 0, proc.stdout
 
 

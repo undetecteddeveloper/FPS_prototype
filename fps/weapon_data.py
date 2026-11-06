@@ -36,7 +36,7 @@ class Clip:
     anim: str
     start: int
     end: int       # khung CUỐI hợp lệ (khung N của clip có N khung bị bao về 0, nên không dùng N)
-    swap: int = None   # khung băng mới vào chỗ (đo bằng tools/g5_reload_probe.py); chỉ clip reload có
+    swap: int = None   # khung băng mới vào chỗ (đo bằng tools/measure/g5_reload_probe.py); chỉ clip reload có
     settle: int = None  # khung mà súng, băng đạn và bolt đã về chỗ: phần còn lại của clip chỉ là bàn tay xếp lại ngón (góc nhìn nạp tắt xong ở khung này)
 
     @property
@@ -100,7 +100,7 @@ class GunKickData:
     peak: tuple = (0.0, 0.004, 0.0, 0.7, 0.0, 0.0)      # z = 0: đẩy lùi do lò xo riêng bên dưới lo (lò xo này nhanh, đỉnh một phát không dồn lên khi bắn liên thanh)
     random: tuple = (0.002, 0.001, 0.0, 0.25, 0.25, 1.3)
     # ĐẨY LÙI (MW2): súng bị đẩy về phía mắt (z âm) rồi trượt về. Lò xo RIÊNG, chậm hơn lò xo trên (chu kỳ dài hơn nhịp bắn 0,08 s) nên các
-    # phát dồn lên: ở 750 phát/phút một phát đơn lùi 3,6 cm, cả băng dồn tới ~6 cm rồi bão hoà (khi ngắm nhân back_ads_scale) (đo: tools/g3_selftest.py), ngừng bắn thì ~0,3 s về chỗ.
+    # phát dồn lên: ở 750 phát/phút một phát đơn lùi 3,6 cm, cả băng dồn tới ~6 cm rồi bão hoà (khi ngắm nhân back_ads_scale) (đo: tools/selftests/g3_selftest.py), ngừng bắn thì ~0,3 s về chỗ.
     back_peak: float = -0.030             # m: đỉnh của MỘT phát đơn lẻ; âm = lùi về phía mắt
     back_random: float = 0.003            # m: ± ngẫu nhiên mỗi phát
     back_omega: float = 18.0              # rad/s (chu kỳ ~0,35 s)
@@ -166,7 +166,7 @@ class ReloadData:
     cancel_blend: float = 0.18            # s: súng trượt từ tư thế đang nạp về tư thế sẵn sàng khi huỷ
     bolt_lock_blend: float = 0.04         # s: bolt giật về sau (khoá nòng) khi bắn phát cuối của băng
     # Clip nạp được dựng cho góc nhìn rộng hơn: tay trái và băng đạn nằm dưới mép màn hình ở FOV hông (70). Khi nạp, FOV riêng của súng
-    # mở rộng và súng nhích lên, trộn vào/ra trong `view_blend` giây (đo bằng ảnh chụp tools/g5_selftest.py)
+    # mở rộng và súng nhích lên, trộn vào/ra trong `view_blend` giây (đo bằng ảnh chụp tools/selftests/g5_selftest.py)
     view_fov: float = 92.0
     # (x phải, y lên, z ra trước, pitch lên, yaw phải, roll phải), m và độ. y 0,125 -> 0,105 khi thêm liếc súng (HeadCamData.glance_*): đầu cúi 18 độ
     # và súng đi theo thì băng lúc thay (đo trên mô hình: dưới mắt 27-32 độ, ~30 cm trước) nằm ~12-16 độ dưới giữa khung, thân súng ngay dưới giữa
@@ -176,7 +176,7 @@ class ReloadData:
 
 @dataclass
 class ViewLightData:
-    """Vật liệu súng + tay (shaders/viewmodel.*). KHÔNG có đèn riêng: súng nhận đúng các đèn trần, bóng, ánh nền và tia lửa của thế giới."""
+    """Vật liệu súng + tay (assets/shaders/viewmodel.*). KHÔNG có đèn riêng: súng nhận đúng các đèn trần, bóng, ánh nền và tia lửa của thế giới."""
     specular: float = 0.55                # độ bóng kim loại của thân súng (vệt sáng của đèn trần)
     gloss: float = 26.0                   # độ tập trung của vệt sáng trên thân súng
     env: float = 0.35                     # phản chiếu mờ môi trường (nhân theo ánh nền tại chỗ: chỗ tối thì mất)
@@ -223,7 +223,7 @@ class TracerData:
 
 
 def _m4_reload_beats() -> dict:
-    """Mốc rung khi nạp, theo khung của clip (đo bằng tools/g5_reload_probe.py): băng cũ bung ra, băng mới vào chỗ (= Clip.swap), bolt nhả.
+    """Mốc rung khi nạp, theo khung của clip (đo bằng tools/measure/g5_reload_probe.py): băng cũ bung ra, băng mới vào chỗ (= Clip.swap), bolt nhả.
     Khung tính theo dòng thời gian chung của file; Handling.frame đã nhân ReloadData.speed nên mốc đúng ở mọi tốc độ nạp."""
     return {
         'reload': ((27, 'mag_out'), (61, 'seat')),
@@ -412,12 +412,12 @@ class GunData:
     ads_view_fov: float = 74.0            # FOV của camera vẽ súng khi ngắm hẳn: thước ngắm đủ to để dùng (đạn vẫn đi đúng chỗ đầu ruồi đang chỉ, xem freeaim.barrel_view_dir)
     ads_sights: tuple = None              # (tâm vòng ngắm sau, đỉnh cột ngắm trước) trong hệ camera lúc nghỉ, KHÔNG tính hip_offset
     ads_eye_relief: float = 0.18          # m: vòng ngắm sau cách mắt bao xa khi ngắm (xa hơn: vòng nhỏ hơn, che ít hơn)
-    muzzle: tuple = None                  # miệng nòng trong hệ camera lúc nghỉ như ads_sights (đo bằng tools/g5_muzzle_align.py)
+    muzzle: tuple = None                  # miệng nòng trong hệ camera lúc nghỉ như ads_sights (đo bằng tools/measure/g5_muzzle_align.py)
     # chạy nước rút
     sprint_in_time: float = 0.20          # s để hạ súng vào tư thế chạy
     sprint_out_time: float = 0.25         # s để đưa súng lên lại; trong lúc này chưa bắn được (sprint-to-fire)
     # âm thanh phát súng
-    shot_sound: tuple = ()                # đường dẫn từ gốc dự án (nhiều biến thể, phát luân phiên); dựng bằng tools/prep_elevenlabs.py từ sounds/source/elevenlabs
+    shot_sound: tuple = ()                # đường dẫn từ gốc dự án (nhiều biến thể, phát luân phiên); dựng bằng tools/build/prep_elevenlabs.py từ assets/sounds/source/elevenlabs
     shot_volume: float = 0.8
     shot_pool: int = 8                    # số bản phát luân phiên: độ dài tiếng (0,5 s) / nhịp bắn (0,08 s) + 1, để tiếng sau không cắt tiếng trước
     shot_pitch_variation: float = 0.03    # ± tỉ lệ đổi cao độ ngẫu nhiên mỗi phát cho đỡ "máy"; 0 = tắt
@@ -438,7 +438,7 @@ class GunData:
 
 M4 = GunData(
     name='M4',
-    glb='guns/m4_-_fps_weapon_animations_pack_v.1.glb',
+    glb='assets/guns/m4_-_fps_weapon_animations_pack_v.1.glb',
     credit='M4: BarcodeGames (CC BY 4.0)',
     clips={
         # swap = khung băng mới vào chỗ (còn đạn: băng cũ rút ra rồi băng mới ấn vào lúc 2,0 s; cạn: 2,03 s, bolt nhả ở khung 190)
@@ -448,10 +448,10 @@ M4 = GunData(
         'holster': Clip('Holster', 251, 268),
         'draw': Clip('Draw', 269, 299),
     },
-    # đo bằng đỉnh mô hình (tools/g4_ads_align.py): tâm vòng ngắm sau và đỉnh cột ngắm trước
+    # đo bằng đỉnh mô hình (tools/measure/g4_ads_align.py): tâm vòng ngắm sau và đỉnh cột ngắm trước
     ads_sights=((0.0678, -0.0074, 0.1556), (0.0678, -0.0069, 0.5622)),
     muzzle=(0.0677, -0.0752, 0.7326),
-    shot_sound=('sounds/el_shot_0.wav', 'sounds/el_shot_1.wav', 'sounds/el_shot_2.wav'),
+    shot_sound=('assets/sounds/el_shot_0.wav', 'assets/sounds/el_shot_1.wav', 'assets/sounds/el_shot_2.wav'),
 )
 
 
@@ -468,7 +468,7 @@ class FeedbackParams:
 
 @dataclass
 class LookData:
-    """Giao diện hình ảnh của thế giới (shader shaders/world.*) và lớp phủ màn hình. Hướng tính trong thế giới (y lên, z ra trước).
+    """Giao diện hình ảnh của thế giới (shader assets/shaders/world.*) và lớp phủ màn hình. Hướng tính trong thế giới (y lên, z ra trước).
     Phòng tập kín (kích thước ở core/room.RoomLayout), không có trời/mặt trời: nguồn sáng là một dãy bóng đèn treo trần dọc giữa làn."""
     # đèn trần: một dãy cách đều dọc làn; vị trí đèn i = (lamp_x, lamp_y, lamp_z0 + i * lamp_spacing)
     lamp_x: float = 0.0
@@ -503,7 +503,7 @@ class LookData:
 
 @dataclass
 class LensData:
-    """Ống kính camera đội đầu (shaders/lens.frag, toán ở core/lens.py + core/exposure.py), vẽ SAU khi đã ghép thế giới và súng."""
+    """Ống kính camera đội đầu (assets/shaders/lens.frag, toán ở core/lens.py + core/exposure.py), vẽ SAU khi đã ghép thế giới và súng."""
     fisheye: float = 0.25                 # độ méo mắt cá: 0 = ảnh phẳng; giữa khung phóng (1 + fisheye) lần
     fisheye_ads: float = 0.16             # khi ngắm hẳn méo bớt
     chroma: float = 0.012                 # viền màu: chênh độ méo giữa kênh đỏ và lam, tăng dần ra rìa
@@ -533,11 +533,11 @@ class LensData:
 class SoundCue:
     """Một tiếng gắn vào khung của clip: phát khi clip chạy tới `frame` (khung tuyệt đối trên dòng thời gian của glb, như Clip.swap)."""
     frame: int
-    sound: str                            # tên nhóm trong sounds/foley (tools/prep_foley.py): file <sound>_<số>.wav
+    sound: str                            # tên nhóm trong assets/sounds/foley (tools/build/prep_foley.py): file <sound>_<số>.wav
     volume: float = 1.0                   # nhân vào AudioData.reload_volume
 
 
-# Mốc âm thanh của M4, đo bằng tools/g5_reload_probe.py (khoảng cách băng / bolt / chốt so với tư thế sẵn sàng theo từng khung).
+# Mốc âm thanh của M4, đo bằng tools/measure/g5_reload_probe.py (khoảng cách băng / bolt / chốt so với tư thế sẵn sàng theo từng khung).
 M4_SOUND_CUES = {
     # Reload (1..110): chốt băng bấm ở 26, băng rời chỗ từ 27 (cách 6 cm, rồi 15 cm ở 29, 30 cm ở 31), băng mới trượt vào 49..60, vào chỗ 61 (= Clip.swap),
     # bolt/chốt đập nhẹ ở 74..76, băng lún thêm cho chắc ở 83
@@ -555,12 +555,12 @@ M4_SOUND_CUES = {
 
 @dataclass
 class AudioData:
-    """Foley: tiếng kim loại khi nạp / rút súng (theo khung animation) và bước chân trên gạch (theo quãng đường). Tiếng dựng bằng tools/prep_foley.py.
+    """Foley: tiếng kim loại khi nạp / rút súng (theo khung animation) và bước chân trên gạch (theo quãng đường). Tiếng dựng bằng tools/build/prep_foley.py.
     Âm lượng nhỏ hơn tiếng súng (GunData.shot_volume 0,8) để không át tiếng bắn."""
-    folder: str = 'sounds/foley'
+    folder: str = 'assets/sounds/foley'
     pool: int = 2                         # số bản phát luân phiên cho mỗi file: tiếng sau không cắt đuôi tiếng trước
-    # tên logic của tiếng -> nhóm file thật trong folder (<nhóm>_<số>.wav). Mặc định dùng tiếng tạo bằng ElevenLabs (tools/prep_elevenlabs.py từ sounds/source/elevenlabs).
-    # Muốn quay về tiếng người dùng cung cấp trước đây: đổi el_* thành user_* (mag_release, mag_in, mag_seat, bolt, step). Xoá một dòng là về tiếng tổng hợp của tên đó (tools/prep_foley.py).
+    # tên logic của tiếng -> nhóm file thật trong folder (<nhóm>_<số>.wav). Mặc định dùng tiếng tạo bằng ElevenLabs (tools/build/prep_elevenlabs.py từ assets/sounds/source/elevenlabs).
+    # Muốn quay về tiếng người dùng cung cấp trước đây: đổi el_* thành user_* (mag_release, mag_in, mag_seat, bolt, step). Xoá một dòng là về tiếng tổng hợp của tên đó (tools/build/prep_foley.py).
     sound_files: dict = field(default_factory=lambda: {
         'mag_release': 'el_mag_release', 'mag_in': 'el_mag_in', 'mag_seat': 'el_mag_seat',
         'bolt_tick': 'el_bolt', 'bolt_release': 'el_bolt',

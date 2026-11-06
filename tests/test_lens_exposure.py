@@ -1,4 +1,4 @@
-"""Ống kính, phơi sáng, ánh sáng đèn trần: toán thuần. Các công thức này khớp từng dòng với shaders/light_common.glsl và shaders/lens.frag.
+"""Ống kính, phơi sáng, ánh sáng đèn trần: toán thuần. Các công thức này khớp từng dòng với assets/shaders/light_common.glsl và assets/shaders/lens.frag.
 (Camera đầu: tests/test_headcam.py.)"""
 import math
 from pathlib import Path
@@ -74,7 +74,7 @@ def test_centre_of_the_lens_looks_like_a_normal_fov():
 
 
 def test_shader_uses_the_same_formula():
-    src = (ROOT / 'shaders' / 'lens.frag').read_text(encoding='utf-8')
+    src = (ROOT / 'assets' / 'shaders' / 'lens.frag').read_text(encoding='utf-8')
     assert 'float f = (1.0 + k * r2) / (1.0 + k);' in src
     assert 'vec2 q = vec2(p.x, p.y / lens_warp.x);' in src
 
@@ -135,8 +135,8 @@ def test_bulb_is_brighter_than_anything_it_lights():
 
 def test_gun_and_world_share_one_light_source():
     """Súng không có đèn riêng: shader súng không còn mặt trời, và cả hai shader cùng nạp một file ánh sáng."""
-    vm = (ROOT / 'shaders' / 'viewmodel.frag').read_text(encoding='utf-8')
-    world = (ROOT / 'shaders' / 'world.frag').read_text(encoding='utf-8')
+    vm = (ROOT / 'assets' / 'shaders' / 'viewmodel.frag').read_text(encoding='utf-8')
+    world = (ROOT / 'assets' / 'shaders' / 'world.frag').read_text(encoding='utf-8')
     assert '#include "light_common.glsl"' in vm and '#include "light_common.glsl"' in world
     for word in ('sun_dir', 'sun_color', 'sky_color', 'ground_color'):
         assert word not in vm
@@ -147,12 +147,12 @@ def test_gun_and_world_share_one_light_source():
 
 def test_bounce_light_scales_with_the_lamps():
     """Lỗi cũ: giảm đèn 12 lần mà ảnh chỉ tối đi 14% vì ánh dội là số cố định. Đèn tắt thì ánh dội phải mất."""
-    src = (ROOT / 'shaders' / 'light_common.glsl').read_text(encoding='utf-8')
+    src = (ROOT / 'assets' / 'shaders' / 'light_common.glsl').read_text(encoding='utf-8')
     assert 'bounce += look_lamp2.w * win * win' in src
 
 
 def test_python_lamp_formula_matches_the_shader_text():
-    src = (ROOT / 'shaders' / 'light_common.glsl').read_text(encoding='utf-8')
+    src = (ROOT / 'assets' / 'shaders' / 'light_common.glsl').read_text(encoding='utf-8')
     assert 'win * win / (1.0 + d2 / (look_lamp2.z * look_lamp2.z))' in src
     assert 'mix(look_lamp_cone.z, 1.0, smoothstep(look_lamp_cone.y, look_lamp_cone.x, cos_down))' in src
 

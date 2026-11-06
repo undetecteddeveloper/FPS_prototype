@@ -2,7 +2,7 @@
 
 Rung chỉ đặt vào `camera.position/rotation` (tương đối so với `player.camera_pivot`). `Player.aim_ray()` đọc yaw/pitch/độ cao từ chính
 `Player` chứ không đọc camera: tia ngắm, hướng đạn, độ tản và recoil không thấy rung. Chỉ ảnh dựng ra là rung.
-Dấu đã đo bằng phép chiếu thật (tools/g6_shake_selftest.py kiểm lại): rotation_x dương = nhìn xuống, rotation_y dương = quay phải,
+Dấu đã đo bằng phép chiếu thật (tools/selftests/g6_shake_selftest.py kiểm lại): rotation_x dương = nhìn xuống, rotation_y dương = quay phải,
 rotation_z dương = nghiêng phải (điểm bên phải màn hình đi LÊN).
 """
 from ursina import camera

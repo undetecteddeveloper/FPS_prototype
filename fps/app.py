@@ -4,7 +4,7 @@ import copy
 import math
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent      # gốc dự án (chứa guns/, sounds/)
+ROOT = Path(__file__).resolve().parent.parent      # gốc dự án (chứa assets/)
 
 from fps.game import gltf_patch  # noqa: E402  (phải nạp trước Ursina)
 

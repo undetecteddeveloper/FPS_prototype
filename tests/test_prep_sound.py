@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from tools.prep_sound import FADE, KEEP, PRE_ROLL, find_onset, trim
+from tools.build.prep_sound import FADE, KEEP, PRE_ROLL, find_onset, trim
 
 RATE = 48000
 

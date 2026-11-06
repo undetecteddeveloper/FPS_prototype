@@ -281,7 +281,7 @@ class Viewmodel:
         (GunKick.pose), sway/ADS/chạy (Sway.update), trôi tự do (FreeAim.pose). Cộng lại rồi đặt lên nút `sway`; tổng này là `barrel_pose`, nguồn của hướng đạn.
         `visual`: các tư thế CHỈ HÌNH ẢNH (rung camera, súng đi theo đầu), không vào `barrel_pose` nên không đổi hướng đạn.
 
-        BẪY dấu (đã đo bằng tools/g3_selftest.py): `set_hpr` THÔ của nút trong đồ thị súng này khác `Entity.rotation`
+        BẪY dấu (đã đo bằng tools/selftests/g3_selftest.py): `set_hpr` THÔ của nút trong đồ thị súng này khác `Entity.rotation`
         của Ursina ở thế giới: h dương quay súng sang TRÁI, p dương ngóc nòng LÊN, r dương nghiêng PHẢI."""
         self._sync_lens()
         k = smoothstep(self._view)

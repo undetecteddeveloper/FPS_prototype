@@ -4,40 +4,40 @@ Ghi công cũng hiện trong game: mở bảng F1, dòng chữ nhỏ ở góc d�
 
 === Mô hình 3D ===
 
-M4 - FPS Weapon Animations Pack (v.1)   [ĐANG DÙNG: guns\m4_-_fps_weapon_animations_pack_v.1.glb]
+M4 - FPS Weapon Animations Pack (v.1)   [ĐANG DÙNG: assets\guns\m4_-_fps_weapon_animations_pack_v.1.glb]
   Tác giả:   BarcodeGames (https://sketchfab.com/barcodegames)
   Nguồn:     https://sketchfab.com/3d-models/m4-fps-weapon-animations-pack-v1-662fc74dda2646cfb48fc610705768ef
   Giấy phép: CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/) - được dùng và sửa, bắt buộc ghi công tác giả
   Thay đổi:  nạp qua bản vá trình chuyển đổi glTF (fps\game\gltf_patch.py), đổi đơn vị cm sang m, normal map thu về 1024 (fps\game\gltf_maps.py),
              phủ màu tay áo lên phần da cẳng tay, làm tối găng tay,
-             vẽ bằng shader riêng (shaders\viewmodel.*), tư thế đứng yên / ngắm / chạy / sway tự viết bằng mã.
+             vẽ bằng shader riêng (assets\shaders\viewmodel.*), tư thế đứng yên / ngắm / chạy / sway tự viết bằng mã.
 
-Animated FPS hands (rifle animation pack)   [CHƯA DÙNG: guns\animated_fps_hands_rifle_animation_pack.glb, 109 MB, không đưa lên git]
+Animated FPS hands (rifle animation pack)   [CHƯA DÙNG: assets\guns\animated_fps_hands_rifle_animation_pack.glb, 109 MB, không đưa lên git]
   Tác giả:   Cransh (https://sketchfab.com/ccransh)
-  Giấy phép: CC BY 4.0. File có trong thư mục guns nhưng game chưa nạp nó. Nếu sau này dùng thì phải ghi công ở đây VÀ trong game.
+  Giấy phép: CC BY 4.0. File có trong thư mục assets\guns nhưng game chưa nạp nó. Nếu sau này dùng thì phải ghi công ở đây VÀ trong game.
 
 === Âm thanh ===
 
-Tiếng ĐANG DÙNG mặc định: tiếng súng, nạp đạn, rút súng, bước chân, nhảy, chạm đất, đạn trúng, cò rỗng (sounds\el_shot_*.wav, sounds\foley\el_*.wav;
-file gốc sounds\source\elevenlabs\*.mp3, dựng bằng tools\prep_elevenlabs.py)
+Tiếng ĐANG DÙNG mặc định: tiếng súng, nạp đạn, rút súng, bước chân, nhảy, chạm đất, đạn trúng, cò rỗng (assets\sounds\el_shot_*.wav, assets\sounds\foley\el_*.wav;
+file gốc assets\sounds\source\elevenlabs\*.mp3, dựng bằng tools\build\prep_elevenlabs.py)
   Tạo bằng AI ElevenLabs Sound Effects (qua Composio, tài khoản của chủ dự án, 5/11/2026). Quyền dùng thương mại phụ thuộc gói ElevenLabs của tài khoản lúc tạo
   (gói miễn phí có điều kiện ghi công / không được thương mại): CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH.
 
 Các tiếng dưới đây vẫn nằm trong dự án nhưng game không còn dùng mặc định:
 
-Tiếng súng M4 (sounds\m4_shot.wav; dựng từ sounds\source\m4_shot_original.wav bằng tools\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
+Tiếng súng M4 (assets\sounds\m4_shot.wav; dựng từ assets\sounds\source\m4_shot_original.wav bằng tools\build\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
   Do chủ dự án cung cấp. Tác giả / nguồn / giấy phép: CHƯA RÕ. CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây);
   nếu không chứng minh được quyền dùng thì phải thay bằng tiếng khác.
 
-Tiếng thay đạn (chốt băng, băng vào chỗ, kéo bolt) và bước chân trên sàn gỗ (sounds\foley\user_*.wav; cắt từ
-sounds\source\reload_user_original.wav và sounds\source\footstep_wood_user_original.wav bằng tools\prep_user_audio.py)
+Tiếng thay đạn (chốt băng, băng vào chỗ, kéo bolt) và bước chân trên sàn gỗ (assets\sounds\foley\user_*.wav; cắt từ
+assets\sounds\source\reload_user_original.wav và assets\sounds\source\footstep_wood_user_original.wav bằng tools\build\prep_user_audio.py)
   Do chủ dự án cung cấp (tên file gốc: "Reloading_gun_sound__#3" và "Footstep_on_the_wood_#2"). Tác giả / nguồn / giấy phép: CHƯA RÕ.
   CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây); nếu không chứng minh được quyền dùng thì phải thay bằng tiếng khác.
   Game dùng các tiếng này làm mặc định (AudioData.sound_files trong fps\weapon_data.py): cùng một file bước chân gỗ phát cho đi, chạy,
   nhảy và chạm đất (đổi cao độ cho khác nhau).
 
-Tiếng nạp đạn (trượt băng ra), rút súng, hạ tay khi huỷ nạp (sounds\foley\*.wav, trừ các file user_*)
-  Tự tổng hợp bằng mã thuần (tools\prep_foley.py), không lấy mẫu từ nguồn nào, không dính bản quyền bên ngoài.
+Tiếng nạp đạn (trượt băng ra), rút súng, hạ tay khi huỷ nạp (assets\sounds\foley\*.wav, trừ các file user_*)
+  Tự tổng hợp bằng mã thuần (tools\build\prep_foley.py), không lấy mẫu từ nguồn nào, không dính bản quyền bên ngoài.
   Các nhóm bước chân / nhảy / chạm đất tổng hợp (trên gạch) vẫn còn trong thư mục nhưng game không dùng khi có sound_files ở trên.
 
 === Chữ ===
@@ -47,7 +47,7 @@ Máy không có font này thì game dùng font mặc định của Ursina.
 
 === Mã và hình ảnh tự sinh ===
 
-Shader (thư mục shaders\)
+Shader (thư mục assets\shaders\)
   viewmodel.vert: phần skin bộ xương trên GPU (p3d_TransformTable + transform_weight / transform_index + cờ F_hardware_skinning) theo mẫu của
     panda3d-simplepbr, tác giả Mitchell Stokes, giấy phép BSD-3-Clause, https://github.com/Moguri/panda3d-simplepbr (đã có sẵn trong .venv).
     Phần ánh sáng tự viết.

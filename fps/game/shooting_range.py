@@ -1,7 +1,7 @@
 """Trường bắn: phòng tập KÍN (bốn tường + trần, sàn gạch) dài 236 m dọc +z; người chơi đứng ở z = 0 nhìn về +z.
 
 Kích thước phòng ở `fps.core.room.RoomLayout`, đèn trần ở `LookData`. Tường, cột, dầm, trần và đèn được GỘP thành vài mesh
-(mỗi mesh một lần vẽ) thay vì hàng trăm Entity. Vân gạch, vân bê tông, sơn chân tường... vẽ trong shaders/world.frag theo
+(mỗi mesh một lần vẽ) thay vì hàng trăm Entity. Vân gạch, vân bê tông, sơn chân tường... vẽ trong assets/shaders/world.frag theo
 `look_material` của từng Entity (đặt ở look.py), nên ở đây chỉ dựng hình khối + màu đỉnh.
 Bia (G2/G6) và biển chữ khoảng cách (G6) đặt thêm vào đây. Bia chạy (G6) chạy ngang làn trong khoảng giữa hai tường.
 """

@@ -1,4 +1,4 @@
-"""Tiếng do người dùng cung cấp, cắt bằng tools/prep_user_audio.py: đúng định dạng, không méo, khớp đầu ra của công cụ, cú va sát đầu lát cắt."""
+"""Tiếng do người dùng cung cấp, cắt bằng tools/build/prep_user_audio.py: đúng định dạng, không méo, khớp đầu ra của công cụ, cú va sát đầu lát cắt."""
 import array
 import math
 import wave
@@ -6,7 +6,7 @@ import wave
 import pytest
 
 from fps.weapon_data import AudioData
-from tools import prep_user_audio as pu
+from tools.build import prep_user_audio as pu
 
 AUDIO = AudioData()
 ONSET_LIMIT = {'user_mag_release': 0.020, 'user_mag_in': 0.040, 'user_mag_seat': 0.020, 'user_bolt': 0.025, 'user_step': 0.025}   # s: lúc va đầu tiên tính từ đầu lát
@@ -27,11 +27,11 @@ def samples(path):
 
 def test_source_files_are_kept():
     for src, _, _ in pu.SLICES.values():
-        assert (pu.SRC / src).exists(), f'thiếu {src} trong sounds/source'
+        assert (pu.SRC / src).exists(), f'thiếu {src} trong assets/sounds/source'
 
 
 def test_slices_have_the_standard_format(built):
-    with wave.open(str(pu.ROOT / 'sounds' / 'm4_shot.wav'), 'rb') as ref:
+    with wave.open(str(pu.ROOT / 'assets' / 'sounds' / 'm4_shot.wav'), 'rb') as ref:
         want = (ref.getnchannels(), ref.getsampwidth(), ref.getframerate())
     for name in built:
         with wave.open(str(pu.OUT / name), 'rb') as w:
@@ -57,7 +57,7 @@ def test_hit_is_right_at_the_start(built):
 def test_committed_files_are_up_to_date(built):
     for name, (ch, sr, x) in built.items():
         path = pu.OUT / name
-        assert path.exists(), f'thiếu {name}: chạy tools\\prep_user_audio.py'
+        assert path.exists(), f'thiếu {name}: chạy tools\\build\\prep_user_audio.py'
         ch2, sr2, y = samples(path)
         assert (ch2, sr2, len(y)) == (ch, sr, len(x)), name
         assert max(abs(a - b) for a, b in zip(x, y)) < 2.0 / 32768, name

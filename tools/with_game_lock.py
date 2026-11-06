@@ -1,7 +1,7 @@
 r"""Chạy một lệnh với ổ khoá toàn máy: mỗi lúc chỉ MỘT game/selftest mở cửa sổ.
 
 Dùng:  .venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh và đối số...>
-Ví dụ: .venv\Scripts\python.exe -X utf8 tools\with_game_lock.py .venv\Scripts\python.exe -X utf8 tools\g3_selftest.py
+Ví dụ: .venv\Scripts\python.exe -X utf8 tools\with_game_lock.py .venv\Scripts\python.exe -X utf8 tools\selftests\g3_selftest.py
 
 Nhiều agent/terminal cùng chạy game thì các bài đo theo thời gian (nhịp bắn, FPS) trượt oan. Ổ khoá là khoá tệp của hệ điều hành
 (msvcrt.locking): tiến trình chết thì hệ điều hành tự nhả, không bao giờ kẹt khoá. Mã thoát = mã của lệnh con.

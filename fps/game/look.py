@@ -1,6 +1,6 @@
 """Giao diện hình ảnh của thế giới: shader (đèn trần, bóng, vân vật liệu, AO giả, bụi trong phòng), quầng đèn, bóng của bia chạy.
 
-Shader thế giới nằm ở shaders/world.vert|frag (khung theo unlit_with_fog_shader của Ursina); phần ánh sáng dùng chung với súng ở shaders/light_common.glsl + frame_light.py. Áp lên mọi vật thể của trường bắn,
+Shader thế giới nằm ở assets/shaders/world.vert|frag (khung theo unlit_with_fog_shader của Ursina); phần ánh sáng dùng chung với súng ở assets/shaders/light_common.glsl + frame_light.py. Áp lên mọi vật thể của trường bắn,
 bia và lỗ đạn bằng cách đặt `Entity.shader`; vật liệu chọn bằng đầu vào `look_material` của từng Entity. Vật thể giao diện giữ
 shader mặc định của Ursina. Số liệu ở weapon_data.LookData; kích thước phòng ở core/room.RoomLayout.
 
@@ -161,7 +161,7 @@ class WorldLook:
 
     @staticmethod
     def _make_halos(lamps, params) -> Entity:
-        """Quầng sáng của mọi bóng đèn trong MỘT lần vẽ: mỗi thẻ có 4 đỉnh nằm ở tâm đèn, shaders/halo.vert bung ra quay về camera. Trộn cộng, không ghi độ sâu."""
+        """Quầng sáng của mọi bóng đèn trong MỘT lần vẽ: mỗi thẻ có 4 đỉnh nằm ở tâm đèn, assets/shaders/halo.vert bung ra quay về camera. Trộn cộng, không ghi độ sâu."""
         verts, uvs, tris = [], [], []
         for x, y, z in lamps:
             n = len(verts)

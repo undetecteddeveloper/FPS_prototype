@@ -1,4 +1,4 @@
-"""Ống kính camera đội đầu: thế giới + súng vẽ vào một kết cấu, rồi `shaders/lens.frag` vẽ một lần ra cửa sổ; chữ và bảng F1 vẽ sau, không bị méo.
+"""Ống kính camera đội đầu: thế giới + súng vẽ vào một kết cấu, rồi `assets/shaders/lens.frag` vẽ một lần ra cửa sổ; chữ và bảng F1 vẽ sau, không bị méo.
 
 Vì ống kính áp lên ảnh ĐÃ GHÉP nên súng và thế giới méo như nhau: đầu ruồi đang chỉ vào đâu trên màn hình thì đạn vẫn tới đó.
 Không dùng `camera.shader` của Ursina (FXAA theo đường đó làm hỏng ảnh khi có vùng vẽ súng riêng); vùng vẽ súng được chuyển sang cùng buffer ở đây.
