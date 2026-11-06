@@ -43,9 +43,13 @@ LEFT_PALM_BELOW_PLATE = 0.020                                  # m: left palm jo
 # Left hand fit (random search + local refinement, cost = penetration of the gun / right fingers + gap of the finger pads
 # + palm distance to the floorplate; Blender session 2026-11-06). Rotation is applied about the palm centre in the
 # order Rz(yaw) @ Rx(pitch) @ Ry(roll), then the shift. LEFT_CURL scales the angle of the right-hand finger curls.
-LEFT_ROT_DEG = (28.6, -26.3, 31.2)
-LEFT_SHIFT = Vector((0.025, -0.026, 0.031))
-LEFT_CURL = 1.8
+# Idle pose = the standard 'thumbs forward' two-hand grip (see skill fps-pistol-animation): palm on the LEFT side of the grip,
+# fingers wrapped over the right-hand fingers, thumb forward, elbow behind and below the wrist. Result of the fit with
+# those constraints (random search 50k + 15k refinement, cost 3.5).
+LEFT_ROT_DEG = (-18.8, 3.9, 32.4)
+LEFT_SHIFT = Vector((0.0235, -0.0439, 0.0746))
+LEFT_CURL = 1.5
+LEFT_MAG_OFF = (0.0, 0.0, 0.0)      # gun-local offset grip pose -> under the magazine (set by fit_left_hand, used by the reload keys)
 
 BASE = {}                                                      # basis of non-gun bones at the M4 pose
 REST_R = Matrix.Rotation(math.radians(5.0), 3, 'X')          # the gun is placed pitched 5 deg in the rest pose (see place_glock)
@@ -245,7 +249,6 @@ def fit_left_hand(curl=LEFT_CURL):
                 P[ln].rotation_mode = 'QUATERNION'
                 axis, ang = P[rn].rotation_quaternion.to_axis_angle()
                 P[ln].rotation_quaternion = Quaternion(axis, ang * curl)
-                P[ln].location = P[rn].location
     bpy.context.view_layer.update()
     palm = (W @ P['LeftHand_028'].head + W @ P['LeftHandMiddle1_037'].head) / 2
     mag = bpy.data.objects['Mag1_G17_D_0']
@@ -261,6 +264,9 @@ def fit_left_hand(curl=LEFT_CURL):
            @ Matrix.Rotation(math.radians(roll), 4, 'Y'))
     apply_world(P[LEFT], Matrix.Translation(LEFT_SHIFT) @ Matrix.Translation(palm) @ rot @ Matrix.Translation(-palm))
     bpy.context.view_layer.update()
+    global LEFT_MAG_OFF
+    palm_now = (W @ P['LeftHand_028'].head + W @ P['LeftHandMiddle1_037'].head) / 2
+    LEFT_MAG_OFF = tuple(REST_R.inverted() @ (target - palm_now))
 
 
 def init(src_arm_name='M4_src_arm', src_frame=226):
@@ -291,6 +297,13 @@ REST = (0, 0, 0, 0, 0, 0)
 DOWN = (0, 0.10, -0.30, -45, 0, 25)      # holstered / lowered pose: back, down, nose-down, rolled
 
 
+def _left_keys():
+    mo = Vector(LEFT_MAG_OFF)
+    d = lambda dz: tuple(mo + Vector((0, 0, dz)))
+    return [(0, (0, 0, 0)), (6, (0, 0, 0)), (12, tuple(mo)), (17, d(-0.125)), (21, d(-0.20)), (27, d(-0.20)),
+            (36, d(-0.19)), (44, d(-0.012)), (50, tuple(mo)), (56, (0, 0, 0))]
+
+
 def reload_tables(empty):
     """Shared magazine swap. empty=True: the slide starts locked back and is released after the new magazine is in."""
     tilt = (0, 0.010, -0.005, 8, 0, 18)
@@ -298,9 +311,9 @@ def reload_tables(empty):
         'gun': [(0, REST), (8, tilt), (52, tilt), (62, (0, 0.004, 0, 1.5, 0, 3)), (70, REST)],
         'mag1': [(0, 0.0), (10, 0.0), (18, 0.12), (26, 0.5), (27, 3.0), (69, 3.0), (70, 0.0)],
         'mag2': [(0, 3.0), (27, 3.0), (28, 0.22), (36, 0.20), (44, 0.012), (47, -0.004), (50, 0.0)],
-        # the palm stays under the magazine: it goes down with the old one (10..18) and brings the new one up (28..44)
-        'left': [(0, (0, 0, 0)), (9, (0, 0, 0)), (17, (0, 0, -0.125)), (21, (0, 0, -0.20)), (27, (0, 0, -0.20)),
-                 (36, (0, 0, -0.19)), (44, (0, 0, -0.012)), (48, (0, 0, 0.0)), (56, (0, 0, 0))],
+        # the left hand LEAVES the grip, goes to the magazine well, goes down with the old magazine (10..18) and brings the
+        # new one up (28..44), then returns to the grip. mo = grip-pose -> under-the-magazine offset (set by fit_left_hand)
+        'left': _left_keys(),
     }
     n = 72
     if empty:
