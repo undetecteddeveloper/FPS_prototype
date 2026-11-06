@@ -35,7 +35,7 @@ from fps.game.shooting_range import WALK_BOUNDS, build_range  # noqa: E402
 from fps.core.sway import Sway, ads_target_for  # noqa: E402
 from fps.game.targets import build_targets  # noqa: E402
 from fps.game.viewmodel import Viewmodel  # noqa: E402
-from fps.weapon_data import M4, GameParams  # noqa: E402
+from fps.weapon_data import GUNS, M4, GameParams  # noqa: E402
 
 USER_PARAMS = ROOT / 'user_params.json'      # user parameters saved from the debug panel (F1); gitignored
 
@@ -58,6 +58,10 @@ class Game(Entity):
                  user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True):
         super().__init__()
         self.params = params
+        if params.gun.sound_cues is not None:         # per-gun sound beats / files (the Glock's pistol sounds)
+            params.audio.cues = dict(params.gun.sound_cues)
+        if params.gun.sound_files:
+            params.audio.sound_files = {**params.audio.sound_files, **params.gun.sound_files}
         # live parameter store (G6): defaults are snapshotted FIRST, then (if requested) user_params.json is loaded BEFORE the parts are built, so even numbers read only once at build time
         # (rounds in the magazine, lamp radius...) take effect. Every module keeps the same dataclass objects as `params`.
         self.params_store = ParamStore(params)
@@ -84,6 +88,7 @@ class Game(Entity):
         self.combat = Combat(params, self.player, self.targets, self.world['colliders'], audio=self.audio, fx=self.fx, shake=self.shake)
         self.combat.aim_source = self._barrel_direction
         self.combat.foley = self.foley
+        self.combat.viewmodel = self.viewmodel
         self.look = WorldLook(params.look, self.world, self.targets, self.combat.decals, self.light) if look else None
         self.lens = Lens(params.lens, self.viewmodel) if lens else None
         self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
@@ -184,7 +189,7 @@ def desktop_size() -> tuple:
 def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, quit_after: float = 0.0,
                 sound: bool = True, draw: bool = True, effects: bool = True, look: bool = True, shake: bool = True,
                 moving_targets: bool = True, user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True,
-                borderless: bool = False) -> Game:
+                borderless: bool = False, gun: str = 'm4') -> Game:
     # Ursina(vsync=False) alone does not turn vsync off; the Panda config must be set directly
     loadPrcFileData('', f'sync-video {int(vsync)}')
     # Panda cleans its state cache with a job every frame (~0.5 ms here); when off, states are freed by reference counting instead
@@ -195,8 +200,8 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     application.asset_folder = ROOT
     window.fps_counter.enabled = False
     setup_fonts()
-    # a copy of M4: the debug panel writes straight into the gun data, so the shared M4 must not be dirtied (tests, measuring tools)
-    game = Game(GameParams(gun=copy.deepcopy(M4)), quit_after, sound, draw, effects, look, shake=shake, moving_targets=moving_targets,
+    # a copy of the gun: the debug panel writes straight into the gun data, so the shared GunData must not be dirtied (tests, measuring tools)
+    game = Game(GameParams(gun=copy.deepcopy(GUNS[gun])), quit_after, sound, draw, effects, look, shake=shake, moving_targets=moving_targets,
                 user_params=user_params, hud=hud, lens=lens, free_aim=free_aim)
     game.app = app
     prune_scene_entities()
@@ -213,12 +218,13 @@ def main(argv=None):
     ap.add_argument('--size', default='1280x720', help='cỡ cửa sổ khi dùng --window')
     ap.add_argument('--quit-after', type=float, default=0.0)
     ap.add_argument('--mute', action='store_true', help='tắt tiếng súng')
+    ap.add_argument('--gun', default='m4', choices=sorted(GUNS), help='súng dùng khi khởi động (m4 / glock)')
     ap.add_argument('--defaults', action='store_true', help='bỏ qua user_params.json, chạy bằng thông số mặc định')
     args = ap.parse_args(argv)
     # default: a borderless window covering the whole screen. Exclusive fullscreen with vsync drops straight to 30 FPS whenever one frame is late; this does not
     size = tuple(int(v) for v in args.size.lower().split('x')) if args.window else desktop_size()
     game = create_game(vsync=not args.novsync, size=size, borderless=not args.window,
-                       quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults)
+                       quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun)
     game.app.run()
 
 

@@ -45,6 +45,10 @@ class Viewmodel:
         self.actor.setBlend(frameBlend=True)         # clip is 30 fps but the screen is 60+ Hz: interpolate between two frames for smoothness
 
         self.clip_key = None                          # clip currently playing (key of GunData.clips) or None
+        self._fire_left = 0.0                         # s left of the running shot clip (not driven by Handling: firing blocks nothing)
+        self.materials = gun.materials or MATERIAL_SCALE      # material name -> shading multipliers
+        self.show_spare_in_reload = bool(gun.spare_mag_node)  # (also set in _hide_reload_props; needed earlier by hold_ready_pose)
+        self.reload_props = []
         self._fade = None                             # fading from the still pose of the cancelled clip back to the ready pose
         self._empty = 0.0                             # 0 bolt closed .. 1 bolt locked back (empty magazine)
         self._view = 0.0                              # 0 .. 1 separate view for the reload clip (wide FOV, gun raised)
@@ -84,7 +88,7 @@ class Viewmodel:
                     self.skinned_vertices += vd.get_num_rows()
                     geom_np.set_attrib(skinned)
                     break
-            for name in MATERIALS:
+            for name in self.materials:
                 if name in geom_np.get_name():
                     self.material_nodes.setdefault(name, []).append(geom_np)
                     break
@@ -113,7 +117,7 @@ class Viewmodel:
         self.root.set_shader_input('vm_sleeve', Vec4(*light.sleeve_color, 0.0))
         self.root.set_shader_input('vm_albedo', float(light.albedo))
         for name, nodes in self.material_nodes.items():
-            sp, gl, en, al = MATERIAL_SCALE.get(name, (1.0, 1.0, 1.0, 1.0))
+            sp, gl, en, al = self.materials.get(name, (1.0, 1.0, 1.0, 1.0))
             for np_ in nodes:
                 np_.set_shader_input('vm_mat', Vec4(light.specular * sp, light.gloss * gl, light.env * en, light.normal_strength))
                 np_.set_shader_input('vm_albedo', float(light.albedo * al))
@@ -166,10 +170,16 @@ class Viewmodel:
             self.lens.set_fov(fov)                   # FOV ngang
 
     def _hide_reload_props(self):
-        """Mag2 and its bullet exist only in the reload clip; outside reloading they hover below the gun."""
+        """Mag2 and its bullet exist only in the reload clip; outside reloading they hover below the gun.
+        Guns with `spare_mag_node` (the Glock) show the spare magazine DURING the reload clips and hide it otherwise."""
         self.reload_props = []
-        mag2 = self.actor.find('**/Mag2_M4_D_0-parent')
+        self.show_spare_in_reload = bool(self.gun.spare_mag_node)
+        mag2 = self.actor.find('**/' + (self.gun.spare_mag_node or 'Mag2_M4_D_0-parent'))
         if mag2.is_empty():
+            return
+        if self.show_spare_in_reload:
+            self.reload_props = [mag2]
+            self.set_reload_props_visible(False)
             return
         center = self._center(mag2)
         bullets = list(self.actor.find_all_matches('**/Bullet5_56x45mm_Bullet5_56x45mm_D_0-parent'))
@@ -184,18 +194,25 @@ class Viewmodel:
 
     # --- animation: still pose, playing a clip, cancelling ---
     def _ready_frame(self) -> tuple:
-        """(anim, frame) of the ready pose = last frame of Draw (bolt closed)."""
+        """(anim, frame) of the ready pose = last frame of Draw (bolt closed), or GunData.ready_pose."""
+        if self.gun.ready_pose:
+            return self.gun.ready_pose
         clip = self.gun.clips['draw']
         return clip.anim, clip.end
 
     def _locked_frame(self) -> tuple:
-        """(anim, frame) of the empty-magazine pose: the first frame of Reload_Empty, where the rear bolt is locked (the other joints match the ready pose)."""
+        """(anim, frame) of the empty-magazine pose: the first frame of Reload_Empty, where the rear bolt is locked (the other joints match the ready pose), or GunData.locked_pose."""
+        if self.gun.locked_pose:
+            return self.gun.locked_pose
         clip = self.gun.clips['reload_empty']
         return clip.anim, clip.start
 
     def hold_ready_pose(self):
         """Stand still in the ready pose, bolt closed. Blending off: each pose that is set is the only pose."""
         self.clip_key, self._fade, self._empty = None, None, 0.0
+        self._fire_left = 0.0
+        if self.show_spare_in_reload:
+            self.set_reload_props_visible(False)
         self.actor.disableBlend()
         self.actor.pose(*self._ready_frame())
         self._bundle.force_update()
@@ -220,6 +237,21 @@ class Viewmodel:
         self.actor.play(clip.anim, fromFrame=clip.start, toFrame=clip.end)
         self.actor.setPlayRate(speed, clip.anim)
         self.clip_key = key
+        if self.show_spare_in_reload and key in ('reload', 'reload_empty'):
+            self.set_reload_props_visible(True)
+
+    def on_shot(self, last_round: bool):
+        """Every shot: play the slide cycle clip (guns with GunData.fire_clips). Not while drawing / reloading (those clips own the pose).
+        The last round leaves the slide locked back: the clip ends exactly on the locked pose."""
+        if not self.gun.fire_clips or (self.clip_key and self.clip_key not in self.gun.fire_clips) or self._fade:
+            return
+        key = self.gun.fire_clips[1 if last_round else 0]
+        clip = self.gun.clips[key]
+        self.hold_ready_pose()
+        self.actor.play(clip.anim, fromFrame=clip.start, toFrame=clip.end)
+        self.actor.setPlayRate(self.gun.fire_clip_speed, clip.anim)
+        self.clip_key = key
+        self._fire_left = clip.duration / self.gun.fire_clip_speed
 
     def _begin_fade(self, key: str):
         """Cancel the clip: freeze at the current frame, then slide back to the ready pose over `reload.cancel_blend` seconds."""
@@ -258,7 +290,18 @@ class Viewmodel:
             if w >= 1.0:
                 self.hold_ready_pose()
             return
-        if self.clip_key:
+        if self.clip_key in self.gun.fire_clips:
+            self._fire_left -= dt
+            if self._fire_left > 0.0:
+                return
+            last = self.clip_key == self.gun.fire_clips[1]
+            self.hold_ready_pose()
+            if last:                                      # the last-round clip ends on the locked pose: stay there
+                self._empty = 1.0
+                self.actor.pose(*self._locked_frame())
+                self._bundle.force_update()
+                return
+        elif self.clip_key:
             return                                        # the clip runs on the Panda clock by itself
         target = 1.0 if magazine_empty else 0.0
         if self._empty == target:

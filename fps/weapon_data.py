@@ -434,6 +434,15 @@ class GunData:
     muzzle_velocity: float = 500.0        # m/s
     bullet_gravity: float = 9.81          # m/s^2
     bullet_lifetime: float = 3.0          # s; past this the bullet is removed (it flew out of the lane)
+    # per-gun model / animation hooks; the defaults keep the M4 behaviour
+    ready_pose: tuple = None              # (anim, frame) of the ready pose (bolt closed); None = last frame of the 'draw' clip (M4)
+    locked_pose: tuple = None             # (anim, frame) of the pose with the slide/bolt locked open (empty magazine); None = first frame of 'reload_empty' (M4)
+    spare_mag_node: str = None            # Panda node shown ONLY while a reload clip runs (the spare magazine); None = the M4 logic (Mag2 + bullet stay hidden)
+    fire_clips: tuple = ()                # (clip key of a normal shot, clip key of the last round); played on every shot. () = no shot clip (the M4 kicks in code only)
+    fire_clip_speed: float = 1.5          # play rate of the shot clip (the clip is slower than the fire interval at full rate)
+    materials: dict = None                # material name -> (specular, gloss, env, albedo) multipliers of ViewLightData; None = the M4 table in game/viewmodel.py
+    sound_cues: dict = None               # clip key -> tuple of SoundCue; None = AudioData.cues (M4)
+    sound_files: dict = None              # extra logical sound name -> file group in AudioData.folder, merged into AudioData.sound_files
 
 
 M4 = GunData(
@@ -551,6 +560,70 @@ M4_SOUND_CUES = {
     # Draw (269..299): gun starts rising at 270, fastest 272..280, nearly still from 284, fully settled at ~287
     'draw': (SoundCue(271, 'draw_a', 0.8), SoundCue(285, 'draw_b', 0.6)),
 }
+
+
+# Glock 17 sound beats: file frame = authored table time + 1 (Panda frame 0 repeats frame 1, see tools/build/blender/glock_anim.py).
+# Reload: magazine catch at table 10, old magazine leaves 10..26, new magazine slides in 36..44 and seats at 47 (= Clip.swap, table 47 -> file 48).
+# ReloadEmpty: same magazine beats, then the slide is released at table 66 (file 67).
+GLOCK_SOUND_CUES = {
+    'reload': (SoundCue(11, 'pistol_mag_release', 1.0), SoundCue(28, 'pistol_mag_drop', 0.6), SoundCue(45, 'pistol_mag_in', 0.8), SoundCue(48, 'pistol_mag_seat', 1.0)),
+    'reload_empty': (SoundCue(11, 'pistol_mag_release', 1.0), SoundCue(28, 'pistol_mag_drop', 0.6), SoundCue(45, 'pistol_mag_in', 0.8), SoundCue(48, 'pistol_mag_seat', 1.0),
+                     SoundCue(67, 'pistol_slide_release', 1.0)),
+    'draw': (SoundCue(3, 'pistol_draw', 0.8), SoundCue(18, 'pistol_draw_settle', 0.6)),
+    'holster': (SoundCue(3, 'pistol_holster', 0.8),),
+}
+GLOCK_SOUND_FILES = {
+    'pistol_mag_release': 'el_pistol_mag_release', 'pistol_mag_drop': 'el_pistol_mag_drop', 'pistol_mag_in': 'el_pistol_mag_in',
+    'pistol_mag_seat': 'el_pistol_mag_seat', 'pistol_slide_release': 'el_pistol_slide_release', 'pistol_draw': 'el_pistol_draw',
+    'pistol_draw_settle': 'el_pistol_draw_settle', 'pistol_holster': 'el_pistol_holster', 'dry': 'el_pistol_dry',
+}
+
+# Glock 17: semi-auto, heavy and firm (CoD pistol feel). Viewmodel = M4-pack hands (right hand grips, left hand 'thumbs forward')
+# + the Glock rebuilt from a 1.4 M-triangle AI model (5.1 k triangles, rigid parts on the M4 rig bones). Clips are the glb's own animations:
+# usable frames are 1 .. N-1 (frame 0 repeats frame 1).
+GLOCK = GunData(
+    name='Glock 17',
+    glb='assets/guns/glock_g17_viewmodel.glb',
+    credit='Glock 17: 3D AI Studio (Prism 3.1) + Blender retopo/animation; hands: BarcodeGames M4 pack (CC BY 4.0)',
+    clips={
+        'idle': Clip('Idle', 1, 60),
+        'idle_empty': Clip('IdleEmpty', 1, 60),
+        'fire': Clip('Fire', 1, 11),
+        'fire_last': Clip('FireLast', 1, 11),
+        'draw': Clip('Draw', 1, 30),
+        'holster': Clip('Holster', 1, 24),
+        'reload': Clip('Reload', 1, 73, swap=48, settle=66),
+        'reload_empty': Clip('ReloadEmpty', 1, 89, swap=48, settle=84),
+    },
+    ready_pose=('Idle', 1),
+    locked_pose=('IdleEmpty', 1),
+    spare_mag_node='Mag2_G17_D_0-parent',
+    fire_clips=('fire', 'fire_last'),
+    # last number = albedo multiplier: the baked colour texture is mid-grey, the glb's per-material colour factors are NOT applied by the gun shader
+    # (frame 0.6 ~ concept grey, slide 0.12, small parts 0.08)
+    materials={'Glock_Frame': (1.0, 1.0, 1.0, 0.6), 'Glock_Slide': (1.4, 1.2, 1.2, 0.2), 'Glock_Black': (1.0, 1.0, 1.0, 0.08),
+               'Glove_D': (0.22, 0.4, 0.35, 0.42), 'Hand_D': (0.08, 0.3, 0.15, 1.0)},
+    # the M4-pack hands sit close to the eye (they hold a rifle); a pistol is held at arm's length: push the whole viewmodel forward
+    hip_offset=(0.0, 0.0, 0.30),
+    ads_eye_relief=0.52,
+    sound_cues=GLOCK_SOUND_CUES,
+    sound_files=GLOCK_SOUND_FILES,
+    # heavy and firm: bigger kick, slower cycle, semi-auto, 17 rounds
+    rpm=420.0, magazine=17, reserve=85, full_auto=False, muzzle_velocity=375.0, ads_time=0.16,
+    recoil=RecoilData(up=1.6, up_noise=0.35, right_noise=0.45, right_walk=0.10, camera_share=0.35, recovery=0.45, recovery_time=0.22),
+    kick=GunKickData(omega=30.0, zeta=0.5, peak=(0.0, 0.007, 0.0, 2.2, 0.0, 0.0), random=(0.003, 0.002, 0.0, 0.5, 0.4, 1.8),
+                     back_peak=-0.050, back_random=0.004, back_omega=16.0, back_zeta=0.7),
+    shot_sound=('assets/sounds/el_pistol_shot_0.wav', 'assets/sounds/el_pistol_shot_1.wav', 'assets/sounds/el_pistol_shot_2.wav'),
+    shot_pool=4,
+    # reload view: the M4 values (glance 18 deg + gun raised 10 cm) are for a rifle whose magazine sits far below the eye; the pistol's magazine well is near the grip
+    reload=ReloadData(view_fov=88.0, view_pose=(0.0, 0.05, 0.0, 0.0, 0.0, 0.0)),
+    head=HeadCamData(glance_pitch=11.0, glance_yaw=0.0, glance_roll=1.5, glance_y=-0.01, glance_z=0.01),
+    # measured with tools/measure/g8_measure.py (camera frame at rest, hip_offset not included); the rest pose is pitched 5 deg nose-down (hand fit), ads_pose compensates
+    ads_sights=((0.0921, 0.0312, 0.1728), (0.0902, 0.0217, 0.3244)),
+    muzzle=(0.0926, 0.0041, 0.34),
+)
+
+GUNS = {'m4': M4, 'glock': GLOCK}
 
 
 @dataclass

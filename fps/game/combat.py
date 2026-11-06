@@ -68,6 +68,7 @@ class Combat:
         self.audio = audio                         # GunAudio or None (muted)
         self.fx = fx                               # Effects (muzzle flash, tracer) or None
         self.foley = None                          # Foley (impact and dry-fire sounds) or None; Game assigns it after building
+        self.viewmodel = None                      # Viewmodel (plays the shot clip) or None; Game assigns it after building
         self.shake = shake                         # core.shake.Shake (image-only shake, does not change bullet direction) or None
         self.weapon = Weapon(self.gun)
         self.handling = Handling(self.gun, self.weapon)     # draw / reload
@@ -156,6 +157,8 @@ class Combat:
                     self.shake.on_shot(age)
                 if self.audio:
                     self.audio.play_shot()
+                if self.viewmodel:
+                    self.viewmodel.on_shot(self.weapon.mag == 0)
         up, right = self.recoil.step(dt)
         if up or right:
             self.player.kick_view(up, right)       # after shooting: this shot already followed the view direction before the kick

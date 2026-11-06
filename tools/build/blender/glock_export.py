@@ -7,7 +7,15 @@ clip lengths change (Panda then reports different frame counts than the ones we 
 import bpy
 
 
+# mesh datablock names must contain the material name: game/viewmodel.py finds the material of a Panda GeomNode by name
+# (the M4 file does the same: 'Main_M4_D_0' contains 'M4_D')
+MESH_NAMES = {'Main_G17_D_0': 'Frame_Glock_Frame', 'Bolt_G17_D_0': 'Slide_Glock_Slide', 'Trigger_G17_D_0': 'Trigger_Glock_Black',
+              'Mag1_G17_D_0': 'Mag_Glock_Black', 'Mag2_G17_D_0': 'MagSpare_Glock_Black'}
+
+
 def export(path):
+    for obj_name, mesh_name in MESH_NAMES.items():
+        bpy.data.objects[obj_name].data.name = mesh_name
     arm = bpy.data.objects['Object_4']
     keep = set()
 
