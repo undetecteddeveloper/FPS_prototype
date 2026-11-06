@@ -1,10 +1,10 @@
-"""Dựng tiếng từ các file MP3 tạo bằng ElevenLabs (assets/sounds/source/elevenlabs/<tên>_<số>.mp3) thành WAV cho game (assets/sounds/foley/el_<tên>_<số>.wav, tiếng súng: assets/sounds/el_shot_<số>.wav).
+"""Builds game sounds from the MP3 files made with ElevenLabs (assets/sounds/source/elevenlabs/<name>_<index>.mp3) into WAV (assets/sounds/foley/el_<name>_<index>.wav; gunshots: assets/sounds/el_shot_<index>.wav).
 
-Mỗi file: giải mã qua ffmpeg sang 44,1 kHz (tiếng súng giữ stereo, còn lại mono), cắt khoảng lặng đầu để cú va nằm ngay đầu file (mốc âm trong game đặt thẳng vào lúc va), cắt đuôi khi đã tắt,
-mờ dần cuối file, đưa đỉnh về cùng mức. Cần ffmpeg trong PATH lúc dựng; game chỉ đọc WAV.
-In bảng số đo (dài, đỉnh, RMS, số cú va) để phát hiện file có hai tiếng thay vì một.
+Each file: decoded with ffmpeg to 44.1 kHz (gunshots keep stereo, the rest are mono), leading silence is cut so the impact sits right at the start of the file (the game's sound cues land exactly on the impact), the tail is cut once it has died away,
+the end fades out, and peaks are brought to the same level. ffmpeg must be on PATH at build time; the game reads only WAV.
+Prints a table of measurements (length, peak, RMS, impact count) to catch files that contain two sounds instead of one.
 
-Chạy: .venv\\Scripts\\python.exe -X utf8 tools\\build\\prep_elevenlabs.py [--check]        --check: chỉ kiểm WAV đã có khớp nguồn, không ghi gì
+Run: .venv\\Scripts\\python.exe -X utf8 tools\\build\\prep_elevenlabs.py [--check]        --check: only verifies that the existing WAVs match their sources, writes nothing
 """
 import argparse
 import array
@@ -19,22 +19,22 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'assets' / 'sounds' / 'source' / 'elevenlabs'
 FOLEY = ROOT / 'assets' / 'sounds' / 'foley'
 RATE = 44100
-HEAD_THRESHOLD = 0.04          # phần của đỉnh: từ đây coi là bắt đầu tiếng
-TAIL_THRESHOLD = 0.012         # phần của đỉnh: dưới mức này (RMS 10 ms) coi là đã tắt
-HEAD_KEEP = 0.002              # s giữ lại trước cú va, cho khỏi cụt
-# Tiếng súng chỉ có MỘT file nguồn (shot_0.mp3: người dùng chọn); hai biến thể kia là chính nó đổi cao độ (hệ số tốc độ phát) để liên thanh không nghe như máy lặp
+HEAD_THRESHOLD = 0.04          # fraction of the peak: from here on counts as the start of the sound
+TAIL_THRESHOLD = 0.012         # fraction of the peak: below this level (RMS over 10 ms) the sound counts as finished
+HEAD_KEEP = 0.002              # s kept before the impact, so the start is not clipped
+# The gunshot has ONE source file (shot_0.mp3, chosen by the user); the two other variants are the same clip with the pitch changed (playback speed factor), so a burst does not sound like a loop machine
 SHOT_PITCHES = (1.0, 0.94, 1.07)
-PEAK = {'shot': 0.95, 'breath': 0.7, 'step': 0.85, 'hit_target': 0.85, 'hit_hard': 0.85}      # còn lại DEFAULT_PEAK
+PEAK = {'shot': 0.95, 'breath': 0.7, 'step': 0.85, 'hit_target': 0.85, 'hit_hard': 0.85}      # the rest use DEFAULT_PEAK
 DEFAULT_PEAK = 0.8
-TAIL_FADE = {'shot': 0.10, 'breath': 0.06}     # s mờ dần cuối file; còn lại DEFAULT_FADE
+TAIL_FADE = {'shot': 0.10, 'breath': 0.06}     # s fade-out at the end of the file; the rest use DEFAULT_FADE
 DEFAULT_FADE = 0.03
-# Tiếng súng phải tách được từng phát ở 750 phát/phút (80 ms một phát): đuôi vang dày của clip gốc che mất phát sau (đã gặp: bắn 3 viên chỉ nghe 1 tiếng, vì chỉ 1 trong 3 biến thể nổi hơn nền).
-# Cú nổ giữ nguyên SHOT_HOLD rồi tắt theo hai đường: nhanh (thân tiếng), chậm (vang phòng). Mọi biến thể cùng độ mạnh ở SHOT_PUNCH_WINDOW đầu; vượt 1 thì bão hoà mềm (micro camera cũng vỡ tiếng như vậy).
+# Each gunshot must stay separable at 750 rounds/min (80 ms apart): the thick reverb tail of the original clip hid the next shot (seen: 3 rounds sounded like 1, because only 1 of the 3 variants stood out above the background).
+# The blast holds for SHOT_HOLD, then decays along two paths: fast (the body of the sound) and slow (room reverb). All variants share the same strength over the first SHOT_PUNCH_WINDOW; above 1 it soft-saturates (a camera mic distorts the same way).
 SHOT_HOLD = 0.008              # s
-SHOT_FAST = (0.80, 0.030)      # (phần, hằng số thời gian s)
-SHOT_ROOM = (0.20, 0.200)      # vang như mái tôn (người dùng muốn vang, chói); lớn hơn nữa thì phát sau bị đuôi phát trước che (đo: 0,25 / 0,22 chỉ còn 8,6 dB)
+SHOT_FAST = (0.80, 0.030)      # (fraction, time constant in s)
+SHOT_ROOM = (0.20, 0.200)      # reverb like a metal roof (the user wants it loud and harsh); larger and the next shot is masked by the tail of the previous one (measured: 0.25 / 0.22 leaves only 8.6 dB)
 SHOT_PUNCH_WINDOW = 0.025      # s
-SHOT_PUNCH_RMS = 0.50          # RMS của cú nổ, -6 dB
+SHOT_PUNCH_RMS = 0.50          # RMS of the blast, -6 dB
 MAX_SECONDS = {'breath': 4.0, 'shot': 0.55, 'step': 0.32, 'hit_target': 0.40, 'hit_hard': 0.50, 'dry': 0.20}
 
 
@@ -43,7 +43,7 @@ def group_of(stem: str) -> str:
 
 
 def decode(path: Path, channels: int, speed: float = 1.0) -> list:
-    """Danh sách các mẫu xen kẽ, -1..1. `speed` != 1: phát nhanh / chậm như đĩa quay (đổi cả cao độ lẫn độ dài)."""
+    """Interleaved sample list, -1..1. `speed` != 1: plays faster or slower like a turntable (changes both pitch and length)."""
     af = [] if speed == 1.0 else ['-af', f'asetrate={RATE * speed:.1f},aresample={RATE}']
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / 'd.wav'
@@ -60,7 +60,7 @@ def process(samples: list, channels: int, group: str) -> list:
     frame_peak = [max(abs(samples[i * channels + c]) for c in range(channels)) for i in range(n)]
     peak = max(frame_peak) or 1.0
     start, end = 0, n
-    if group != 'breath':                          # tiếng thở giữ nguyên cả nhịp (hít vào bắt đầu từ rất khẽ; độ dài phải khớp một chu kỳ thở của sway)
+    if group != 'breath':                          # breath keeps its full timing (the inhale starts very quietly; the length must match one breath cycle of the sway)
         start = next(i for i, v in enumerate(frame_peak) if v >= HEAD_THRESHOLD * peak)
         start = max(0, start - int(HEAD_KEEP * RATE))
         win = int(0.01 * RATE)
@@ -72,7 +72,7 @@ def process(samples: list, channels: int, group: str) -> list:
     out = samples[start * channels:end * channels]
     count = len(out) // channels
     fade = min(int(TAIL_FADE.get(group, DEFAULT_FADE) * RATE), count // 2)
-    gain = 1.0 if group == 'shot' else PEAK.get(group, DEFAULT_PEAK) / peak      # tiếng súng đã cân bằng theo độ mạnh ở shape_shot
+    gain = 1.0 if group == 'shot' else PEAK.get(group, DEFAULT_PEAK) / peak      # gunshots are already balanced for strength in shape_shot
     for i in range(count):
         k = gain * (min(1.0, (count - i) / fade) if fade else 1.0)
         for c in range(channels):
@@ -81,11 +81,11 @@ def process(samples: list, channels: int, group: str) -> list:
 
 
 def shape_shot(samples: list, channels: int) -> list:
-    """Đưa đỉnh về sát đầu file, định hình cho súng tự động, cân bằng độ mạnh giữa các biến thể."""
+    """Moves the peak to right at the start of the file, shapes it for automatic fire, and balances strength between variants."""
     n = len(samples) // channels
     frame_peak = [max(abs(samples[i * channels + c]) for c in range(channels)) for i in range(n)]
     top = max(frame_peak) or 1.0
-    # cú nổ đầu tiên đủ mạnh, không phải tiếng lách cách trước nó
+    # the first blast must be strong enough, not a click before it
     first = next(i for i, v in enumerate(frame_peak) if v >= 0.5 * top)
     start = max(0, first - int(0.001 * RATE))
     x = samples[start * channels:]
@@ -99,14 +99,14 @@ def shape_shot(samples: list, channels: int) -> list:
     rms = math.sqrt(sum(v * v for v in x[:w]) / max(min(w, len(x)), 1)) or 1.0
     gain = SHOT_PUNCH_RMS / rms
     drive = [math.tanh(v * gain) for v in x]
-    # bão hoà làm RMS tụt: bù một lượt rồi chặn đỉnh
+    # saturation lowers the RMS: compensate once, then clamp the peak
     rms2 = math.sqrt(sum(v * v for v in drive[:w]) / max(min(w, len(drive)), 1)) or 1.0
     k = SHOT_PUNCH_RMS / rms2
     return [min(0.97, max(-0.97, math.tanh(v * gain * k))) for v in x]
 
 
 def onsets(samples: list, channels: int) -> int:
-    """Số cú va tách biệt: năng lượng 5 ms vượt 35% đỉnh sau khi đã tụt xuống dưới 10% ít nhất 40 ms."""
+    """Number of separate impacts: a 5 ms energy window that exceeds 35% of the peak, after the level has dropped below 10% for at least 40 ms."""
     n = len(samples) // channels
     win = int(0.005 * RATE)
     env = [max(abs(s) for s in samples[i * channels:(i + win) * channels]) for i in range(0, n - win, win)]
@@ -130,7 +130,7 @@ def to_pcm(samples: list) -> bytes:
 
 
 def jobs() -> list:
-    """[(tên đầu ra, file nguồn mp3, hệ số tốc độ)]. Tiếng súng: mọi biến thể dựng từ shot_0.mp3."""
+    """[(output name, source mp3 file, speed factor)]. Gunshots: every variant is built from shot_0.mp3."""
     out = []
     for f in sorted(SOURCE.glob('*.mp3')):
         if group_of(f.stem) == 'shot':

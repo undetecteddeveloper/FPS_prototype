@@ -1,12 +1,12 @@
-"""G3: recoil (camera + súng) và độ tản (spread/bloom/tâm ngắm) bằng game thật.
+"""G3: recoil (camera + gun) and spread (spread/bloom/aim point) with the real game.
 
-Điều khiển qua đúng đường của game (held_keys, combat.pressed). Đo:
-  - mẫu recoil 30 phát: đúng hướng, đúng độ lớn, lặp lại giống nhau (trừ nhiễu), hồi 30% sau khi ngừng bắn
-  - độ tản hông theo trạng thái (đứng/ngồi/đi/chạy/nhảy) và khi ngắm: đo từ hướng đạn thật so với hướng nhìn
-  - bloom cộng dồn và hồi; tâm ngắm động khớp phép chiếu thật của camera; kick súng thấy được trên màn hình
-Ảnh vào shots\\g3_*.png.
+Drive through the game's own path (held_keys, combat.pressed). Measures:
+  - 30-shot recoil pattern: correct direction, correct size, repeats the same (except for noise), recovers 30% after firing stops
+  - hip spread by state (stand/crouch/walk/run/jump) and when aiming: measured from the real bullet direction against the view direction
+  - bloom accumulates and recovers; the dynamic aim point matches the real camera projection; gun kick is visible on screen
+Screenshots go to shots\\g3_*.png.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g3_selftest.py        (thoát mã 1 nếu có mục trượt)
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g3_selftest.py        (exits with code 1 if any item fails)
 """
 import math
 import sys
@@ -27,21 +27,21 @@ from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between, crosshair_gap  # noqa: E402
 from fps.core.spring import burst_peak_ratio  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, shake=False, moving_targets=False, hud=True, free_aim=False)     # bia đứng yên (G6); camera shake (G6) làm camera.forward / vị trí súng lệch khỏi tia ngắm: tắt khi đo recoil/tâm ngắm
+game = create_game(vsync=False, sound=False, draw=False, shake=False, moving_targets=False, hud=True, free_aim=False)     # still targets (G6); camera shake (G6) moves camera.forward / the gun position off the aim ray: off when measuring recoil / aim point
 player, combat, hud, viewmodel = game.player, game.combat, game.hud, game.viewmodel
 gun = game.params.gun
 acc = gun.accuracy
-# Bài này đo CƠ CHẾ độ tản, tâm ngắm, phần giật vào camera (đều giữ nguyên, chỉnh được ở F1): dùng bộ số có hình nón rõ và cho toàn bộ cú giật vào camera theo một nhịp đều.
-# Hành vi mặc định (đạn theo nòng, giật ngẫu nhiên, súng trôi) kiểm ở tools/selftests/g7_selftest.py.
+# This test measures the MECHANISMS of spread, the aim point and the kick applied to the camera (all kept as they are, tunable with F1): it uses a parameter set with a clear cone and sends the whole recoil kick into the camera at an even rhythm.
+# The default behaviour (bullets follow the barrel, random kick, gun drift) is checked in tools/selftests/g7_selftest.py.
 acc.stand, acc.walk, acc.sprint, acc.air, acc.crouch_multiplier = 2.0, 3.5, 4.5, 6.0, 0.7
 acc.ads, acc.ads_move, acc.bloom_per_shot = 0.1, 0.6, 0.25
 gun.recoil.up, gun.recoil.up_noise, gun.recoil.right_bias, gun.recoil.right_noise, gun.recoil.right_walk = 0.35, 0.035, 0.10, 0.01, 0.0
 gun.recoil.camera_share, gun.recoil.ads_scale = 1.0, 1.0
 M4_PATTERN = ((0.35, 0.10),) * 30
-mouse.locked = False                      # không giữ con trỏ của người dùng
-combat.require_locked_mouse = False       # cho phép bắn dù chuột không bị bắt (chỉ trong bài kiểm tra)
-combat.rng.seed(20240131)                 # lặp lại được (nhưng nhịp khung hình vẫn đổi chút kết quả)
-# bài này đo độ tản của trạng thái chạy nước rút nên phải bắn được từ tư thế chạy; sprint-to-fire kiểm ở g4_selftest.py
+mouse.locked = False                      # do not grab the user's cursor
+combat.require_locked_mouse = False       # allow firing even when the mouse is not captured (test only)
+combat.rng.seed(20240131)                 # repeatable (though the frame timing still changes the result slightly)
+# this test measures spread in the sprint state, so it must be able to fire from the running pose; sprint-to-fire is checked in g4_selftest.py
 game.params.player.sprint_blocks_fire = False
 
 results = []
@@ -51,7 +51,7 @@ phase = {'name': 'khởi động'}
 skip = {'next': False}
 S = MoveState
 
-shots_log = []                            # ShotInfo của mọi phát (chụp ngay trước khi đạn sinh ra)
+shots_log = []                            # ShotInfo of every shot (captured just before the bullet is spawned)
 _orig_fire = combat._fire
 
 
@@ -76,13 +76,13 @@ def shot(name, prefix='g3_'):
 
 
 def view_angles(d):
-    """(lên, phải) độ của vector hướng."""
+    """(up, right) angles of the direction vector, in degrees."""
     return math.degrees(math.asin(max(-1.0, min(1.0, d[1])))), math.degrees(math.atan2(d[0], d[2]))
 
 
 def gun_center():
-    """Tâm thân súng (nút Main, không skin nên đi theo `sway`) trong hệ camera vẽ súng: (x phải, y lên, z ra trước).
-    Không dùng cả actor: hộp bao của tay kéo dài ra sau lưng camera nên tâm của nó gần như không dịch khi súng xoay."""
+    """Centre of the gun body (Main node, not skinned so it follows `sway`) in the gun-render camera frame: (x right, y up, z forward).
+    Do not use the whole actor: the arm's bounding box extends behind the camera, so its centre barely moves when the gun rotates."""
     lo, hi = viewmodel.actor.find('**/Main_M4_D_0-parent').get_tight_bounds(viewmodel.cam_np)
     return tuple(float((lo[i] + hi[i]) / 2) for i in range(3))
 
@@ -92,7 +92,7 @@ class Script(Entity):
         super().__init__()
         self.gen = self.run()
         self.last = None
-        self.means = {}                   # tên điều kiện -> góc lệch trung bình đo được
+        self.means = {}                   # condition name -> measured mean angular offset
 
     def update(self):
         now = pytime.perf_counter()
@@ -113,11 +113,11 @@ class Script(Entity):
             yield
             t += min(time.dt, 0.05)
 
-    # --- đưa mọi thứ về trạng thái đầu ---
+    # --- reset everything to the initial state ---
     def reset_state(self, auto=True, mag=30, pitch=0.0, ads=0.0):
         for k in ('w', 'a', 's', 'd', 'shift', 'control', 'space', 'left mouse', 'right mouse'):
             held_keys[k] = 0
-        held_keys['right mouse'] = 1 if ads > 0 else 0       # ngắm đi qua đúng đường phím của game
+        held_keys['right mouse'] = 1 if ads > 0 else 0       # aim through the game's own key path
         player.position = (0, 0, 0)
         player.vx = player.vz = player.vy = 0.0
         player.on_ground = True
@@ -135,7 +135,7 @@ class Script(Entity):
         combat.weapon.cooldown = 0.0
 
     def spray(self, track=None):
-        """Bóp cò bắn hết băng 30 viên (đúng nhịp thật). `track` gọi mỗi khung."""
+        """Pull the trigger and fire the full 30-round magazine (real rate). `track` is called every frame."""
         self.reset_state(auto=True, mag=30)
         shots_log.clear()
         yield from self.wait(0.05)
@@ -147,12 +147,12 @@ class Script(Entity):
         held_keys['left mouse'] = 0
 
     def expected_cumulative(self, k, index):
-        """Góc tích luỹ mong đợi (không nhiễu) lúc phát thứ k nổ, của thành phần `index` (0 = lên, 1 = phải)."""
+        """Expected accumulated angle (no noise) when shot k fires, for component `index` (0 = up, 1 = right)."""
         dt_shot, tau = 60.0 / gun.rpm, gun.recoil.kick_time
         return sum(M4_PATTERN[j][index] * (1.0 - math.exp(-(k - j) * dt_shot / tau)) for j in range(k))
 
     def measure_spread(self, name, keys, state, ads=0.0, seconds=1.0, lead=0.5, jump=False):
-        """Bắn nhanh (4 ms một phát, tắt bloom) lên trời ở trạng thái `state`; trả về danh sách góc lệch (độ)."""
+        """Fast fire (4 ms per shot, bloom off) straight up in state `state`; returns the list of angular offsets (degrees)."""
         self.reset_state(auto=True, mag=100000, pitch=-25.0, ads=ads)
         shots_log.clear()
         for k in keys:
@@ -187,7 +187,7 @@ class Script(Entity):
         frame_dts.clear()
         frame_phase.clear()
 
-        # --- A. dấu của kick súng trên màn hình ---
+        # --- A. sign of the gun kick on screen ---
         phase['name'] = 'kick tĩnh'
         self.reset_state()
         viewmodel.update((0, 0, 0, 0, 0, 0))
@@ -203,12 +203,12 @@ class Script(Entity):
         check('yaw phải 5 độ: thân súng sang phải (mm)', round((x1 - x0) * 1000, 1), '> 10', x1 - x0 > 0.010)
         viewmodel.update((0, 0, 0, 0, 0, 5.0))
         x2, y2, _ = gun_center()
-        # thân súng nằm dưới-phải trục nhìn; nghiêng phải (cùng chiều kim đồng hồ) kéo nó xuống và sang trái
+        # the gun body sits below-right of the view axis; rolling right (clockwise) pulls it down and to the left
         check('roll phải 5 độ: thân súng (dưới-phải) đi xuống và sang trái (mm)',
               f'{(x2 - x0) * 1000:.1f}, {(y2 - y0) * 1000:.1f}', '< 0, < 0', x2 - x0 < 0 and y2 - y0 < 0)
         viewmodel.update((0, 0, 0, 0, 0, 0))
 
-        # --- B. mẫu recoil: hai loạt đạn hông, đứng yên, KHÔNG kéo chuột bù ---
+        # --- B. recoil pattern: two hip-fire bursts, standing still, mouse NOT corrected ---
         runs = []
         pitch_trace = []
         for i in range(2):
@@ -221,12 +221,12 @@ class Script(Entity):
             runs.append([(a - up0, b - right0) for a, b in angles])
             if i == 0:
                 t = 0.0
-                while t < 1.5:               # ghi cả đoạn sau khi ngừng bắn để bắt đúng đỉnh trước khi hồi
+                while t < 1.5:               # record the stretch after firing stops so the peak before recovery is caught
                     yield
                     t += min(time.dt, 0.05)
                     pitch_trace.append(player.pitch)
                 peak_pitch = min(pitch_trace)
-                rise = 0.0 - peak_pitch      # reset_state đặt pitch = 0
+                rise = 0.0 - peak_pitch      # reset_state sets pitch = 0
                 back = player.pitch - peak_pitch
                 check('hồi sau khi ngừng bắn (phần của cú giật)', round(back / rise, 3), f'{gun.recoil.recovery} +-0.03',
                       abs(back / rise - gun.recoil.recovery) < 0.03)
@@ -258,7 +258,7 @@ class Script(Entity):
         print('                                             loạt 2:',
               [(round(runs[1][k][0], 2), round(runs[1][k][1], 2)) for k in (0, 4, 9, 14, 19, 24, 29)])
 
-        # --- C. bloom với số thật: hông, đứng ---
+        # --- C. bloom with real numbers: hip, standing ---
         phase['name'] = 'bloom'
         self.reset_state()
         shots_log.clear()
@@ -281,10 +281,10 @@ class Script(Entity):
         check('1,2 s sau khi ngừng: bloom về 0', round(combat.accuracy.bloom, 3), 0, combat.accuracy.bloom == 0)
         check('tản về nền đứng', round(combat.spread_now, 3), acc.stand, abs(combat.spread_now - acc.stand) < 1e-9)
 
-        # ngắm: nền 0,1 độ và bloom gần như không tác dụng
+        # aiming: base 0.1 degrees and bloom has almost no effect
         saved_ads_time = gun.ads_time
         for ads, label in ((1.0, 'ADS hẳn'), (0.5, 'ADS nửa chừng')):
-            gun.ads_time = saved_ads_time if ads == 1.0 else 1e6      # nửa chừng: đóng băng tiến độ vào ADS để đo đúng mức 0,5
+            gun.ads_time = saved_ads_time if ads == 1.0 else 1e6      # halfway: freeze the ADS progress to measure exactly the 0.5 level
             self.reset_state(ads=ads)
             shots_log.clear()
             yield from self.wait(0.05)
@@ -299,11 +299,11 @@ class Script(Entity):
                       last <= acc.ads + acc.ads_bloom_multiplier * acc.bloom_max + 1e-9)
             else:
                 mid = (acc.stand + acc.ads) / 2
-                check(f'{label}: phát đầu tản theo mức ADS hiện tại (độ)', round(first, 3), mid, abs(first - mid) < 1e-5)       # đóng băng ADS bằng ads_time rất lớn vẫn nhích ~1e-8 mỗi khung
+                check(f'{label}: phát đầu tản theo mức ADS hiện tại (độ)', round(first, 3), mid, abs(first - mid) < 1e-5)       # freezing ADS with a very large ads_time still creeps ~1e-8 per frame
             yield from self.wait(1.0)
         gun.ads_time = saved_ads_time
 
-        # --- D. độ tản theo trạng thái, đo từ hướng đạn thật (tắt bloom, bắn nhanh) ---
+        # --- D. spread by state, measured from the real bullet direction (bloom off, fast fire) ---
         phase['name'] = 'đo độ tản'
         saved = (acc.bloom_per_shot, combat.weapon.interval, gun.bullet_lifetime)
         acc.bloom_per_shot = 0.0
@@ -329,7 +329,7 @@ class Script(Entity):
         check('ADS chặt hơn hông (cấu hình 20 lần; đo >= 15)', round(m['đứng'] / m['ADS đứng yên'], 1), '>= 15',
               m['đứng'] / m['ADS đứng yên'] >= 15)
 
-        # --- E. tâm ngắm động khớp phép chiếu thật của camera thế giới ---
+        # --- E. dynamic aim point matches the real projection of the world camera ---
         phase['name'] = 'tâm ngắm'
         self.reset_state()
         yield from self.wait(0.4)
@@ -377,7 +377,7 @@ class Script(Entity):
         held_keys['right mouse'] = 0
         yield from self.wait(0.6)
 
-        # --- F. loạt thứ ba: ảnh giữa loạt, kick súng thấy được, camera = hướng bắn ---
+        # --- F. third burst: mid-burst screenshot, gun kick visible, camera = firing direction ---
         phase['name'] = 'loạt 3'
         self.reset_state()
         yield from self.wait(0.3)
@@ -413,16 +413,16 @@ class Script(Entity):
         yield from self.wait(0.6)
         settled = max(abs(v) for v in combat.gun_kick.pose[:3])
         check('0,75 s sau khi ngừng: kick súng đã yên (mm)', round(settled * 1000, 3), '< 1', settled < 0.001)
-        # --- G. đẩy lùi (z của kick súng): một phát, cả băng, về chỗ, ADS, camera/đạn không đổi ---
+        # --- G. push-back (z of the gun kick): one shot, full magazine, return to rest, ADS; camera/bullets unchanged ---
         phase['name'] = 'đẩy lùi'
         pb = gun.kick.back_peak
-        # cả băng 30 viên lùi bao nhiêu lần một phát: suy ra từ lò xo đẩy lùi (công thức đóng), không chép số cứng; đỉnh cả băng kỳ vọng = pb * tỉ lệ
+        # how far the whole 30-round magazine pushes back per shot: derived from the push-back spring (closed-form), not hard-coded; expected full-magazine peak = pb * ratio
         burst_ratio = burst_peak_ratio(gun.kick.back_omega, gun.kick.back_zeta, 30, 60.0 / gun.rpm)
         burst_exp = pb * burst_ratio
         print(f'ĐẨY LÙI kỳ vọng từ cấu hình: một phát {pb * 1000:.1f} mm, cả băng x{burst_ratio:.2f} = {burst_exp * 1000:.1f} mm, '
               f'ngắm x{gun.kick.back_ads_scale}')
 
-        # G1. bắn đơn: đỉnh = back_peak, trên màn hình lùi đúng chừng đó, rồi về chỗ
+        # G1. single shot: peak = back_peak, on screen it pushes back exactly that much, then returns to rest
         self.reset_state(auto=False, mag=30)
         yield from self.wait(0.4)
         rest1 = gun_center()
@@ -445,7 +445,7 @@ class Script(Entity):
         check('  về chỗ cũ (|z| < 1 mm) sau phát đơn (s)', round(last_one, 2), '<= 0.6', last_one <= 0.6)
         print(f'ĐẨY LÙI một phát: đỉnh {single * 1000:.1f} mm, về chỗ (< 1 mm) sau {last_one:.2f} s')
 
-        # G2. cả băng 30 viên hông: đỉnh = back_peak x tỉ lệ lò xo; ngừng bắn thì về chỗ trong thời gian đo được
+        # G2. full 30-round hip-fire magazine: peak = back_peak x spring ratio; after firing stops it returns to rest within the measured time
         self.reset_state(auto=True, mag=30)
         yield from self.wait(0.4)
         rest2 = gun_center()
@@ -465,21 +465,21 @@ class Script(Entity):
 
         yield from self.spray(track=track_hip)
         t_stop, last_big = 0.0, 0.0
-        while t_stop < 1.5:                                     # spray trả về ngay khi hết đạn: đo thời gian về chỗ sau phát cuối
+        while t_stop < 1.5:                                     # spray returns right away when ammo runs out: measure the time to return to rest after the last shot
             yield
             t_stop += min(time.dt, 0.05)
             track_hip()
             if abs(combat.gun_kick.pose[2]) >= 0.001:
                 last_big = t_stop
         burst = min(z_hip)
-        # biên giữ nguyên tỉ lệ cũ so với giá trị kỳ vọng (cũ: -35 .. -65 quanh ~-51 mm => x0,7 .. x1,3; màn hình x0,7 .. x1,4; ngang x0,4 .. x2)
+        # bounds keep the old ratio against the expected value (old: -35 .. -65 around ~-51 mm => x0.7 .. x1.3; screen x0.7 .. x1.4; horizontal x0.4 .. x2)
         check('đẩy lùi cả băng 30 viên hông: đỉnh = back_peak x tỉ lệ lò xo (mm)', round(burst * 1000, 1),
               f'{burst_exp * 1300:.0f} .. {burst_exp * 700:.0f}', burst_exp * 1.3 <= burst <= burst_exp * 0.7)
         check('  nhiều hơn một phát đơn nhưng có trần (x so với phát đơn)', round(burst / single, 2),
               f'{0.75 * burst_ratio:.2f} .. {1.17 * burst_ratio:.2f} (mô hình {burst_ratio:.2f})', 0.75 * burst_ratio <= burst / single <= 1.17 * burst_ratio)
         check('  trên màn hình thân súng lùi cùng cỡ (mm)', round(min(scr_hip) * 1000, 1), f'{burst_exp * 1400:.0f} .. {burst_exp * 700:.0f}',
               burst_exp * 1.4 <= min(scr_hip) <= burst_exp * 0.7)
-        x_exp = gun.kick.back_x_ratio * burst_exp                       # nhích ngang theo đẩy lùi (âm: sang trái)
+        x_exp = gun.kick.back_x_ratio * burst_exp                       # horizontal shift with the push-back (negative: to the left)
         check('  hông: thân súng nhích vào giữa (sang trái) cùng lúc (mm)', round(min(scr_x_hip) * 1000, 1),
               f'{x_exp * 2000:.0f} .. {x_exp * 400:.0f}', x_exp * 2.0 <= min(scr_x_hip) <= x_exp * 0.4)
         check('  ngừng bắn: về chỗ cũ (|z| < 1 mm) sau (s)', round(last_big, 2), '<= 0.7', last_big <= 0.7)
@@ -488,7 +488,7 @@ class Script(Entity):
               f'về chỗ sau {last_big:.2f} s kể từ phát cuối')
         yield from self.wait(0.6)
 
-        # G3. ADS: đỉnh cả băng = back_ads_scale x hông (< 1 lùi ít hơn hông, > 1 lùi nhiều hơn)
+        # G3. ADS: full-magazine peak = back_ads_scale x hip (< 1 pushes back less than hip, > 1 pushes back more)
         self.reset_state(auto=True, mag=30, ads=1.0)
         yield from self.wait(0.5)
         rest3 = gun_center()
@@ -502,7 +502,7 @@ class Script(Entity):
                 shot_taken['ads'] = True
                 shot('ads_late', prefix='kick_')
 
-        shots_log.clear()                                       # không dùng self.spray: nó reset_state về hông
+        shots_log.clear()                                       # not self.spray: it resets to hip via reset_state
         held_keys['left mouse'] = 1
         while combat.weapon.mag > 0:
             yield
@@ -518,7 +518,7 @@ class Script(Entity):
         held_keys['right mouse'] = 0
         yield from self.wait(0.8)
 
-        # G4. chỉ viewmodel lùi: cùng kịch bản bước dt cố định, đẩy lùi bật / tắt -> tia ngắm, góc nhìn, hướng đạn, gốc đạn GIỐNG HỆT
+        # G4. only the viewmodel pushes back: same fixed-dt script, push-back on / off -> aim ray, view angle, bullet direction and muzzle origin IDENTICAL
         def det_pass(back_peak):
             self.reset_state(auto=True, mag=30)
             saved_peak = gun.kick.back_peak
@@ -563,7 +563,7 @@ def report():
     print(f"{'mục':64s} {'đo được':>16s} {'mong đợi':>22s}  kết quả")
     for name, got, expected, ok in results:
         print(f'{name:64s} {str(got):>16s} {str(expected):>22s}  {"ĐẠT" if ok else "TRƯỢT"}')
-    # loại các đoạn tự làm chậm khung: đo độ tản (250 phát/giây) và loạt 3 (đo hộp bao súng mỗi khung)
+    # exclude the segments that slow the frame rate themselves: the spread measurement (250 shots/s) and burst 3 (measures the gun bounding box every frame)
     pairs = [(dt, ph) for dt, ph in zip(frame_dts, frame_phase) if ph not in ('đo độ tản', 'loạt 3', 'đẩy lùi')]
     dts = sorted(dt for dt, _ in pairs)
     n = len(dts)

@@ -1,8 +1,8 @@
-"""Toán của ống kính mắt cá, đúng công thức của assets/shaders/lens.frag (toán thuần, để pytest kiểm được).
+"""Fisheye lens math, exactly the formula in assets/shaders/lens.frag (pure math, so pytest can check it).
 
-Toạ độ màn hình p trong [-1, 1]^2. Đo bán kính theo đơn vị nửa bề ngang: q = (p.x, p.y / tỉ lệ khung), r^2 = dot(q, q).
-Ảnh ra lấy mẫu ảnh vào tại p * f(r), f = (1 + k r^2) / (1 + k): mép ngang (r = 1) khớp đúng mép ảnh, giữa khung phóng (1 + k) lần, gần góc khung vượt ra
-ngoài ảnh vào (chỗ đó do `vignette` che đen).
+Screen coordinates p in [-1, 1]^2. Radius measured in units of half the width: q = (p.x, p.y / frame aspect), r^2 = dot(q, q).
+The output image samples the input at p * f(r), f = (1 + k r^2) / (1 + k): the horizontal edge (r = 1) matches the image edge exactly, the centre of the frame is magnified (1 + k) times, and near the corners it reaches outside
+the input image (the vignette blacks that out).
 """
 import math
 
@@ -12,23 +12,23 @@ def warp_factor(r2: float, k: float) -> float:
 
 
 def distort(x: float, y: float, k: float, aspect: float) -> tuple:
-    """Điểm (x, y) trên ảnh ra lấy mẫu ở đâu trên ảnh vào."""
+    """Where on the input image the output point (x, y) samples from."""
     qy = y / aspect
     f = warp_factor(x * x + qy * qy, k)
     return x * f, y * f
 
 
 def center_scale(fov_deg: float, k: float, reference_fov_deg: float) -> float:
-    """Giữa khung phóng bao nhiêu lần so với ảnh phẳng ở FOV `reference_fov_deg`."""
+    """How many times the centre of the frame is magnified vs. a flat image at FOV `reference_fov_deg`."""
     return (1.0 + k) * math.tan(math.radians(reference_fov_deg) / 2.0) / math.tan(math.radians(fov_deg) / 2.0)
 
 
 def equivalent_center_fov(fov_deg: float, k: float) -> float:
-    """FOV ngang của ảnh phẳng có cùng độ phóng với giữa khung qua ống kính."""
+    """Horizontal FOV of a flat image with the same magnification as the centre of the frame through the lens."""
     return 2.0 * math.degrees(math.atan(math.tan(math.radians(fov_deg) / 2.0) / (1.0 + k)))
 
 
 def vignette(r: float, start: float, end: float) -> float:
-    """1 = giữ nguyên, 0 = đen; smoothstep ngược từ `start` tới `end`."""
+    """1 = unchanged, 0 = black; inverse smoothstep from `start` to `end`."""
     t = min(max((r - start) / max(end - start, 1e-6), 0.0), 1.0)
     return 1.0 - t * t * (3.0 - 2.0 * t)

@@ -1,5 +1,5 @@
 #version 140
-// Quầng quanh mọi bóng đèn, MỘT lần vẽ: mọi đỉnh của một thẻ nằm ở tâm đèn, shader bung ra thành thẻ quay về camera theo uv.
+// Halo around every bulb, ONE draw call: all vertices of a card sit at the lamp centre, and the shader expands them into a card facing the camera using the uv.
 uniform mat4 p3d_ModelViewMatrix;
 uniform mat4 p3d_ProjectionMatrix;
 uniform float halo_size;

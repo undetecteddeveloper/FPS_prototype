@@ -1,5 +1,5 @@
-"""Ống kính, phơi sáng, ánh sáng đèn trần: toán thuần. Các công thức này khớp từng dòng với assets/shaders/light_common.glsl và assets/shaders/lens.frag.
-(Camera đầu: tests/test_headcam.py.)"""
+"""Lens, exposure and ceiling-lamp light: pure maths. These formulas match assets/shaders/light_common.glsl and assets/shaders/lens.frag line by line.
+(Head camera: tests/test_headcam.py.)"""
 import math
 from pathlib import Path
 
@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ASPECT = 16 / 9
 
 
-# --- ống kính ---
+# --- lens ---
 def test_centre_stays_put_and_horizontal_edge_maps_to_edge():
     assert lens.distort(0.0, 0.0, 0.25, ASPECT) == (0.0, 0.0)
     assert lens.distort(1.0, 0.0, 0.25, ASPECT)[0] == pytest.approx(1.0)
@@ -31,7 +31,7 @@ def test_centre_is_magnified_by_one_plus_k():
 
 
 def test_warp_is_monotonic_along_the_radius():
-    """Không gập ảnh: đi ra rìa thì điểm lấy mẫu cũng đi ra rìa."""
+    """No folding of the image: as we move out to the edge, the sample point also moves out to the edge."""
     for k in (0.1, 0.25, 0.6):
         last = -1.0
         for i in range(1, 200):
@@ -41,7 +41,7 @@ def test_warp_is_monotonic_along_the_radius():
 
 
 def test_samples_outside_the_image_are_hidden_by_the_vignette():
-    """Gần góc khung, ống kính đọc ra ngoài ảnh: chỗ lệch ra đáng kể (> 3%) phải gần đen, kẻo lộ vệt kéo dài ở mép. Sát mép lệch rất ít nên không thấy."""
+    """Near the frame corners the lens samples outside the image: spots displaced noticeably (> 3%) must be nearly black, or a smeared streak shows at the edge. Right at the edge the displacement is tiny, so it is not seen."""
     d = LensData()
     worst = 0.0
     for i in range(0, 201):
@@ -61,7 +61,7 @@ def test_vignette_keeps_the_centre_and_blackens_the_corner():
 
 
 def test_aiming_zooms_the_centre_slightly_as_decided():
-    """Đã chốt: ngắm phóng RẤT NHẸ, khoảng 10-15% (tính cả ống kính bớt méo)."""
+    """Decided: aiming zooms VERY slightly, about 10-15% (counting the lens distortion being reduced)."""
     d = LensData()
     fov = 96.0
     hip = lens.center_scale(fov, d.fisheye, fov)
@@ -79,12 +79,12 @@ def test_shader_uses_the_same_formula():
     assert 'vec2 q = vec2(p.x, p.y / lens_warp.x);' in src
 
 
-# --- đèn ---
+# --- lights ---
 LOOK = LookData()
 
 
 def test_three_lamps_are_enough_per_pixel():
-    """Mỗi điểm ảnh chỉ xét 3 đèn: cốt lõi của việc tối ưu shader."""
+    """Each pixel considers only 3 lamps: the core of the shader optimisation."""
     assert lamp_reach(LOOK) == 1
     assert lamp_reach(LookData(lamp_radius=20.0)) == 2
 
@@ -106,7 +106,7 @@ def test_light_falls_off_with_distance_from_the_lamp():
 
 
 def test_nothing_above_the_lamp_gets_direct_light():
-    """Chóa đèn che phía trên: trần không nhận ánh sáng trực tiếp."""
+    """The lamp shade blocks what is above: the ceiling gets no direct light."""
     assert light_at(LOOK, (0.0, LOOK.lamp_y + 0.5, lamp_z()), (0.0, -1.0, 0.0)) == 0.0
 
 
@@ -127,14 +127,14 @@ def test_past_the_last_lamp_only_real_lamps_count():
 
 
 def test_bulb_is_brighter_than_anything_it_lights():
-    """Lỗi cũ: bóng đèn chỉ sáng hơn sàn ngay dưới nó ~25%, trông như tờ giấy trắng."""
+    """Old bug: the bulb was only ~25% brighter than the floor right below it, looking like a sheet of white paper."""
     floor_max = max(light_at(LOOK, (0.0, 0.0, lamp_z() + dz)) for dz in (0.0, 1.0, 2.0))
     bulb = LOOK.lamp_emissive
-    assert bulb > 2.0 * floor_max * 0.47        # 0,47 = màu viên gạch trong world.frag
+    assert bulb > 2.0 * floor_max * 0.47        # 0.47 = the tile colour in world.frag
 
 
 def test_gun_and_world_share_one_light_source():
-    """Súng không có đèn riêng: shader súng không còn mặt trời, và cả hai shader cùng nạp một file ánh sáng."""
+    """The gun has no lamp of its own: the gun shader no longer has a sun, and both shaders load the same light file."""
     vm = (ROOT / 'assets' / 'shaders' / 'viewmodel.frag').read_text(encoding='utf-8')
     world = (ROOT / 'assets' / 'shaders' / 'world.frag').read_text(encoding='utf-8')
     assert '#include "light_common.glsl"' in vm and '#include "light_common.glsl"' in world
@@ -146,7 +146,7 @@ def test_gun_and_world_share_one_light_source():
 
 
 def test_bounce_light_scales_with_the_lamps():
-    """Lỗi cũ: giảm đèn 12 lần mà ảnh chỉ tối đi 14% vì ánh dội là số cố định. Đèn tắt thì ánh dội phải mất."""
+    """Old bug: lamps dimmed 12x but the image only got 14% darker, because the bounce light was a fixed number. With the lamps off, the bounce light must vanish."""
     src = (ROOT / 'assets' / 'shaders' / 'light_common.glsl').read_text(encoding='utf-8')
     assert 'bounce += look_lamp2.w * win * win' in src
 
@@ -157,7 +157,7 @@ def test_python_lamp_formula_matches_the_shader_text():
     assert 'mix(look_lamp_cone.z, 1.0, smoothstep(look_lamp_cone.y, look_lamp_cone.x, cos_down))' in src
 
 
-# --- phơi sáng ---
+# --- exposure ---
 LENS = LensData()
 FORWARD = (0.0, 0.0, 1.0)
 

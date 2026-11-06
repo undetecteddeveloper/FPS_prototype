@@ -7,7 +7,7 @@ from fps.core.spring import Spring, impulse_gain
 
 def peak_of(omega, zeta, dt, seconds=1.0):
     s = Spring(1, omega, zeta)
-    s.kick([impulse_gain(omega, zeta)])          # độ lệch đỉnh mong muốn = 1
+    s.kick([impulse_gain(omega, zeta)])          # desired peak displacement = 1
     peak = 0.0
     for _ in range(round(seconds / dt)):
         s.step(dt)
@@ -36,7 +36,7 @@ def test_motion_does_not_depend_on_frame_time(dt):
     ref = Spring(1, 38.0, 0.55)
     ref.kick([3.0])
     for _ in range(100):
-        ref.step(0.001)                           # 0,1 s
+        ref.step(0.001)                           # 0.1 s
     s = Spring(1, 38.0, 0.55)
     s.kick([3.0])
     n = round(0.1 / dt)
@@ -54,7 +54,7 @@ def test_comes_to_rest_and_stays_stable_at_a_huge_step():
         s.step(0.05)
     assert all(abs(v) < 1e-6 for v in s.x + s.v)
     s.kick([1.0, 1.0, 1.0])
-    s.step(5.0)                                   # bước khổng lồ không nổ số
+    s.step(5.0)                                   # a huge step does not blow up the numbers
     assert all(math.isfinite(v) and abs(v) < 1e-6 for v in s.x + s.v)
 
 

@@ -1,7 +1,7 @@
-"""Ống kính camera đội đầu: thế giới + súng vẽ vào một kết cấu, rồi `assets/shaders/lens.frag` vẽ một lần ra cửa sổ; chữ và bảng F1 vẽ sau, không bị méo.
+"""Head-camera lens: the world + gun are drawn into one texture, then `assets/shaders/lens.frag` draws it once to the window; text and the F1 panel are drawn afterwards, so they are not distorted.
 
-Vì ống kính áp lên ảnh ĐÃ GHÉP nên súng và thế giới méo như nhau: đầu ruồi đang chỉ vào đâu trên màn hình thì đạn vẫn tới đó.
-Không dùng `camera.shader` của Ursina (FXAA theo đường đó làm hỏng ảnh khi có vùng vẽ súng riêng); vùng vẽ súng được chuyển sang cùng buffer ở đây.
+Because the lens is applied to the COMPOSITED image, the gun and the world distort identically: wherever the front sight points on screen, the bullet still goes there.
+Not using Ursina's `camera.shader` (FXAA on that path breaks the image when the gun has its own drawing region); the gun's drawing region is moved to the same buffer here.
 """
 from direct.filter.FilterManager import FilterManager
 from panda3d.core import PTA_LVecBase3f, SamplerState, Texture, Vec3, Vec4
@@ -31,7 +31,7 @@ class Lens:
         self.frame.set_element(0, Vec3(data.fisheye, 0.0, 0.0))
         self.quad.set_shader_input('lens_frame', self.frame)
         self.t = 0.0
-        self.turn = 0.0                                     # tốc độ xoay đã làm mượt (độ/s)
+        self.turn = 0.0                                     # smoothed turn speed (deg/s)
         self.apply_params()
         if viewmodel is not None:
             viewmodel.move_to_output(self.manager.buffers[-1])
@@ -46,7 +46,7 @@ class Lens:
         self._set_bloom(d.bloom > 0.0)
 
     def _set_bloom(self, wanted: bool):
-        """Loé sáng đọc mipmap của ảnh: chỉ tạo mipmap khi cần vì tốn thời gian mỗi khung."""
+        """Highlight bloom reads the image's mipmaps: only create mipmaps when needed, since they cost time every frame."""
         if wanted == self._mipmaps:
             return
         self._mipmaps = wanted
@@ -57,7 +57,7 @@ class Lens:
         return d.fisheye + (d.fisheye_ads - d.fisheye) * smoothstep(min(max(ads, 0.0), 1.0))
 
     def update(self, dt: float, ads: float, yaw_step: float):
-        """`yaw_step` = độ chuột quay ngang trong khung này (cho màn trập cuộn và nhoè khi xoay)."""
+        """`yaw_step` = degrees of horizontal mouse turn in this frame (for rolling shutter and blur when turning)."""
         self.t += dt
         if dt > 0.0:
             self.turn += (yaw_step / dt - self.turn) * min(dt / 0.04, 1.0)

@@ -1,13 +1,13 @@
 #version 140
-// Ống kính camera đội đầu, vẽ một lần trên ảnh đã ghép thế giới + súng: mắt cá (cùng công thức core/lens.py), viền màu, nhoè rìa, màn trập cuộn khi xoay, loé sáng,
-// chỉnh màu, tối góc + vầng cam, nhiễu cảm biến. Vùng giữa chỉ tốn 3 mẫu; nhoè rìa chỉ lấy thêm mẫu ở nơi cần.
+// Head-camera lens, drawn once on the composited world + rifle image: fisheye (same formula as core/lens.py), colour fringing, edge blur, rolling shutter when turning, lens flare,
+// colour grading, corner darkening + orange halo, sensor noise. The centre costs only 3 samples; edge blur takes extra samples only where needed.
 uniform sampler2D lens_scene;
-uniform vec4 lens_warp;         // tỉ lệ khung, viền màu, nhoè rìa, bắt đầu nhoè
-uniform vec4 lens_motion;       // nhoè thêm mỗi độ/s, màn trập cuộn mỗi độ/s, ranh giới bán kính nhoè ngoài, 0
-uniform vec4 lens_vig;          // bắt đầu tối, tối hẳn, vầng cam, nhiễu
-uniform vec4 lens_grade;        // tương phản, bão hoà, loé sáng, ngưỡng loé
+uniform vec4 lens_warp;         // frame aspect, colour fringe, edge blur, blur start
+uniform vec4 lens_motion;       // extra blur per deg/s, rolling shutter per deg/s, outer edge-blur radius boundary, 0
+uniform vec4 lens_vig;          // darkening starts, fully dark, orange halo, noise
+uniform vec4 lens_grade;        // contrast, saturation, flare, flare threshold
 uniform vec3 lens_tint;
-uniform vec3 lens_frame;        // độ méo hiện tại, thời gian, tốc độ xoay (độ/s, dương = phải)
+uniform vec3 lens_frame;        // current distortion, time, turn speed (deg/s, positive = right)
 in vec2 v_uv;
 out vec4 frag_color;
 
@@ -27,14 +27,14 @@ void main() {
 
     float turn = lens_frame.z;
     vec2 src = p * f;
-    src.x += lens_motion.y * turn * p.y;                 // màn trập cuộn: hàng trên và hàng dưới được đọc ở hai thời điểm khác nhau
+    src.x += lens_motion.y * turn * p.y;                 // rolling shutter: the top and bottom rows are read at two different times
     vec2 uv_g = src * 0.5 + 0.5;
     float ca = lens_warp.y * r2;
     vec2 uv_r = (src * (1.0 + ca)) * 0.5 + 0.5;
     vec2 uv_b = (src * (1.0 - ca)) * 0.5 + 0.5;
     vec3 c = vec3(texture(lens_scene, uv_r).r, texture(lens_scene, uv_g).g, texture(lens_scene, uv_b).b);
 
-    // nhoè rìa: dọc bán kính khi đứng yên, thêm theo tốc độ xoay. Bốn mẫu kèm lệch kênh để vệt nhoè tách màu như ảnh chụp
+    // edge blur: along the radius when still, plus extra with turn speed. Four samples with channel offsets so the blur streaks split colour like a photo
     float amount = smoothstep(lens_warp.w, lens_motion.z, r) * (lens_warp.z + lens_motion.x * abs(turn));
     if (amount > 0.0015) {
         vec2 dir = src * amount;
@@ -47,7 +47,7 @@ void main() {
         c = sum * 0.2;
     }
 
-    // loé sáng: lấy từ các mức mipmap thô của chính ảnh, vùng sáng lan ra xung quanh
+    // flare: taken from the coarse mip levels of the image itself, bright areas spread outward
     if (lens_grade.z > 0.0) {
         vec3 b = textureLod(lens_scene, uv_g, 3.5).rgb * 0.55 + textureLod(lens_scene, uv_g, 5.5).rgb * 0.45;
         c += max(b - lens_grade.w, 0.0) / (1.0 - lens_grade.w) * lens_grade.z;

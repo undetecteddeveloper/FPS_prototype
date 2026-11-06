@@ -1,9 +1,9 @@
-"""Hiệu ứng bắn: tia lửa đầu nòng (trong cảnh súng) và tracer (trong thế giới).
+"""Shot effects: muzzle flash (inside the gun view) and tracers (in the world).
 
-Tia lửa: ngôi sao hướng về camera + hai tấm chéo dọc nòng, trộn cộng (additive), kèm một đèn điểm chiếu sáng súng và tay
-(đẩy vào shader của súng qua `Viewmodel.set_flash_light`). Gắn vào nút `sway` nên đi theo kick, sway, ngắm của súng.
-Tracer: vệt sáng bám sau viên đạn thật (cùng vị trí, cùng độ rơi), xuất phát từ miệng nòng rồi hội tụ về đường đạn từ mắt.
-Texture dựng bằng mã lúc khởi động (không tải tài nguyên ngoài). Số liệu ở weapon_data.FlashData / TracerData; toán ở core/fx.py.
+Flash: a star facing the camera + two crossed planes along the barrel, additive blend, plus a point light that lights the gun and hands
+(pushed into the gun shader via `Viewmodel.set_flash_light`). Attached to the `sway` node so it follows the gun's kick, sway and aim.
+Tracer: a light streak trailing the real bullet (same position, same drop), starting at the muzzle and converging on the bullet path from the eye.
+Textures are built in code at startup (no external assets). Values live in weapon_data.FlashData / TracerData; the maths is in core/fx.py.
 """
 import math
 import random
@@ -19,7 +19,7 @@ from fps.weapon_data import GunData
 BIN_FIXED = 'fixed'
 
 
-# --- texture dựng bằng mã ---
+# --- textures built in code ---
 def _rgba_image(w: int, h: int, pixel) -> Image.Image:
     img = Image.new('RGBA', (w, h))
     img.putdata([pixel(x, y) for y in range(h) for x in range(w)])
@@ -35,7 +35,7 @@ def _gl_texture(img: Image.Image) -> NodePath:
 
 
 def star_texture(size: int = 128):
-    """Ngôi sao chớp nòng: lõi trắng nóng, quầng cam, sáu tia dài và bốn tia ngắn lệch góc."""
+    """Muzzle-flash star: hot white core, orange halo, six long rays and four short rays at offset angles."""
     def pixel(x, y):
         u, v = (x + 0.5) / size * 2 - 1, (size - y - 0.5) / size * 2 - 1
         r, th = math.hypot(u, v), math.atan2(v, u)
@@ -50,7 +50,7 @@ def star_texture(size: int = 128):
 
 
 def flame_texture(w: int = 48, h: int = 128):
-    """Ngọn lửa dọc nòng: v = 0 ở miệng nòng, v = 1 ở chóp; rộng ở gốc, thon dần."""
+    """Flame along the barrel: v = 0 at the muzzle, v = 1 at the tip; wide at the base, tapering."""
     def pixel(x, y):
         u, t = (x + 0.5) / w * 2 - 1, 1 - (y + 0.5) / h
         width = 0.62 * (1 - t) ** 0.55 + 0.05
@@ -60,7 +60,7 @@ def flame_texture(w: int = 48, h: int = 128):
 
 
 def glow_texture(head_color, size: int = 64):
-    """Chấm sáng ở đầu tracer: lõi trắng nóng, quầng mềm."""
+    """Bright dot at the tracer head: hot white core, soft halo."""
     def pixel(x, y):
         u, v = (x + 0.5) / size * 2 - 1, (y + 0.5) / size * 2 - 1
         r = math.hypot(u, v)
@@ -70,7 +70,7 @@ def glow_texture(head_color, size: int = 64):
 
 
 def tracer_texture(head_color, tail_color, w: int = 64, h: int = 16):
-    """Vệt tracer: u = 0 ở đuôi (mờ, cam) -> u = 1 ở đầu (sáng, trắng nóng); v là mặt cắt mềm."""
+    """Tracer streak: u = 0 at the tail (dim, orange) -> u = 1 at the head (bright, hot white); v is the soft cross-section."""
     def pixel(x, y):
         u, v = (x + 0.5) / w, (y + 0.5) / h * 2 - 1
         body = (0.12 + 0.88 * u ** 1.6) * math.exp(-(v ** 2) * 4.5)
@@ -83,7 +83,7 @@ def tracer_texture(head_color, tail_color, w: int = 64, h: int = 16):
 
 
 def _additive(node: NodePath):
-    """Trộn cộng, không ghi độ sâu, không đèn, không shader: hiệu ứng sáng chồng lên cảnh."""
+    """Additive blend, no depth write, no lights, no shader: the glowing effect is stacked on top of the scene."""
     node.set_attrib(ColorBlendAttrib.make(ColorBlendAttrib.M_add, ColorBlendAttrib.O_incoming_alpha, ColorBlendAttrib.O_one))
     node.set_depth_write(False)
     node.set_light_off()
@@ -100,7 +100,7 @@ def _card(parent: NodePath, name: str, frame: tuple, texture) -> NodePath:
     return np_
 
 
-# --- tia lửa đầu nòng ---
+# --- muzzle flash ---
 class MuzzleFlash:
     def __init__(self, viewmodel, gun: GunData, rng: random.Random):
         self.vm = viewmodel
@@ -113,20 +113,20 @@ class MuzzleFlash:
         self.root.set_pos(0, 0, self.data.forward)
         _additive(self.root)
 
-        # CardMaker dựng thẻ trong mặt phẳng XY cục bộ (x = ngang, y = dọc, pháp tuyến +z) vì Ursina dùng hệ y-up; trục nòng là +z.
-        # Thẻ được đặt bằng ma trận tường minh (hàng 0 = ảnh của trục ngang, hàng 1 = ảnh của trục dọc, hàng 2 = pháp tuyến):
-        #   ngôi sao: mặt phẳng vuông góc trục nòng (người chơi nhìn dọc trục nòng từ phía sau), quay quanh trục nòng
-        #   hai tấm dọc nòng: cùng chứa trục nòng, lệch nhau 90 độ
+        # CardMaker builds the card in the local XY plane (x = horizontal, y = vertical, normal +z) because Ursina uses y-up; the barrel axis is +z.
+        # Cards are placed with an explicit matrix (row 0 = image of the horizontal axis, row 1 = image of the vertical axis, row 2 = normal):
+        #   star: plane perpendicular to the barrel axis (the player looks down the barrel from behind), rotates around the barrel axis
+        #   two planes along the barrel: both contain the barrel axis, 90 degrees apart
         self.star = _card(self.root, 'star', (-0.5, 0.5, -0.5, 0.5), star_texture())
         flame = flame_texture()
-        self.flames = [_card(self.root, f'flame{i}', (-0.5, 0.5, 0.0, 1.0), flame) for i in range(2)]   # dọc: 0 ở nòng .. 1 ở chóp
+        self.flames = [_card(self.root, f'flame{i}', (-0.5, 0.5, 0.0, 1.0), flame) for i in range(2)]   # along: 0 at the muzzle .. 1 at the tip
         self._roll = 0.0
         self.root.hide()
 
-        self.age = None                                    # None = đang tắt
+        self.age = None                                    # None = off
         self._fresh = False
         self._size = 1.0
-        self.fired = 0                                     # số lần chớp (cho kiểm tra)
+        self.fired = 0                                     # number of flashes (for checks)
 
     @property
     def active(self) -> bool:
@@ -138,7 +138,7 @@ class MuzzleFlash:
         self._size = ads * (1.0 + self.rng.uniform(-d.size_jitter, d.size_jitter))
         self._roll = self.rng.uniform(0, 2 * math.pi)
         self.age = 0.0
-        self._fresh = True                                 # khung chớp: vẽ cường độ đầy đủ, chưa trừ tuổi
+        self._fresh = True                                 # flash frame: draw full intensity, age not yet subtracted
         self.fired += 1
         self.root.show()
 
@@ -165,7 +165,7 @@ class MuzzleFlash:
         self.star.set_mat(Mat4(c * size, sn * size, 0, 0, -sn * size, c * size, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
         w = d.width * self._size * shrink
         length = d.length * self._size * (0.6 + 0.4 * k)
-        # thẻ 0: rộng theo (c, sn, 0); thẻ 1: rộng theo (-sn, c, 0); cả hai dài theo +z (trục nòng)
+        # card 0: wide along (c, sn, 0); card 1: wide along (-sn, c, 0); both long along +z (barrel axis)
         self.flames[0].set_mat(Mat4(c * w, sn * w, 0, 0, 0, 0, length, 0, -sn, c, 0, 0, 0, 0, 0, 1))
         self.flames[1].set_mat(Mat4(-sn * w, c * w, 0, 0, 0, 0, length, 0, -c, -sn, 0, 0, 0, 0, 0, 1))
         light = tuple(ch * d.light_power * k for ch in d.light_color)
@@ -183,13 +183,13 @@ class _Streak:
 class Tracers:
     def __init__(self, gun: GunData):
         self.data = gun.tracer
-        self.gun = gun                                     # tốc độ đạn đọc lại mỗi lần sinh vệt (bảng debug đổi muzzle_velocity lúc đang chạy)
+        self.gun = gun                                     # bullet speed is read back on every streak spawn (the debug panel can change muzzle_velocity while running)
         d = self.data
         self.root = application.base.render.attach_new_node('tracers')
         _additive(self.root)
         tex = tracer_texture(d.head_color, d.tail_color)
         glow_tex = glow_texture(d.glow_color)
-        self.free = []                                     # [(vệt, chấm sáng)]
+        self.free = []                                     # [(streak, glow dot)]
         for i in range(d.pool):
             node = _card(self.root, f'tracer{i}', (0.0, 1.0, -0.5, 0.5), tex)
             glow = _card(self.root, f'glow{i}', (-0.5, 0.5, -0.5, 0.5), glow_tex)
@@ -198,7 +198,7 @@ class Tracers:
             self.free.append((node, glow))
         self.active = []
         self._right = self._up = Vec3(0, 0, 0)
-        self.spawned = 0                                   # số tracer đã sinh (cho kiểm tra)
+        self.spawned = 0                                   # number of tracers spawned (for checks)
 
     def spawn(self, bullet, offset: tuple) -> bool:
         if not self.free:
@@ -241,7 +241,7 @@ class Tracers:
         d = self.data
         node, glow = streak.node, streak.glow
         tail, head = (Vec3(*p) for p in streak.tracer.endpoints())
-        # chấm sáng luôn hướng về camera: ma trận tường minh (billboard của Panda làm khung đầu tiên chậm 40-70 ms)
+        # glow dot always faces the camera: explicit matrix (Panda's billboard made the first frame slow, 40-70 ms)
         size = fx.ribbon_width((cam - head).length(), 0.0, d.glow_pixels, fov, width_px)
         r, u = self._right * size, self._up * size
         glow.set_mat(Mat4(r.x, r.y, r.z, 0, u.x, u.y, u.z, 0, 0, 0, 1, 0, head.x, head.y, head.z, 1))
@@ -255,7 +255,7 @@ class Tracers:
         ux = axis / length
         view = cam - (head + tail) * 0.5
         across = view.cross(ux)
-        if across.length() < 1e-4:                         # nhìn dọc theo vệt: chọn tuỳ ý một hướng vuông góc
+        if across.length() < 1e-4:                         # looking along the streak: pick any perpendicular direction
             across = Vec3(0, 1, 0).cross(ux)
         across.normalize()
         normal = ux.cross(across)
@@ -269,21 +269,21 @@ class Tracers:
 
 
 class Effects:
-    """Cầu nối của Combat: mỗi phát bắn gọi `on_shot`, mỗi khung gọi `update`."""
+    """Combat's bridge: each shot calls `on_shot`, each frame calls `update`."""
 
     def __init__(self, gun: GunData, viewmodel, rng: random.Random = None):
         self.gun = gun
         self.vm = viewmodel
         self.flash = MuzzleFlash(viewmodel, gun, rng or random.Random())
         self.tracers = Tracers(gun)
-        self.burst = 0                                     # phát thứ mấy của loạt hiện tại
-        self._rest = 1e9                                   # giây kể từ phát cuối
+        self.burst = 0                                     # which shot of the current burst this is
+        self._rest = 1e9                                   # seconds since the last shot
         self._warm_up()
 
     def _warm_up(self):
-        """Vẽ thử mọi hiệu ứng (rất nhỏ, gần trong suốt) vài khung đầu để texture và trạng thái vẽ lên GPU ngay lúc vào game.
-        Không làm thì phát bắn ĐẦU TIÊN làm hai khung liền chậm 25-40 ms (và vì đạn đi theo từng khung nên điểm trúng lệch vài mm).
-        `prepare_scene` không đủ: nút ẩn bị bỏ qua."""
+        """Draw every effect (tiny, nearly transparent) for the first few frames so textures and draw state reach the GPU as the game starts.
+        Without this the FIRST shot makes two consecutive frames slow, 25-40 ms (and since bullets move per frame, the hit point is off by a few mm).
+        `prepare_scene` is not enough: hidden nodes are skipped."""
         self._warm = 3
         tiny = Mat4(0.001, 0, 0, 0, 0, 0.001, 0, 0, 0, 0, 0.001, 0, 0, 0, 0, 1)
         self.flash.root.show()
@@ -303,8 +303,8 @@ class Effects:
             glow.hide()
 
     def muzzle_offset(self) -> tuple:
-        """Miệng nòng so với mắt, trong toạ độ thế giới. Đo trong cảnh súng (FOV riêng) nên nhân hệ số ống kính để
-        điểm xuất phát của vệt nằm đúng chỗ miệng nòng đang hiện trên màn hình."""
+        """Muzzle position relative to the eye, in world coordinates. Measured in the gun scene (its own FOV), so it is multiplied by the lens factor so that
+        the streak's start point lies exactly where the muzzle appears on screen."""
         p = self.flash.muzzle.get_pos(self.vm.cam_np)
         k = fx.lens_ratio(camera.fov, self.vm.current_fov)
         v = camera.right * (p.x * k) + camera.up * (p.y * k) + camera.forward * p.z

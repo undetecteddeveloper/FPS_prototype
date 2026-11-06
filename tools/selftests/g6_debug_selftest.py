@@ -1,18 +1,18 @@
-"""G6: bảng debug (F1) và HUD bằng game thật.
+"""G6: debug panel (F1) and HUD with the real game.
 
-Điều khiển qua đúng đường của game (game.input('f1'), con trỏ giả qua panel.pointer, held_keys). Đo:
-  - F1 mở / đóng (cả Esc): chuột nhả / khoá, không bắn / ngắm / nạp / đổi chế độ khi bảng mở, bảng đóng thì không có update nào chạy
-  - mở lúc đang nạp / đang rút súng không làm hỏng trạng thái
-  - kéo thanh bằng chuột: giá trị theo con trỏ, nhả chuột thì dừng; chuột phải về mặc định; công tắc bật/tắt; ô chọn (bóng đổ)
-  - đổi thanh thì hành vi ĐỔI THẬT, đo lại: nhịp bắn (rpm), thời gian vào ngắm, độ giật lên, nhịp bob, âm lượng tiếng súng, thời gian nạp,
-    độ sáng đèn (đầu vào shader + ảnh chụp), ánh sáng trên súng, khoảng cách mắt-điểm ngắm, tốc độ tracer, độ tản (hình nón)
-  - lưu -> đổi -> nạp phục hồi; nạp file hỏng không crash; đặt lại nhóm / tất cả / từng thanh
-  - nạp thông số lúc khởi động (cả số "cần khởi động lại": đạn trong băng)
-  - hình nón: vòng từng trạng thái đúng theo spread.py, vòng hiện tại gồm bloom, chấm phát vừa bắn
-  - HUD đủ phần tử: số đạn, chế độ bắn, ĐANG NẠP / HẾT ĐẠN, FPS, khoảng cách bia vừa trúng (rồi mờ), gợi ý phím, ghi công
-Ảnh vào shots\\debug_*.png (bảng) và shots\\hud_*.png (HUD).
+Drive through the game's own path (game.input('f1'), fake cursor via panel.pointer, held_keys). Measures:
+  - F1 open / close (and Esc): mouse released / locked, no firing / aiming / reloading / mode change while the panel is open, no update runs while it is closed
+  - opening during a reload / draw does not break the state
+  - drag a slider with the mouse: the value follows the cursor, releasing stops it; right-click resets to default; on/off switch; selector box (shadows)
+  - changing a slider really CHANGES the behaviour, measured again: fire rate (rpm), time to aim, upward kick, bob rhythm, gunshot volume, reload time,
+    light brightness (shader input + screenshot), light on the gun, eye-to-aim-point distance, tracer speed, spread (cone)
+  - save -> change -> load restores; loading a broken file does not crash; reset group / all / each slider
+  - load parameters at startup (including the values marked "needs restart": rounds in the magazine)
+  - cone: each state's ring matches spread.py, the current ring includes bloom, the dot of the last shot
+  - HUD has all elements: ammo count, fire mode, RELOADING / OUT OF AMMO, FPS, distance to the last target hit (then fades), key hints, credits
+Screenshots go to shots\\debug_*.png (panel) and shots\\hud_*.png (HUD).
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\with_game_lock.py .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g6_debug_selftest.py   (thoát mã 1 nếu có mục trượt)
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\with_game_lock.py .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g6_debug_selftest.py   (exits with code 1 if any item fails)
 """
 import json
 import math
@@ -28,7 +28,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 import fps.app as appmod  # noqa: E402
 
-# số liệu "cần khởi động lại" (đạn trong băng) phải có hiệu lực khi nạp lúc khởi động: file tạm, KHÔNG đụng user_params.json thật
+# values marked "needs restart" (rounds in the magazine) must take effect when loaded at startup: temp file, do NOT touch the real user_params.json
 TMP = Path(tempfile.mkdtemp(prefix='fps_params_'))
 STARTUP = TMP / 'startup.json'
 STARTUP.write_text(json.dumps({'version': 1, 'values': {'gun.magazine': 20, 'gun.reserve': 90, 'gun.rpm': 800.0, 'gun.khong_co': 1,
@@ -60,7 +60,7 @@ results = []
 skip = {'next': False}
 POINTER = {'xy': (0.0, 0.0)}
 panel.pointer = lambda: POINTER['xy']
-panel.path = TMP / 'preset.json'                   # lưu / nạp thử vào file tạm
+panel.path = TMP / 'preset.json'                   # trial save / load to a temp file
 
 
 def check(name, got, expected, ok):
@@ -115,7 +115,7 @@ class Script(Entity):
             t += min(time.dt, 0.05)
             n += 1
 
-    # --- đưa mọi thứ về tình trạng sạch ---
+    # --- reset everything to a clean state ---
     def reset_state(self, mag=30, ads=0.0, auto=True):
         for k in ('w', 'a', 's', 'd', 'shift', 'control', 'space', 'left mouse', 'right mouse'):
             held_keys[k] = 0
@@ -140,9 +140,9 @@ class Script(Entity):
         handling.events.clear()
         viewmodel.hold_ready_pose()
 
-    # --- con trỏ giả ---
+    # --- fake cursor ---
     def row_of(self, s):
-        """Chọn nhóm của thanh, cuộn tới nó, trả về hàng hiển thị."""
+        """Select the slider's group, scroll to it, return the visible row."""
         panel.select_group(s.group)
         if s.advanced and not panel.show_advanced:
             panel.toggle_advanced()
@@ -164,7 +164,7 @@ class Script(Entity):
         game.input('left mouse up')
 
     def slide_to(self, sid, value):
-        """Kéo thanh bằng chuột giả tới `value` (nhấn tại vị trí rồi nhả); trả về giá trị đã đặt."""
+        """Drag the slider to `value` with the fake mouse (press at the position, then release); return the value that was set."""
         s = spec(sid)
         x, y = self.track_point(s, value)
         self.mouse_down(x, y)
@@ -190,10 +190,10 @@ class Script(Entity):
     def close_panel(self):
         if panel.is_open:
             game.input('f1')
-        mouse.locked = False                      # trả lại con trỏ cho người dùng
+        mouse.locked = False                      # return the cursor to the user
         yield from self.wait(0.1)
 
-    # --- đo ---
+    # --- measure ---
     def measure_rate(self, seconds=1.2):
         self.reset_state(mag=200)
         weapon.shot_times.clear()
@@ -267,7 +267,7 @@ class Script(Entity):
     def run(self):
         yield from self.wait(0.6)
 
-        # --- A. nạp thông số lúc khởi động (số "cần khởi động lại" có hiệu lực) ---
+        # --- A. load parameters at startup (the "needs restart" values take effect) ---
         rep = game.params_report
         check('khởi động: nạp user_params (3 giá trị dùng được, 2 mục bị bỏ qua)', (rep.applied, len(rep.ignored)), '(3, 2)',
               rep.ok and rep.applied == 3 and len(rep.ignored) == 2)
@@ -278,9 +278,9 @@ class Script(Entity):
         check('khởi động: giá trị sai kiểu giữ mặc định (ads_time)', gun.ads_time, f'{M4.ads_time}', gun.ads_time == M4.ads_time)
         check('M4 toàn cục không bị làm bẩn', (M4.rpm, M4.magazine), '(750, 30)', (M4.rpm, M4.magazine) == (750.0, 30))
         store.reset_all()
-        weapon.mag_size, weapon.mag, weapon.reserve = gun.magazine, gun.magazine, gun.reserve    # chỉ làm lại phần chép lúc dựng (số liệu đã về mặc định)
+        weapon.mag_size, weapon.mag, weapon.reserve = gun.magazine, gun.magazine, gun.reserve    # only redo the part copied at build time (values already back to default)
 
-        # --- B. F1 mở / đóng, chuột ---
+        # --- B. F1 open / close, mouse ---
         check('chưa mở F1: bảng chưa dựng, không tốn gì', (panel.is_open, panel._built), '(False, False)', not panel.is_open and not panel._built)
         t0 = pytime.perf_counter()
         game.input('f1')
@@ -293,7 +293,7 @@ class Script(Entity):
         shot('debug', 'open_fire')
         yield from self.wait(0.1)
 
-        # bảng mở: bấm chuột / phím không làm gì với súng
+        # panel open: mouse clicks / keys do nothing to the gun
         self.reset_state()
         shots0 = combat.shots_fired
         held_keys['left mouse'] = 1
@@ -313,7 +313,7 @@ class Script(Entity):
         game.input('left mouse up')
         yield from self.wait(0.1)
 
-        # đóng bảng: chuột khoá lại, không xoay bất thường
+        # panel closed: mouse locks again, no unexpected turning
         yaw0, pitch0 = player.yaw, player.pitch
         game.input('f1')
         locked_after_close = mouse.locked
@@ -331,7 +331,7 @@ class Script(Entity):
         held_keys['left mouse'] = 0
         held_keys['right mouse'] = 0
 
-        # bảng đóng thì không có update nào chạy
+        # no update runs while the panel is closed
         calls = {'n': 0}
         real_update = panel.update
 
@@ -351,7 +351,7 @@ class Script(Entity):
         check('Esc khi bảng mở: đóng bảng (không chỉ đổi khoá chuột)', (panel.is_open, panel.root.enabled), '(F, F)', not panel.is_open and not panel.root.enabled)
         panel.update = real_update
 
-        # mở / đóng giữa lúc nạp và rút súng
+        # open / close during a reload and a draw
         self.reset_state(mag=10)
         yield from self.wait(0.1)
         combat.request_reload()
@@ -372,7 +372,7 @@ class Script(Entity):
         yield from self.wait(1.2)
         check('F1 giữa lúc rút súng: rút súng xong, súng ở tư thế sẵn sàng', handling.phase.value, 'ready', handling.phase is Phase.READY and viewmodel.clip_key is None)
 
-        # --- C. kéo thanh bằng chuột ---
+        # --- C. drag a slider with the mouse ---
         yield from self.open_panel()
         s = spec('gun.rpm')
         x, y = self.track_point(s, 900)
@@ -389,16 +389,16 @@ class Script(Entity):
         yield
         yield
         check('nhả chuột: thanh đứng yên dù con trỏ di chuyển tiếp', gun.rpm, '600', abs(gun.rpm - 600) <= s.step)
-        self.mouse_down(panel.track_x1 + 0.015, y)               # lố ra ngoài đầu thanh một chút (vẫn trong vùng bắt chuột)
+        self.mouse_down(panel.track_x1 + 0.015, y)               # overshoot slightly past the end of the slider (still inside the mouse capture area)
         yield
         self.mouse_up()
         check('nhấn quá đầu thanh: kẹp ở giá trị lớn nhất', gun.rpm, str(s.hi), gun.rpm == s.hi)
-        # chuột phải về mặc định
+        # right-click resets to default
         POINTER['xy'] = (x, y)
         game.input('right mouse down')
         yield
         check('chuột phải trên hàng: về mặc định', gun.rpm, '750', gun.rpm == 750.0 and store.is_default(s))
-        # công tắc
+        # switch
         sb = spec('player.sprint_blocks_fire')
         row = self.row_of(sb)
         self.mouse_down((panel.track_x0 + panel.track_x1) / 2, row.yc)
@@ -409,7 +409,7 @@ class Script(Entity):
         yield
         self.mouse_up()
         check('bấm lần nữa: bật lại', game.params.player.sprint_blocks_fire, 'True', game.params.player.sprint_blocks_fire is True)
-        # ô chọn (bóng đổ): Thật -> Tắt -> Giả -> Thật
+        # selector box (shadows): Real -> Off -> Fake -> Real
         ss = spec('look.shadows')
         row = self.row_of(ss)
         seq = []
@@ -421,7 +421,7 @@ class Script(Entity):
             seq.append((game.params.look.shadows, game.look.mode))
         check('ô chọn bóng đổ: Tắt -> Giả -> Thật, bóng theo ngay, không lỗi', seq, '[(F,F), (fake,fake), (T,T)]',
               seq == [(False, False), ('fake', 'fake'), (True, True)])
-        # cuộn
+        # scroll
         panel.select_group('sway')
         panel.toggle_advanced()
         n_items = len(panel.items)
@@ -431,7 +431,7 @@ class Script(Entity):
         check('  hàng đầu là mục thứ 6 của danh sách', panel.rows[0].item is panel.items[5], 'True', panel.rows[0].item is panel.items[5])
         panel.scroll(-99)
         panel.toggle_advanced()
-        # thanh cuộn kéo bằng chuột
+        # scrollbar dragged with the mouse
         panel.select_group('look')
         panel.toggle_advanced()
         y_mid = (panel.rows_top + panel.rows_bottom) / 2
@@ -443,7 +443,7 @@ class Script(Entity):
         panel.select_group('fire')
         yield from self.close_panel()
 
-        # --- D. đổi thanh thì hành vi đổi thật ---
+        # --- D. changing a slider really changes the behaviour ---
         base_rate = yield from self.measure_rate()
         yield from self.open_panel()
         yield from self.slide_to('gun.rpm', 1200)
@@ -511,7 +511,7 @@ class Script(Entity):
         check('reload.speed 2,0: nạp (còn đạn) mất ~3,63 / 2 giây', round(rl, 2), '1,82 (±0,15)', abs(rl - 3.63 / 2) < 0.15)
         store.reset_group('reload')
 
-        # ánh sáng: đầu vào shader + ảnh chụp
+        # light: shader input + screenshot
         self.reset_state()
         yield from self.wait(0.3, frames=6)
         lamp0 = render.get_shader_input('look_lamp2').get_vector()[3]
@@ -526,7 +526,7 @@ class Script(Entity):
         img_b = shot('debug', 'light_dim')
         yield from self.wait(0.1, frames=3)
         b_a, b_b = brightness(img_a, box), brightness(img_b, box)
-        lamp_default = LookData().lamp_intensity                    # mặc định hiện hành (không chép số cứng)
+        lamp_default = LookData().lamp_intensity                    # current default (no hard-coded number)
         check(f'lamp_intensity {lamp_default} -> 0,5: đầu vào shader look_lamp2.w đổi theo', f'{lamp0:.2f} -> {lamp1:.2f}', f'{lamp_default:.2f} -> 0,50',
               abs(lamp0 - lamp_default) < 1e-3 and abs(lamp1 - 0.5) < 1e-3)
         check('  ảnh chụp tối đi thật (độ sáng giữa màn hình)', f'{b_a:.1f} -> {b_b:.1f}', 'giảm > 15%', b_b < b_a * 0.85)
@@ -535,7 +535,7 @@ class Script(Entity):
         lamp2 = render.get_shader_input('look_lamp2').get_vector()[3]
         check('đặt lại nhóm Ánh sáng: đèn sáng lại như cũ', round(lamp2, 2), f'{lamp_default:.2f}', abs(lamp2 - lamp_default) < 1e-3)
         spec_default = M4.view_light.specular
-        spec_target = 1.0 if abs(spec_default - 1.0) > 0.05 else 0.5          # kéo tới số KHÁC mặc định hiện hành
+        spec_target = 1.0 if abs(spec_default - 1.0) > 0.05 else 0.5          # drag to a value DIFFERENT from the current default
         yield from self.open_panel()
         yield from self.slide_to('gun.view_light.specular', spec_target)
         yield from self.close_panel()
@@ -553,12 +553,12 @@ class Script(Entity):
         store.reset_group('ads')
         yield from self.wait(0.1)
 
-        # --- E. hình nón ---
+        # --- E. cone ---
         self.reset_state()
         yield from self.open_panel()
         yield from self.wait(0.2, frames=4)
         acc = combat.accuracy
-        yield from self.slide_to('gun.accuracy.stand', 2.0)                 # mặc định chỉ còn tản cơ khí 0,03 độ: đo từ một số dễ thấy
+        yield from self.slide_to('gun.accuracy.stand', 2.0)                 # the default has only 0.03 degrees of mechanical spread left: measure from a value that is easy to see
         yield from self.wait(0.1, frames=3)
         r_stand0 = panel.state_rings[0].scale_x
         yield from self.slide_to('gun.accuracy.stand', 4.0)
@@ -583,7 +583,7 @@ class Script(Entity):
         yield
         check('vòng hiện tại gồm bloom (góc đứng 4° + bloom)', round(panel.cur_ring.scale_x, 4), round(2 * ring_radius(combat.spread_now, dp.CONE_DISTANCE) * panel.cone_k, 4),
               abs(panel.cur_ring.scale_x - 2 * ring_radius(combat.spread_now, dp.CONE_DISTANCE) * panel.cone_k) < 1e-4 and combat.spread_now > 4.0)
-        # vòng hiện tại bám trạng thái ngắm
+        # the current ring follows the aim state
         player.ads_amount = 1.0
         player.ads = True
         yield from self.wait(0.05, frames=2)
@@ -591,12 +591,12 @@ class Script(Entity):
               panel.legend[5][1].main.color.a > 0.9 and panel.legend[0][1].main.color.a < 0.7)
         player.ads_amount = 0.0
         player.ads = False
-        # chấm phát bắn: bắn một phát, chấm nằm đúng chỗ
+        # shot dot: fire one shot, the dot lands in the right place
         self.reset_state(mag=30, auto=False)
         yield from self.wait(0.1, frames=3)
         combat.pressed = True
         held_keys['left mouse'] = 0
-        player.ui_open = False                      # panel mở nhưng bắn bằng đường mã (bảng thật chặn chuột; ở đây chỉ đo hình nón)
+        player.ui_open = False                      # the panel is open but firing goes through the code path (the real panel blocks the mouse; here only the cone is measured)
         yield
         yield
         yield from self.wait(0.1, frames=3)
@@ -616,7 +616,7 @@ class Script(Entity):
         shot('debug', 'cone')
         yield from self.wait(0.1, frames=3)
 
-        # --- F. lưu / nạp / đặt lại bằng nút ---
+        # --- F. save / load / reset with buttons ---
         store.reset_all()
         panel.select_group('fire')
         yield from self.wait(0.1)
@@ -642,7 +642,7 @@ class Script(Entity):
         check('nút "Đặt lại nhóm này": nhóm Bắn về mặc định, nhóm khác giữ', (gun.rpm, gun.accuracy.stand), '(750, 1.0)', gun.rpm == 750.0 and gun.accuracy.stand == 1.0)
         yield from self.click_button(panel.footer[2])
         check('nút "Mặc định (tất cả)": mọi thanh về mặc định', (len(store.changed_specs()), gun.accuracy.stand), f'(0, {M4.accuracy.stand})', not store.changed_specs() and gun.accuracy.stand == M4.accuracy.stand)
-        # file hỏng
+        # broken file
         for text, label in (('{ không phải json', 'JSON hỏng'), ('[1,2,3]', 'sai dạng'), ('', 'rỗng')):
             store.set(spec('gun.rpm'), 800)
             panel.path.write_text(text, encoding='utf-8')
@@ -656,7 +656,7 @@ class Script(Entity):
         yield from self.wait(0.1)
         yield from self.close_panel()
 
-        # --- G. chi phí ---
+        # --- G. cost ---
         self.reset_state()
         yield from self.wait(0.3)
         n0 = len(self.dts)
@@ -700,7 +700,7 @@ class Script(Entity):
         shot('hud', 'normal')
         yield from self.wait(0.1, frames=3)
 
-        # đang nạp
+        # reloading
         weapon.mag = 12
         combat.request_reload()
         yield from self.wait(0.8, frames=6)
@@ -708,7 +708,7 @@ class Script(Entity):
               hud.prompt.text == 'ĐANG NẠP ĐẠN' and hud.reload_bar.color.a > 0.5)
         shot('hud', 'reload')
         yield from self.wait(4.0)
-        # hết đạn
+        # out of ammo
         self.reset_state(mag=0)
         weapon.reserve = 0
         yield from self.wait(0.2, frames=4)
@@ -719,11 +719,11 @@ class Script(Entity):
         self.reset_state(mag=0)
         yield from self.wait(0.2, frames=4)
         check('HUD: băng cạn còn dự trữ -> nhắc bấm R', hud.prompt.text, 'BẤM R ĐỂ NẠP ĐẠN', hud.prompt.text == 'BẤM R ĐỂ NẠP ĐẠN')
-        # bia vừa trúng
+        # last target hit
         self.reset_state(mag=30, auto=False)
         gun.accuracy.stand = 0.0
         gun.accuracy.bloom_per_shot = 0.0
-        player.yaw = math.degrees(math.atan2(-3.0, 10.0))               # bia 10 m lệch x = -3
+        player.yaw = math.degrees(math.atan2(-3.0, 10.0))               # target 10 m away, offset x = -3
         player.pitch = 0.0
         player._apply_view()
         yield from self.wait(0.1, frames=3)

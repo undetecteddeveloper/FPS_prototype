@@ -1,10 +1,10 @@
-"""G4: đo hai điểm ngắm của súng từ đỉnh mô hình (hệ camera, tư thế nghỉ) và in tư thế ADS tính ra.
+"""G4: measures the rifle's two sight points from the model vertices (camera space, rest pose) and prints the resulting ADS pose.
 
-  - vòng ngắm sau: các đỉnh nằm trong lát z `REAR_Z` cao hơn `REAR_MIN_Y`; tâm = giữa hộp bao của chúng
-  - cột ngắm trước: các đỉnh nằm trong lát z `FRONT_Z` cao hơn `FRONT_MIN_Y`; điểm ngắm = giữa hộp bao ngang, đỉnh cao nhất
-Kết quả dán vào GunData.ads_sights (weapon_data.py). Lát z/y dưới đây dành cho M4 (xem hộp bao thô khi đổi súng).
+  - rear aperture: vertices in the z slice `REAR_Z` above `REAR_MIN_Y`; centre = midpoint of their bounding box
+  - front post: vertices in the z slice `FRONT_Z` above `FRONT_MIN_Y`; sight point = midpoint of the horizontal bounding box, highest vertex
+The result is pasted into GunData.ads_sights (weapon_data.py). The z/y slices below are for the M4 (check the raw bounding box when changing the rifle).
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\g4_ads_align.py
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\g4_ads_align.py
 """
 import sys
 from pathlib import Path
@@ -19,8 +19,8 @@ from ursina import mouse  # noqa: E402
 
 from fps.core.sway import ads_target_for  # noqa: E402
 
-REAR_Z, REAR_MIN_Y = (0.14, 0.17), -0.0135          # vòng ngắm sau của M4: x 0,062..0,073, y -0,0135..-0,0014
-FRONT_Z, FRONT_MIN_Y = (0.55, 0.58), -0.0095        # cột ngắm trước, nằm giữa hai cánh che ở x = tâm vòng sau ± 6 mm
+REAR_Z, REAR_MIN_Y = (0.14, 0.17), -0.0135          # M4 rear aperture: x 0.062..0.073, y -0.0135..-0.0014
+FRONT_Z, FRONT_MIN_Y = (0.55, 0.58), -0.0095        # front post, between the two guard wings at x = rear centre ± 6 mm
 FRONT_POST_HALF_WIDTH = 0.0015
 
 game = create_game(vsync=False, draw=False)
@@ -49,7 +49,7 @@ def bounds(z_range, min_y, x_range=None):
 lo, hi, n = bounds(REAR_Z, REAR_MIN_Y)
 rear = ((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2)
 print(f'vòng sau ({n} đỉnh): tâm ({rear[0]:.4f}, {rear[1]:.4f}, {rear[2]:.4f}); rộng {(hi[0] - lo[0]) * 1000:.1f} mm, cao {(hi[1] - lo[1]) * 1000:.1f} mm')
-post_x = (rear[0] - FRONT_POST_HALF_WIDTH, rear[0] + FRONT_POST_HALF_WIDTH)      # chỉ cột giữa, không lấy hai cánh che
+post_x = (rear[0] - FRONT_POST_HALF_WIDTH, rear[0] + FRONT_POST_HALF_WIDTH)      # only the centre post, not the two guard wings
 lo, hi, n = bounds(FRONT_Z, FRONT_MIN_Y, post_x)
 front = ((lo[0] + hi[0]) / 2, hi[1], (lo[2] + hi[2]) / 2)
 print(f'cột trước ({n} đỉnh): đỉnh ({front[0]:.4f}, {front[1]:.4f}, {front[2]:.4f})')

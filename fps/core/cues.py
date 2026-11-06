@@ -1,13 +1,13 @@
-"""Lịch phát tiếng theo khung của clip (thuần, không import ursina, nên test được không cần cửa sổ).
+"""Per-frame sound schedule for a clip (pure, no ursina import, so it can be tested without a window).
 
-Mỗi clip nạp / rút súng có bảng `SoundCue` (khung tuyệt đối trong file glb, 30 fps). Khi clip bắt đầu với tốc độ `speed`, mỗi mốc
-được đổi sang giây THẬT = (frame - clip.start) / 30 / speed (tốc độ nhân lên thì mốc đến sớm hơn). Đồng hồ của lịch cộng cùng `dt`
-mà `Handling.update` cộng, nên hai bên khớp nhau tới một khung hình. Lệnh nạp / rút súng được xử lý SAU `Handling.update` của khung đó (clip mới ở t = 0),
-nên `update` đầu tiên sau `start` không cộng `dt` (không thì tiếng đến sớm một khung).
+Each reload / draw clip has a `SoundCue` table (absolute frames in the glb file, 30 fps). When the clip starts at speed `speed`, each mark
+is converted to REAL seconds = (frame - clip.start) / 30 / speed (a faster clip brings the marks earlier). The schedule's clock adds the same `dt`
+that `Handling.update` adds, so the two agree to within one frame. Reload / draw commands are processed AFTER that frame's `Handling.update` (the new clip starts at t = 0),
+so the first `update` after `start` does not add `dt` (otherwise the sound would come one frame early).
 
-Sự kiện của Handling (xem core/handling.py):
-  start(key, speed) lập lịch · done() phát nốt những tiếng còn lại (khung cuối có thể bỏ sót) · cancel() bỏ tiếng chưa tới mốc,
-  tiếng đã phát thì để vang nốt; nếu đã phát ít nhất một tiếng thì hẹn thêm một tiếng 'tay trượt về' sau `cancel_delay`.
+Handling events (see core/handling.py):
+  start(key, speed) schedules · done() plays the remaining sounds (the last frame may miss some) · cancel() drops marks not yet reached,
+  sounds already played are left to ring out; if at least one sound has played, one more 'hand slides back' sound is scheduled after `cancel_delay`.
 """
 from fps.weapon_data import AudioData, Clip
 
@@ -16,21 +16,21 @@ FPS = 30.0
 
 class CueSchedule:
     def __init__(self):
-        self._pending = []          # [(giây thật kể từ lúc start, tên, âm lượng)] sắp theo thời gian
+        self._pending = []          # [(real seconds since start, name, volume)] sorted by time
         self._t = 0.0
-        self.fired = 0              # số tiếng đã phát của lần chạy hiện tại (để biết huỷ nạp có nên thêm tiếng 'tay trượt về')
+        self.fired = 0              # sounds played in the current run (to decide whether a cancel adds the 'hand slides back' sound)
         self.running = False
-        self._fresh = False         # vừa start trong khung này: khung này chưa tính thời gian
+        self._fresh = False         # just started this frame: this frame does not count time
 
     def start(self, cues, clip: Clip, speed: float):
-        """Lập lịch cho clip `clip` chạy với tốc độ `speed`. Mốc nằm trước đầu clip thì phát ngay."""
+        """Schedule clip `clip` to run at speed `speed`. Marks before the start of the clip play immediately."""
         speed = max(speed, 1e-3)
         self._pending = sorted(((max(0.0, (c.frame - clip.start) / FPS / speed), c.sound, c.volume) for c in cues), key=lambda e: e[0])
         self._t, self.fired, self.running = 0.0, 0, True
         self._fresh = True
 
     def update(self, dt: float) -> list:
-        """Đồng hồ đi thêm `dt` giây: trả về [(tên, âm lượng)] của các mốc vừa tới (theo thứ tự thời gian)."""
+        """Advance the clock by `dt` seconds: returns [(name, volume)] of the marks just reached, in time order."""
         if not self._pending:
             return []
         if self._fresh:
@@ -45,7 +45,7 @@ class CueSchedule:
         return out
 
     def flush(self) -> list:
-        """Clip chạy hết: phát nốt mọi mốc còn lại."""
+        """Clip finished: play all remaining marks."""
         out = [(name, volume) for _, name, volume in self._pending]
         self._pending = []
         self.fired += len(out)
@@ -53,7 +53,7 @@ class CueSchedule:
         return out
 
     def cancel(self, audio: AudioData):
-        """Huỷ: bỏ mọi mốc chưa tới. Đã phát ít nhất một tiếng thì hẹn tiếng 'tay trượt về' (clip nạp ở đầu thì tay chưa làm gì nên im)."""
+        """Cancel: drop all marks not yet reached. If at least one sound has played, schedule a 'hand slides back' sound (a clip cancelled at its start has no hand movement yet, so it stays silent)."""
         had_sound = self.fired > 0
         self._pending = []
         self.running = False
@@ -66,7 +66,7 @@ class CueSchedule:
 
 
 def impact_sound(audio, distance: float, on_target: bool) -> tuple:
-    """Tiếng đạn trúng nghe từ chỗ người bắn: (trễ giây, âm lượng). Âm thanh đi từ điểm trúng về tai nên tới muộn, và nhỏ dần theo khoảng cách."""
+    """Impact sound as heard by the shooter: (delay in seconds, volume). Sound travels from the impact point to the ear, so it arrives late and gets quieter with distance."""
     distance = max(distance, 0.0)
     base = audio.hit_target_volume if on_target else audio.hit_hard_volume
     return distance / max(audio.speed_of_sound, 1.0), base / (1.0 + distance / max(audio.hit_reference_distance, 1e-3))

@@ -1,8 +1,8 @@
-"""HUD (chỉ để kiểm tra: `create_game(hud=True)`; game thật KHÔNG có HUD kiểu Bodycam, xem Game trong app.py): FPS, tâm ngắm động, số đạn, chế độ bắn, hit marker, khoảng cách bia vừa trúng, ghi công.
+"""HUD (for checks only: `create_game(hud=True)`; the real game has NO Bodycam-style HUD, see Game in app.py): FPS, dynamic crosshair, ammo count, fire mode, hit marker, distance of the last target hit, credit.
 
-Font: Segoe UI Semilight có sẵn trong Windows (đủ dấu tiếng Việt), mảnh và sắc hơn OpenSans mặc định của
-Ursina. Mỗi dòng chữ có một bản sao đen dịch 1 px làm bóng để đọc được trên nền trời sáng.
-Không có font đó thì giữ font mặc định.
+Font: Segoe UI Semilight ships with Windows (it has full Vietnamese diacritics), thinner and sharper than Ursina's default OpenSans.
+Each text line gets a black copy offset by 1 px as a shadow, so it stays readable on a bright sky.
+Without that font, the default font is kept.
 """
 import math
 import os
@@ -14,19 +14,19 @@ from fps.core.handling import Phase
 from fps.core.spread import crosshair_gap
 
 FONT_FILE = 'segoeuisl.ttf'
-LOW_AMMO = 5                  # băng còn ngần này viên trở xuống thì số đạn đỏ và nhắc nạp
-RELOAD_BAR_WIDTH = 0.16       # đơn vị UI
+LOW_AMMO = 5                  # at or below this many rounds in the magazine, the ammo count turns red and prompts a reload
+RELOAD_BAR_WIDTH = 0.16       # UI units
 SHADOW_ALPHA = 0.55
-CROSSHAIR_MIN_GAP = 0.008     # đơn vị UI (chiều cao cửa sổ = 1)
+CROSSHAIR_MIN_GAP = 0.008     # UI units (window height = 1)
 CROSSHAIR_LEN = 0.014
 CROSSHAIR_THICK = 0.0025
 CROSSHAIR_ALPHA = 0.85
-CROSSHAIR_SMOOTH = 25.0       # 1/s: vạch trượt về khoảng mới, không giật khi đổi trạng thái
+CROSSHAIR_SMOOTH = 25.0       # 1/s: the ticks slide to the new gap, without jumping when the state changes
 
 
 def setup_fonts():
-    """Gọi sau khi tạo cửa sổ. Độ phân giải font khớp cỡ chữ trên màn hình (nhân 2 cho mịn), thay vì
-    1080p của Ursina: chữ vẽ nhỏ lại ~3 lần nên bị nhoè."""
+    """Call after the window is created. The font resolution matches the on-screen text size (x2 for smoothness), instead of
+    Ursina's 1080p: otherwise the text is drawn ~3 times smaller and turns blurry."""
     fonts = Path(os.environ.get('WINDIR', r'C:\Windows')) / 'Fonts'
     if (fonts / FONT_FILE).exists():
         application.fonts_folder = fonts
@@ -35,7 +35,7 @@ def setup_fonts():
 
 
 class UiText:
-    """Chữ có bóng. `text` và `color` đặt cho cả hai bản."""
+    """Text with a shadow. `text` and `color` are set on both copies."""
 
     def __init__(self, text='', position=(0, 0), origin=(-0.5, 0.5), scale=1.0, tint=color.white, shadow=True, parent=None, z=0.0):
         px = 1.3 / window.size[1]
@@ -55,7 +55,7 @@ class UiText:
 
     @text.setter
     def text(self, value):
-        if value != self._text:       # đổi chữ dựng lại cả mảng glyph nên chỉ làm khi thật sự đổi
+        if value != self._text:       # changing the text rebuilds the whole glyph array, so only do it when it really changes
             self._text = value
             self.main.text = value
             if self.shadow:
@@ -90,7 +90,7 @@ class Hud:
 
         self.ammo = UiText('', br + (-0.02, 0.012), origin=(0.5, -0.5), scale=1.0)
         self.mode = UiText('', br + (-0.022, 0.085), origin=(0.5, -0.5), scale=0.95, tint=faint)
-        # nhắc nạp đạn / hết đạn, và thanh tiến độ nạp
+        # reload / out-of-ammo prompt, and the reload progress bar
         self.prompt = UiText('', br + (-0.022, 0.126), origin=(0.5, -0.5), scale=0.95)
         bar_x = br.x - 0.022
         self.reload_bar_back = Entity(parent=ui, model='quad', origin=(0.5, 0), color=color.rgba(1, 1, 1, 0),
@@ -98,16 +98,16 @@ class Hud:
         self.reload_bar = Entity(parent=ui, model='quad', origin=(0.5, 0), color=color.rgba(1, 1, 1, 0), z=-0.001,
                                  position=(bar_x, br.y + 0.119), scale=(0.0001, 0.004))
 
-        # tâm ngắm động: bốn vạch dạt ra theo độ tản; ẩn dần khi ngắm (ADS)
+        # dynamic crosshair: four ticks spread out with the spread angle; fade out when aiming (ADS)
         self.gap = CROSSHAIR_MIN_GAP
-        self.crosshair = []     # (entity, hướng x, hướng y)
+        self.crosshair = []     # (entity, x direction, y direction)
         for ux, uy in ((-1, 0), (1, 0), (0, 1), (0, -1)):
             w, h = (CROSSHAIR_LEN, CROSSHAIR_THICK) if ux else (CROSSHAIR_THICK, CROSSHAIR_LEN)
             self.crosshair.append((Entity(parent=ui, model='quad', color=color.rgba(1, 1, 1, CROSSHAIR_ALPHA),
                                           scale=(w, h)), ux, uy))
         self._update_crosshair(1.0, 2.0, 0.0, snap=True)
 
-        # hit marker: bốn vạch chéo quanh tâm
+        # hit marker: four diagonal ticks around the centre
         self.hit_marker = []
         d = 0.020
         for sx, sy in ((1, 1), (-1, 1), (-1, -1), (1, -1)):
@@ -120,7 +120,7 @@ class Hud:
         self._elapsed = 0.0
 
     def _update_crosshair(self, dt: float, spread: float, ads_amount: float, snap: bool = False):
-        vfov_half_tan = math.tan(math.radians(camera.fov / 2)) / window.aspect_ratio     # FOV hiện tại (ngắm làm nó hẹp lại)
+        vfov_half_tan = math.tan(math.radians(camera.fov / 2)) / window.aspect_ratio     # current FOV (aiming narrows it)
         target = max(CROSSHAIR_MIN_GAP, crosshair_gap(spread, vfov_half_tan))
         self.gap = target if snap else self.gap + (target - self.gap) * (1.0 - math.exp(-dt * CROSSHAIR_SMOOTH))
         tint = color.rgba(1, 1, 1, CROSSHAIR_ALPHA * (1.0 - ads_amount))

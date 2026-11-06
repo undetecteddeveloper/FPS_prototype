@@ -1,1 +1,1 @@
-"""FPS prototype (Ursina). core = toán thuần, game = phần ghép Ursina, app = dựng game."""
+"""FPS prototype (Ursina). core = pure math, game = Ursina glue, app = game assembly."""

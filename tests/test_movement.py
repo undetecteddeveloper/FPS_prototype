@@ -16,8 +16,8 @@ P = PlayerParams()
     (True, True, False, False, MoveState.CROUCH_IDLE),
     (True, True, False, True, MoveState.CROUCH_WALK),
     (False, False, False, True, MoveState.AIR),
-    (False, True, True, True, MoveState.AIR),       # trên không thì mọi thứ khác đều thua
-    (True, False, True, False, MoveState.IDLE),     # giữ Shift mà đứng yên thì không phải chạy
+    (False, True, True, True, MoveState.AIR),       # in the air, everything else loses
+    (True, False, True, False, MoveState.IDLE),     # holding Shift while standing still is not running
 ])
 def test_resolve_state(on_ground, crouching, sprinting, moving, expected):
     assert resolve_state(on_ground, crouching, sprinting, moving) is expected
@@ -37,9 +37,9 @@ def test_speed_order_and_ads_slowdown():
 
 
 def test_wish_direction_follows_yaw():
-    assert wish_direction(1, 0, 0) == pytest.approx((0, 1))                 # yaw 0: tiến về +z
-    assert wish_direction(1, 0, 90) == pytest.approx((1, 0))                # yaw 90: tiến về +x
-    assert wish_direction(0, 1, 0) == pytest.approx((1, 0))                 # sang phải khi nhìn +z là +x
+    assert wish_direction(1, 0, 0) == pytest.approx((0, 1))                 # yaw 0: forward is +z
+    assert wish_direction(1, 0, 90) == pytest.approx((1, 0))                # yaw 90: forward is +x
+    assert wish_direction(0, 1, 0) == pytest.approx((1, 0))                 # looking along +z, right is +x
     assert wish_direction(0, 1, 90) == pytest.approx((0, -1))
     assert wish_direction(0, 0, 123) == (0.0, 0.0)
 
@@ -102,9 +102,9 @@ def test_clamp_to_bounds():
 def test_look_directions_and_clamp():
     yaw, pitch = apply_look(0, 0, 0.1, 0.0, 45, 89)
     assert yaw == pytest.approx(4.5) and pitch == 0
-    yaw, pitch = apply_look(0, 0, 0.0, 0.1, 45, 89)       # chuột lên => ngẩng lên => pitch âm
+    yaw, pitch = apply_look(0, 0, 0.0, 0.1, 45, 89)       # mouse up => look up => negative pitch
     assert pitch == pytest.approx(-4.5)
-    _, pitch = apply_look(0, 80, 0, -1.0, 45, 89)           # kéo chuột xuống rất mạnh => bị chặn ở 89
+    _, pitch = apply_look(0, 80, 0, -1.0, 45, 89)           # mouse pulled down very hard => clamped at 89
     assert pitch == 89
     yaw, _ = apply_look(359, 0, 0.1, 0, 45, 89)
     assert 0 <= yaw < 360
@@ -119,7 +119,7 @@ def test_jump_apex_does_not_depend_on_fps(fps):
         apex = max(apex, y)
         if grounded:
             break
-    # sai số nhỏ chỉ do đỉnh rơi giữa hai khung hình
+    # the small error comes only from the apex falling between two frames
     assert apex == pytest.approx(P.jump_speed ** 2 / (2 * P.gravity), abs=0.06)
 
 
@@ -127,7 +127,7 @@ def test_aim_direction():
     from fps.core.movement import aim_direction
     assert aim_direction(0, 0) == pytest.approx((0, 0, 1))
     assert aim_direction(90, 0) == pytest.approx((1, 0, 0))
-    assert aim_direction(0, 90) == pytest.approx((0, -1, 0), abs=1e-9)      # cúi xuống
-    assert aim_direction(0, -90) == pytest.approx((0, 1, 0), abs=1e-9)      # ngẩng lên
+    assert aim_direction(0, 90) == pytest.approx((0, -1, 0), abs=1e-9)      # looking down
+    assert aim_direction(0, -90) == pytest.approx((0, 1, 0), abs=1e-9)      # looking up
     for yaw, pitch in ((17, 33), (200, -45), (359, 89)):
         assert math.hypot(*aim_direction(yaw, pitch)[:2], aim_direction(yaw, pitch)[2]) == pytest.approx(1.0)

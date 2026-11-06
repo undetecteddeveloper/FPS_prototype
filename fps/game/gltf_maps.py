@@ -1,6 +1,6 @@
-"""Đọc normal map từ file glb. `gltf_patch.py` bỏ normal map lúc nạp model (đường vẽ cố định của Panda không dùng được), nên shader riêng của súng tự lấy ở đây.
+"""Reads normal maps from the glb file. `gltf_patch.py` drops the normal maps when the model is loaded (Panda's fixed-function path cannot use them), so the gun's own shader fetches them here.
 
-Thu về tối đa 1024 x 1024: súng chiếm phần nhỏ màn hình, 2048 chỉ tốn bộ nhớ và tốn thời gian tải lên GPU.
+Downscaled to at most 1024 x 1024: the gun takes a small part of the screen; 2048 only costs memory and GPU upload time.
 """
 import json
 import struct
@@ -12,7 +12,7 @@ MAX_SIZE = 1024
 
 
 def glb_chunks(path: Path) -> tuple:
-    """(JSON đã giải mã, phần nhị phân) của một file glb."""
+    """(decoded JSON, binary part) of a glb file."""
     with open(path, 'rb') as f:
         f.read(12)
         json_len = struct.unpack('<I', f.read(4))[0]
@@ -30,7 +30,7 @@ def _image_bytes(data: dict, blob: bytes, index: int) -> bytes:
 
 
 def read_normal_maps(path: Path) -> dict:
-    """{tên vật liệu: Texture của normal map}."""
+    """{material name: Texture of the normal map}."""
     data, blob = glb_chunks(path)
     out = {}
     for mat in data.get('materials', []):

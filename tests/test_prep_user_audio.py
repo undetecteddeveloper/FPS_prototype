@@ -1,4 +1,4 @@
-"""Tiếng do người dùng cung cấp, cắt bằng tools/build/prep_user_audio.py: đúng định dạng, không méo, khớp đầu ra của công cụ, cú va sát đầu lát cắt."""
+"""User-supplied sounds, cut with tools/build/prep_user_audio.py: correct format, no distortion, matches the tool's output, impact right at the start of the slice."""
 import array
 import math
 import wave
@@ -9,7 +9,7 @@ from fps.weapon_data import AudioData
 from tools.build import prep_user_audio as pu
 
 AUDIO = AudioData()
-ONSET_LIMIT = {'user_mag_release': 0.020, 'user_mag_in': 0.040, 'user_mag_seat': 0.020, 'user_bolt': 0.025, 'user_step': 0.025}   # s: lúc va đầu tiên tính từ đầu lát
+ONSET_LIMIT = {'user_mag_release': 0.020, 'user_mag_in': 0.040, 'user_mag_seat': 0.020, 'user_bolt': 0.025, 'user_step': 0.025}   # s: time of the first impact, measured from the start of the slice
 
 
 @pytest.fixture(scope='module')
@@ -46,7 +46,7 @@ def test_no_clipping_no_pop(built):
 
 
 def test_hit_is_right_at_the_start(built):
-    """Mốc khung của SoundCue đặt thẳng vào lúc va, nên lát cắt không được có khoảng lặng dài ở đầu."""
+    """The SoundCue frame mark sits right at the impact, so the slice must not have a long silence at its start."""
     for name, (ch, sr, x) in built.items():
         group = name.rsplit('_', 1)[0]
         peak = max(abs(v) for v in x)

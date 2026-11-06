@@ -1,20 +1,20 @@
-"""Chuyển động của bia chạy: đi đều giữa hai biên, quay đầu (nghỉ một chút ở mỗi đầu). Toán thuần, không import ursina.
+"""Moving-target motion: walks evenly between two bounds, turning around (pausing briefly at each end). Pure math, no ursina import.
 
-Trạng thái là (vị trí, chiều, thời gian nghỉ còn lại) và `advance(dt)` tiêu thời gian chính xác nên kết quả KHÔNG phụ thuộc cách
-chia khung hình: đi một bước 50 ms cho đúng vị trí như đi 50 bước 1 ms (kể cả khi một bước dài qua nhiều lần quay đầu).
+State is (position, direction, pause time left); `advance(dt)` spends the time exactly, so the result does NOT depend on how the frames are split:
+one 50 ms step gives the same position as 50 steps of 1 ms (even when one step covers several turnarounds).
 """
 from dataclasses import dataclass
 
 
 @dataclass
 class Patrol:
-    lo: float                # biên trái (x nhỏ nhất của TÂM bia)
-    hi: float                # biên phải
+    lo: float                # left bound (smallest x of the target's CENTRE)
+    hi: float                # right bound
     speed: float             # m/s
-    pause: float = 0.0       # s nghỉ ở mỗi đầu trước khi quay lại
+    pause: float = 0.0       # s pause at each end before turning back
     x: float = 0.0
-    direction: float = 1.0   # +1 sang phải (x tăng), -1 sang trái
-    wait: float = 0.0        # s nghỉ còn lại ở đầu hiện tại
+    direction: float = 1.0   # +1 to the right (x increases), -1 to the left
+    wait: float = 0.0        # s of pause left at the current end
 
     def __post_init__(self):
         if not self.lo < self.hi:
@@ -23,7 +23,7 @@ class Patrol:
 
     @property
     def velocity(self) -> float:
-        """Vận tốc tức thời (m/s, có dấu): 0 khi đang nghỉ ở đầu."""
+        """Instantaneous velocity (m/s, signed): 0 while pausing at an end."""
         return 0.0 if self.wait > 0.0 else self.speed * self.direction
 
     @property
@@ -32,13 +32,13 @@ class Patrol:
 
     @property
     def period(self) -> float:
-        """Một vòng đi-về (s), kể cả hai lần nghỉ."""
+        """One back-and-forth cycle (s), including both pauses."""
         return 2.0 * (self.span / self.speed + self.pause)
 
     def advance(self, dt: float) -> float:
-        """Đi tiếp `dt` giây; trả về x mới của tâm bia."""
+        """Advance `dt` seconds; return the new x of the target's centre."""
         left = dt
-        # mỗi vòng lặp hoặc tiêu hết thời gian, hoặc chạm một đầu (rồi quay + nghỉ): hữu hạn kể cả khi dt rất lớn
+        # each loop either uses up the time or reaches an end (then turns + pauses): finite even for a very large dt
         while left > 1e-12:
             if self.wait > 0.0:
                 used = min(self.wait, left)
@@ -48,7 +48,7 @@ class Patrol:
             if self.speed <= 0.0:
                 break
             end = self.hi if self.direction > 0 else self.lo
-            reach = abs(end - self.x) / self.speed          # thời gian tới đầu
+            reach = abs(end - self.x) / self.speed          # time to reach the end
             if left < reach:
                 self.x += self.direction * self.speed * left
                 break
@@ -65,7 +65,7 @@ class Patrol:
 
 
 def phase_start(lo: float, hi: float, phase: float) -> tuple:
-    """Điểm xuất phát (x, chiều) ứng với pha 0..1 của một vòng đi-về không nghỉ: để các bia chạy không đồng bộ với nhau."""
+    """Start point (x, direction) for phase 0..1 of a back-and-forth cycle with no pauses, so moving targets are not in sync with each other."""
     phase = phase % 1.0
     span = hi - lo
     if phase < 0.5:

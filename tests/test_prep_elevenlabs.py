@@ -1,4 +1,4 @@
-"""Tiếng tạo bằng ElevenLabs (tools/build/prep_elevenlabs.py): đủ file, đúng định dạng, cú va nằm ngay đầu file, không méo; và toán của tiếng đạn trúng."""
+"""Sounds generated with ElevenLabs (tools/build/prep_elevenlabs.py): all files present, correct format, impact right at the start of each file, no distortion; plus the maths of the hit sound."""
 import math
 import shutil
 import subprocess
@@ -40,7 +40,7 @@ def test_every_wav_has_its_source_mp3():
     for f in all_files():
         stem = f.stem[3:]
         if stem.startswith('shot_'):
-            stem = 'shot_0'                                         # mọi biến thể súng dựng từ một nguồn (đổi cao độ)
+            stem = 'shot_0'                                         # every gun-shot variant is built from one source (pitch-shifted)
         assert (ROOT / 'assets' / 'sounds' / 'source' / 'elevenlabs' / (stem + '.mp3')).exists(), f.name
 
 
@@ -50,12 +50,12 @@ def test_sound_starts_at_the_hit_and_does_not_clip(path):
     assert x, path.name
     peak = max(abs(v) for v in x)
     assert 0.5 < peak <= 0.98
-    if 'breath' in path.stem:                                       # hơi thở không có cú va; kiểm riêng ở test_breath
+    if 'breath' in path.stem:                                       # breaths have no impact; checked separately in test_breath
         return
     first = next(i for i, v in enumerate(x) if abs(v) >= 0.04 * peak) // ch
-    assert first / 44100 < 0.006                                    # mốc âm đặt thẳng vào lúc va: không được có khoảng lặng đầu
-    assert abs(x[-1]) < 0.02                                        # mờ dần: không có tiếng tách ở cuối
-    assert len(x) / ch / 44100 < 1.0                                # ngắn, không choán bộ nhớ
+    assert first / 44100 < 0.006                                    # the sound mark sits right at the impact: no leading silence allowed
+    assert abs(x[-1]) < 0.02                                        # fades out: no click at the end
+    assert len(x) / ch / 44100 < 1.0                                # short, does not hog memory
 
 
 def test_gun_has_several_shot_variants_short_enough_for_the_pool():
@@ -63,7 +63,7 @@ def test_gun_has_several_shot_variants_short_enough_for_the_pool():
     interval = 60.0 / M4.rpm
     for p in M4.shot_sound:
         x, ch = read(ROOT / p)
-        assert len(x) / ch / 44100 <= (M4.shot_pool - 1) * interval    # cả vòng chưa quay hết thì tiếng cũ đã tắt
+        assert len(x) / ch / 44100 <= (M4.shot_pool - 1) * interval    # the old sound has already died before the whole pool cycles round
 
 
 @pytest.mark.skipif(shutil.which('ffmpeg') is None, reason='cần ffmpeg')
@@ -95,7 +95,7 @@ def _db(v):
 
 
 def _shot_mix():
-    """Trộn đúng như game: 30 phát cách nhau 60 / rpm giây, lần lượt từng biến thể (GunAudio phát vòng tròn). Trả (bản trộn, danh sách mono của từng biến thể, số mẫu mỗi nhịp)."""
+    """Mixed exactly as in the game: 30 shots spaced 60 / rpm seconds apart, one variant after another (GunAudio plays round-robin). Returns (mix, mono list of each variant, samples per beat)."""
     variants = []
     for p in M4.shot_sound:
         x, ch = read(ROOT / p)
@@ -109,12 +109,12 @@ def _shot_mix():
 
 
 def test_every_shot_stands_out_at_full_auto():
-    """Lỗi đã gặp: bắn 3 viên chỉ nghe 1 tiếng, vì đuôi vang của phát trước che mất 2 trong 3 biến thể (chỉ nổi hơn nền 2-4 dB, biến thể còn lại 8 dB).
-    Mỗi phát, ở mọi biến thể, phải nổi rõ hơn phần còn vang lại ngay trước nó."""
+    """Old bug: firing 3 rounds sounded like only 1, because the reverb tail of the previous shot masked 2 of the 3 variants (only 2-4 dB above the floor, the other variant 8 dB).
+    Each shot, in every variant, must stand out clearly from the reverb still left just before it."""
     mix, variants, gap = _shot_mix()
     window, before = int(0.025 * 44100), int(0.015 * 44100)
     contrast = {}
-    for k in range(6, 24):                       # bỏ vài phát đầu: đuôi vang chưa dồn đủ
+    for k in range(6, 24):                       # skip the first few shots: the reverb tail has not built up yet
         t = k * gap
         contrast.setdefault(k % len(variants), []).append(_db(_rms(mix[t:t + window])) - _db(_rms(mix[t - before:t])))
     for v, values in contrast.items():

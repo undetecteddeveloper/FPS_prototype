@@ -1,6 +1,6 @@
-// Súng + tay (cảnh súng): skin bộ xương trên GPU, vẽ trong không gian nhìn (camera súng không xoay nên +y = lên).
-// ENABLE_SKINNING: dùng cho mesh có skin (bàn tay); mesh cứng (thân súng, băng đạn...) vẽ không skin.
-// Phần skin theo mẫu của panda3d-simplepbr (BSD-3-Clause, Mitchell Stokes): p3d_TransformTable + transform_weight / transform_index.
+// Rifle + hands (rifle scene): skins the skeleton on the GPU, drawn in view space (the rifle camera does not rotate, so +y = up).
+// ENABLE_SKINNING: for skinned meshes (hands); rigid meshes (rifle body, magazines...) are drawn without skinning.
+// The skinning follows the panda3d-simplepbr sample (BSD-3-Clause, Mitchell Stokes): p3d_TransformTable + transform_weight / transform_index.
 uniform mat4 p3d_ModelViewMatrix;
 uniform mat4 p3d_ProjectionMatrix;
 uniform mat3 p3d_NormalMatrix;

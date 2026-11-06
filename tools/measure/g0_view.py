@@ -1,7 +1,7 @@
-"""G0: mở cửa sổ Ursina, nạp M4, đặt tư thế rồi chụp ảnh (bằng chứng hình ảnh).
+"""G0: opens an Ursina window, loads the M4, sets the pose, then takes screenshots (visual evidence).
 
---poses: "Clip:Khung ..." (mỗi tư thế một lượt). --views: "tên=camx,camy,camz>lookx,looky,lookz".
-Ví dụ:
+--poses: "Clip:Frame ..." (one pose per pass). --views: "name=camx,camy,camz>lookx,looky,lookz".
+Example:
   python tools/measure/g0_view.py --poses Reload:1 Reload:55 --views "eye=-0.011,1.539,-0.101>-0.011,1.539,5" --out shots/x
 """
 import argparse
@@ -20,7 +20,7 @@ from direct.actor.Actor import Actor
 from panda3d.core import AmbientLight, DirectionalLight, Filename
 from ursina import Entity, Ursina, camera, color, scene, window
 
-EYE = '-0.011,1.539,-0.101>-0.011,1.539,5'  # khớp FPS_Camera sau khi xoay 180° và scale 0,01
+EYE = '-0.011,1.539,-0.101>-0.011,1.539,5'  # matches FPS_Camera after a 180° rotation and scale 0.01
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--poses', nargs='+', default=['Draw:299'])

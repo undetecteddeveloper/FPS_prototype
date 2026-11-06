@@ -1,6 +1,6 @@
 #version 140
-// Thế giới (mặt đất, bia, cột, bờ đất): chuyển toạ độ thế giới cho fragment để tính sương mù và chi tiết mặt đất.
-// Khung theo shader unlit_with_fog của Ursina (MIT); tọa độ UV nhận texture_scale / texture_offset như mọi shader của Ursina.
+// World (ground, targets, pillars, earth bank): passes the world coordinates to the fragment for fog and ground detail.
+// Structure follows Ursina's unlit_with_fog shader (MIT); UV coordinates take texture_scale / texture_offset like every Ursina shader.
 uniform mat4 p3d_ModelViewProjectionMatrix;
 uniform mat4 p3d_ModelMatrix;
 in vec4 p3d_Vertex;

@@ -1,7 +1,7 @@
-"""Một nguồn duy nhất cho ánh sáng của cả thế giới lẫn súng: số đèn (đổi khi bảng F1 đổi) và số đổi mỗi khung (camera, phơi sáng, tia lửa).
+"""A single source of light for both the world and the gun: the lamp count (changes when the F1 panel changes) and the values that change every frame (camera, exposure, flash).
 
-Số đổi mỗi khung đi qua mảng PTA sửa tại chỗ: gọi lại `set_shader_input` mỗi khung làm đổi trạng thái vẽ của cả cây cảnh.
-`bind` được gọi cho `render` (thế giới) và nút gốc của cảnh súng, nên hai bên không thể lệch nhau.
+Per-frame values go through PTA arrays edited in place: calling `set_shader_input` every frame would change the draw state of the whole scene graph.
+`bind` is called for `render` (the world) and the root node of the gun scene, so the two sides can never drift apart.
 """
 import math
 
@@ -15,7 +15,7 @@ SHADOW_MODES = {False: 0.0, True: 1.0, 'fake': 2.0}
 
 
 def _dummy_shadow_texture() -> PandaTexture:
-    """Atlas 1x1 (độ sâu = 1, không che gì) để sampler2DShadow luôn có kết cấu hợp lệ khi tắt bóng thật."""
+    """1x1 atlas (depth = 1, occludes nothing) so sampler2DShadow always has a valid texture when real shadows are off."""
     tex = PandaTexture('no_shadow')
     tex.setup_2d_texture(1, 1, PandaTexture.T_float, PandaTexture.F_depth_component32)
     tex.set_ram_image(b'\x00\x00\x80\x3f')
@@ -29,7 +29,7 @@ class FrameLight:
         self.look, self.gun = look, gun
         self.nodes = []
         self.camera_pos = PTA_LVecBase3f.empty_array(1)
-        self.frame = PTA_LVecBase3f.empty_array(1)                 # x = phơi sáng
+        self.frame = PTA_LVecBase3f.empty_array(1)                 # x = exposure
         self.view_x = PTA_LVecBase3f.empty_array(1)
         self.view_y = PTA_LVecBase3f.empty_array(1)
         self.view_z = PTA_LVecBase3f.empty_array(1)
@@ -48,12 +48,12 @@ class FrameLight:
         self._identity_mats = PTA_LMatrix4f.empty_array(FACE_COUNT)
         for i in range(FACE_COUNT):
             self._identity_mats[i] = LMatrix4f.ident_mat()
-        self.shadow_inputs = None                                  # None = không có bản đồ bóng; dict của LampShadows.shader_inputs()
+        self.shadow_inputs = None                                  # None = no shadow map; dict from LampShadows.shader_inputs()
         self.shadow_mode = False
-        self.radius = look.lamp_radius                             # bán kính đã nướng vào bản đồ bóng
+        self.radius = look.lamp_radius                             # radius baked into the shadow map
 
     def bind(self, node):
-        """Đặt mọi đầu vào ánh sáng lên một nút (mảng PTA: nút giữ tham chiếu nên chỉ cần đặt một lần)."""
+        """Puts all light inputs on one node (PTA arrays: the node keeps a reference, so this only has to run once)."""
         self.nodes.append(node)
         node.set_shader_input('look_camera_pos', self.camera_pos)
         node.set_shader_input('look_frame', self.frame)
@@ -99,12 +99,12 @@ class FrameLight:
             self._push_shadow(node)
 
     def apply_params(self):
-        """Bảng F1 đổi số ánh sáng: đẩy lại lên mọi nút."""
+        """The F1 panel changed a light value: push it to every node."""
         for node in self.nodes:
             self._push_static(node)
             self._push_shadow(node)
 
-    # --- mỗi khung ---
+    # --- per frame ---
     def set_camera(self, pos, right, up, forward):
         self.camera_pos.set_element(0, Vec3(*pos))
         self.view_x.set_element(0, Vec3(*right))
@@ -116,7 +116,7 @@ class FrameLight:
         self.frame.set_element(0, Vec3(value * self.look.exposure, 0, 0))
 
     def set_flash(self, view_pos, color):
-        """Tia lửa: `view_pos` trong hệ camera (x phải, y lên, z ra trước), `color` đen = tắt. Chung cho súng và thế giới."""
+        """Muzzle flash: `view_pos` in camera space (x right, y up, z forward), `color` black = off. Shared by the gun and the world."""
         cam = self.camera_pos[0]
         x, y, z = self.view_x[0], self.view_y[0], self.view_z[0]
         self.flash_pos.set_element(0, Vec3(cam + x * view_pos[0] + y * view_pos[1] + z * view_pos[2]))

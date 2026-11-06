@@ -1,11 +1,11 @@
-"""Phòng tập kín: đo FPS CÓ SO SÁNH XEN KẼ giữa bóng thật / không bóng / bóng giả trong CÙNG một lần chạy.
+"""Closed range: measures FPS with INTERLEAVED COMPARISON between real shadows, no shadows and fake shadows within ONE run.
 
-vsync tắt, 1366x768. Mỗi vòng: cho từng chế độ, đổi chế độ (shader đọc công tắc ở render), bỏ 15 khung, đo 90 khung.
-Ba góc nhìn luân phiên giữa các vòng (dọc làn từ vạch bắn, ở 100 m, nhìn chéo sang tường). Báo trung vị thời gian khung
-của từng chế độ (ít nhiễu hơn trung bình khi máy đang bận việc khác), FPS trung bình, 1% thấp nhất, và % chậm hơn "tắt bóng".
-Cũng báo thời gian của khung đầu tiên (vẽ atlas bóng một lần).
+vsync off, 1366x768. Each round: for each mode, switch the mode (the shader reads the switch on render), skip 15 frames, measure 90 frames.
+Three views alternate between rounds (down the lane from the firing line, at 100 m, looking diagonally at a wall). Reports the median frame time
+of each mode (less noisy than the mean when the machine is busy with other work), the average FPS, the 1% low, and the % slower than "shadows off".
+Also reports the time of the first frame (drawing the shadow atlas once).
 
-Chạy (qua ổ khoá):  .venv\\Scripts\\python.exe -X utf8 tools\\with_game_lock.py .venv\\Scripts\\python.exe -X utf8 tools\\measure\\room_perf.py [vòng]
+Run (through the lock):  .venv\\Scripts\\python.exe -X utf8 tools\\with_game_lock.py .venv\\Scripts\\python.exe -X utf8 tools\\measure\\room_perf.py [rounds]
 """
 import statistics
 import sys
@@ -60,7 +60,7 @@ class Script(Entity):
             player.position = pos
             player.yaw, player.pitch = yaw, pitch
             player._apply_view()
-            order = MODES if r % 2 == 0 else MODES[::-1]           # đảo thứ tự mỗi vòng: khử ảnh hưởng của thứ tự
+            order = MODES if r % 2 == 0 else MODES[::-1]           # reverse the order each round: cancels the effect of order
             for m in order:
                 self.cur = None
                 game.look.set_shadow_mode(m)

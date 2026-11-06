@@ -5,3 +5,5 @@ __pycache__/
 assets/guns/animated_fps_hands_rifle_animation_pack.glb
 shots/
 user_params*.json
+
+assets/review/

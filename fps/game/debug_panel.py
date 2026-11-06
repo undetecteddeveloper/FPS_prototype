@@ -1,14 +1,14 @@
-"""Bảng debug (F1): thanh trượt chỉnh trực tiếp mọi thông số, hình nón tản đạn, lưu / nạp / đặt lại.
+"""Debug panel (F1): sliders that edit every parameter live, the bullet-spread cone, save / load / reset.
 
-Số liệu và logic không dính Ursina nằm ở `fps/core/params.py` (ParamStore: sinh thanh trượt từ weapon_data, lưu / nạp JSON) và
-`fps/core/param_meta.py` (nhãn tiếng Việt, chú thích, khoảng kéo). Ở đây chỉ vẽ và bắt chuột:
+The Ursina-free data and logic live in `fps/core/params.py` (ParamStore: builds sliders from weapon_data, saves / loads JSON) and
+`fps/core/param_meta.py` (Vietnamese labels, hints, slider ranges). This module only draws and handles the mouse:
 
-- Bảng bên trái: 11 nhóm (tab), mỗi nhóm một danh sách thanh cuộn được (con lăn chuột hoặc kéo thanh cuộn). Chỉ có `ROWS` hàng vật thể,
-  gán lại theo vị trí cuộn, nên nhóm dài bao nhiêu cũng chỉ tốn ngần ấy vật thể. Chuột trái kéo thanh / bấm công tắc, chuột phải về mặc định.
-- Thẻ bên phải: mặt cắt hình nón tản ở bia 25 m (vòng mỗi trạng thái, vòng hiện tại gồm bloom, chấm các phát vừa bắn), thanh bloom.
-  Góc lấy từ `Accuracy` (spread.py) của Combat, không tính lại.
-- Dựng LƯỜI ở lần mở đầu tiên; đóng bảng thì `root.enabled = False` và `Game.update` không gọi gì (chi phí ~0).
-- Bắt chuột bằng phép thử hình chữ nhật trong toạ độ UI (không dùng collider của Ursina), con trỏ lấy từ `self.pointer` để selftest giả lập được.
+- Left panel: 11 groups (tabs), each with a scrollable list of rows (mouse wheel or drag the scrollbar). Only `ROWS` item rows exist,
+  reassigned as the list scrolls, so a long group costs no more objects than a short one. Left-drag a slider / click a toggle, right-click resets to default.
+- Right card: the spread cone cross-section at a 25 m target (a ring per state, the current ring including bloom, dots for the recent shots), bloom bar.
+  Angles come from the `Accuracy` (spread.py) of Combat; they are not recomputed here.
+- Built LAZILY on the first open; when closed `root.enabled = False` and `Game.update` calls nothing (cost ~0).
+- Mouse hits use rectangle tests in UI coordinates (not Ursina colliders); the pointer comes from `self.pointer` so selftests can simulate it.
 """
 import math
 
@@ -20,15 +20,15 @@ from fps.core.params import ParamSpec, format_number, format_value
 from fps.core.spread import ring_radius, shot_offset
 from fps.game.hud import UiText
 
-ROWS = 12                      # số hàng vật thể (danh sách dài hơn thì cuộn)
+ROWS = 12                      # number of item rows (longer lists scroll)
 ROW_H = 0.0535
 PANEL_W = 0.66
 CARD_W = 0.40
-CONE_DISTANCE = 25.0           # m: mặt cắt hình nón vẽ tại bia này
-CONE_VIEW = 5.0                # m: bán kính đĩa vẽ (cố định, để kéo thanh thì vòng đổi thật chứ không bị co theo)
+CONE_DISTANCE = 25.0           # m: the cone cross-section is drawn at this target distance
+CONE_VIEW = 5.0                # m: radius of the drawn disc (fixed, so dragging a slider really changes the rings instead of rescaling them)
 DOT_COUNT = 40
 
-# lớp độ sâu (z âm = gần camera hơn; HUD ở z = 0)
+# depth layers (negative z = closer to the camera; HUD at z = 0)
 Z_BG, Z_WIDGET, Z_FILL, Z_HANDLE, Z_TEXT = -0.10, -0.12, -0.13, -0.14, -0.16
 
 BG = color.rgba(0.040, 0.047, 0.062, 0.95)
@@ -45,7 +45,7 @@ BUTTON = color.rgba(1, 1, 1, 0.09)
 BUTTON_HOVER = color.rgba(1, 1, 1, 0.18)
 TAB_ACTIVE = color.rgba(0.36, 0.76, 1.0, 0.28)
 
-# (tên, trạng thái, ads) của các vòng trên hình nón; màu tách nhau để nhìn ra vòng nào là của trạng thái nào
+# (name, state, ads) of the rings on the cone; distinct colours so each ring can be matched to its state
 CONE_STATES = (
     ('Đứng', MoveState.IDLE, 0.0, color.rgb(0.55, 0.85, 1.0)),
     ('Đi', MoveState.WALK, 0.0, color.rgb(0.55, 1.0, 0.7)),
@@ -60,7 +60,7 @@ ADS_ROW = {True: 6, False: 5}
 
 
 def _tint(ui: UiText, col):
-    """Đặt màu chữ CHỈ khi đổi: mỗi lần đặt màu, TextNode của Panda dựng lại hình chữ (~0,3 ms), không được làm mỗi khung."""
+    """Set the text colour ONLY when it changes: each colour set makes Panda's TextNode rebuild the glyphs (~0.3 ms), so never do it every frame."""
     if getattr(ui, '_tint_cache', None) != col:
         ui._tint_cache = col
         ui.main.color = col
@@ -76,7 +76,7 @@ def _set_rect(e: Entity, x0, y0, x1, y1):
 
 
 class _Button:
-    """Nút chữ nhật: bấm thì gọi `callback`."""
+    """Rectangular button: clicking it calls `callback`."""
 
     def __init__(self, panel, x0, y0, x1, y1, label, callback, scale=0.85):
         self.rect = (x0, y0, x1, y1)
@@ -109,7 +109,7 @@ class _Button:
 
 
 class _Row:
-    """Một hàng của danh sách: tiêu đề mục, hoặc một thanh trượt / công tắc."""
+    """One list row: a section header, or a slider / toggle."""
 
     def __init__(self, panel, i):
         self.panel, self.i = panel, i
@@ -195,12 +195,12 @@ class DebugPanel:
         self.path = preset_path
         self.is_open = False
         self.manage_mouse = True
-        self.pointer = lambda: (mouse.x, mouse.y)        # selftest thay bằng hàm trả về toạ độ giả
+        self.pointer = lambda: (mouse.x, mouse.y)        # selftest replaces this with a function returning fake coordinates
         self.group = store.groups[0].key
         self.show_advanced = False
         self.offset = 0
         self.items = []
-        self._drag = None                                 # ('slider', spec) hoặc ('scroll',)
+        self._drag = None                                 # ('slider', spec) or ('scroll',)
         self._built = False
         self._hidden_hud = []
         self._fps_frames, self._fps_time = 0, 0.0
@@ -208,7 +208,7 @@ class DebugPanel:
         self.shots_seen = 0
         self.dots = []
 
-    # --- dựng (lười: lần mở đầu tiên) ---
+    # --- build (lazy: on the first open) ---
     def _build(self):
         a = window.aspect_ratio
         self.x0, self.x1 = -a / 2, -a / 2 + PANEL_W
@@ -227,12 +227,12 @@ class DebugPanel:
         UiText('Kéo thanh để chỉnh  ·  chuột phải: về mặc định  ·  lăn chuột: cuộn  ·  F1 / Esc: đóng',
                (x0 + 0.018, 0.5 - 0.054), origin=(-0.5, 0), scale=0.75, tint=FAINT, shadow=False, parent=r, z=Z_TEXT)
 
-        # game không có HUD: phím và ghi công nằm ở đây, góc dưới phải màn hình
+        # the game has no HUD: key hints and the credit are shown here, bottom-right of the screen
         br = window.bottom_right
         UiText('R nạp đạn   ·   B đổi chế độ bắn   ·   Esc nhả chuột   ·   Alt+F4 thoát game', br + (-0.02, 0.040), origin=(0.5, -0.5), scale=0.8, tint=FAINT, parent=r, z=Z_TEXT)
         UiText(self.game.params.gun.credit, br + (-0.02, 0.014), origin=(0.5, -0.5), scale=0.75, tint=FAINT, parent=r, z=Z_TEXT)
 
-        # các tab nhóm: hai hàng
+        # group tabs: two rows
         self.tabs = []
         per_row = 6
         tab_w = (PANEL_W - 0.036) / per_row
@@ -244,14 +244,14 @@ class DebugPanel:
             b.key = g.key
             self.tabs.append(b)
 
-        # hàng tên nhóm + nút nhóm
+        # group name row + group buttons
         ay = self.rows_top + 0.026
         self.group_title = UiText('', (x0 + 0.018, ay), origin=(-0.5, 0), scale=1.0, tint=WHITE, shadow=False, parent=r, z=Z_TEXT)
         self.group_count = UiText('', (x0 + 0.16, ay), origin=(-0.5, 0), scale=0.75, tint=FAINT, shadow=False, parent=r, z=Z_TEXT)
         self.btn_advanced = _Button(self, x1 - 0.30, ay - 0.0145, x1 - 0.165, ay + 0.0145, '', self.toggle_advanced, 0.75)
         self.btn_reset_group = _Button(self, x1 - 0.158, ay - 0.0145, x1 - 0.03, ay + 0.0145, 'Đặt lại nhóm này', self.reset_group, 0.75)
 
-        # danh sách hàng + thanh cuộn
+        # row list + scrollbar
         self.rows = [_Row(self, i) for i in range(ROWS)]
         self.hover_bar = _quad(r, x0 + 0.01, 0, x1 - 0.026, 0, color.rgba(1, 1, 1, 0.05), Z_BG - 0.005)
         self.hover_bar.enabled = False
@@ -259,7 +259,7 @@ class DebugPanel:
         self.scroll_track = _quad(r, self.scroll_x0, self.rows_bottom, self.scroll_x1, self.rows_top, LINE)
         self.scroll_thumb = _quad(r, self.scroll_x0, self.rows_bottom, self.scroll_x1, self.rows_top, color.rgba(1, 1, 1, 0.34), Z_FILL)
 
-        # chân bảng
+        # panel footer
         fy = self.rows_bottom - 0.014
         bw = (PANEL_W - 0.036 - 0.012) / 3
         names = (('Lưu', self.save), ('Nạp', self.load), ('Mặc định (tất cả)', self.reset_all))
@@ -288,15 +288,15 @@ class DebugPanel:
         UiText('Hình nón tản đạn', (self.cx0 + 0.016, top - 0.026), origin=(-0.5, 0), scale=1.0, tint=WHITE, shadow=False, parent=r, z=Z_TEXT)
         UiText(f'Mặt cắt tại bia {CONE_DISTANCE:.0f} m, mỗi vòng xám = 1 m', (self.cx0 + 0.016, top - 0.052), origin=(-0.5, 0),
                scale=0.75, tint=FAINT, shadow=False, parent=r, z=Z_TEXT)
-        self.cone_r = 0.145                               # bán kính đĩa trên màn hình (UI)
+        self.cone_r = 0.145                               # disc radius on screen (UI)
         self.cone_cx, self.cone_cy = mid, top - 0.075 - self.cone_r - 0.004
-        self.cone_k = self.cone_r / CONE_VIEW             # UI mỗi mét
+        self.cone_k = self.cone_r / CONE_VIEW             # UI units per metre
         ring = Circle(64, mode='line', thickness=1)
         disk = Circle(48)
         for m in range(1, int(CONE_VIEW) + 1):
             Entity(parent=r, model=ring, position=(self.cone_cx, self.cone_cy, Z_WIDGET), scale=2 * m * self.cone_k,
                    color=color.rgba(1, 1, 1, 0.16 if m == int(CONE_VIEW) else 0.07))
-        for dx, dy in ((1, 0), (0, 1)):                   # trục ngang / dọc
+        for dx, dy in ((1, 0), (0, 1)):                   # horizontal / vertical axis
             _quad(r, self.cone_cx - self.cone_r * dx - 0.0005 * dy, self.cone_cy - self.cone_r * dy - 0.0005 * dx,
                   self.cone_cx + self.cone_r * dx + 0.0005 * dy, self.cone_cy + self.cone_r * dy + 0.0005 * dx, color.rgba(1, 1, 1, 0.07))
         self.cur_fill = Entity(parent=r, model=disk, position=(self.cone_cx, self.cone_cy, Z_WIDGET - 0.005), color=color.rgba(1, 1, 1, 0.12))
@@ -313,7 +313,7 @@ class DebugPanel:
             self.dots.append(d)
         self.dot_next = 0
 
-        # chú giải: swatch + tên (trái) + góc / mét (phải)
+        # legend: swatch + name (left) + angle / metres (right)
         y = self.cone_cy - self.cone_r - 0.030
         self.legend = []
         for name, state, ads, col in CONE_STATES:
@@ -333,7 +333,7 @@ class DebugPanel:
         y -= 0.026
         self.now_sub = UiText('', (self.cx0 + 0.016, y), origin=(-0.5, 0), scale=0.75, tint=FAINT, shadow=False, parent=r, z=Z_TEXT)
 
-    # --- mở / đóng ---
+    # --- open / close ---
     def toggle(self):
         self.hide() if self.is_open else self.show()
 
@@ -349,7 +349,7 @@ class DebugPanel:
         g.combat.pressed = False
         if self.manage_mouse:
             mouse.locked = False
-        hud = g.hud                                        # chữ ở góc dưới / trái nằm dưới bảng: ẩn cho khỏi lộ xuyên nền
+        hud = g.hud                                        # text in the bottom / left corners sits under the panel: hide it so it does not show through the background
         self._hidden_hud = [t for t in (hud.fps_text, hud.hint, hud.credit) if t.enabled] if hud else []
         for t in self._hidden_hud:
             t.enabled = False
@@ -365,14 +365,14 @@ class DebugPanel:
         g.player.ui_open = False
         g.combat.pressed = False
         if self.manage_mouse:
-            mouse.position = (0, 0)                        # đưa con trỏ về giữa trước khi khoá, kẻo cú nhảy từ chỗ thanh trượt thành một cú xoay lớn
+            mouse.position = (0, 0)                        # centre the pointer before locking, so the jump from the slider position does not turn into a large camera turn
             mouse.prev_x = mouse.prev_y = 0
             mouse.locked = True
         for t in self._hidden_hud:
             t.enabled = True
         self._hidden_hud = []
 
-    # --- hành động của nút ---
+    # --- button actions ---
     def select_group(self, key: str, force: bool = False):
         if key == self.group and not force:
             return
@@ -411,7 +411,7 @@ class DebugPanel:
         self.status.text = text
         _tint(self.status, color.rgb(0.55, 0.95, 0.6) if ok else color.rgb(1.0, 0.5, 0.45))
 
-    # --- danh sách ---
+    # --- list ---
     def _rebuild_items(self):
         g = self.store.group_by_key[self.group]
         self.items = []
@@ -449,7 +449,7 @@ class DebugPanel:
             b.style(active=b.key == self.group)
 
     def _update_counts(self):
-        """Một lượt duyệt mọi thanh: số thanh đã đổi của từng nhóm -> chấm trên tab, dòng "n đã đổi" của nhóm đang xem."""
+        """One pass over all sliders: changed-slider count per group -> dot on its tab, and the changed-count line (UI label) for the group being viewed."""
         counts = {g.key: 0 for g in self.store.groups}
         for s in self.store.changed_specs():
             counts[s.group] += 1
@@ -459,7 +459,7 @@ class DebugPanel:
         self.group_count.text = f'{len(self.store.group_by_key[self.group].specs)} thanh' + (f' · {n} đã đổi' if n else '')
         _tint(self.group_count, AMBER if n else FAINT)
 
-    # --- chuột ---
+    # --- mouse ---
     def _row_at(self, x, y):
         if not (self.x0 <= x <= self.x1 - 0.026 and self.rows_bottom <= y <= self.rows_top):
             return None
@@ -474,7 +474,7 @@ class DebugPanel:
         self.store.set(spec, v)
 
     def press(self, x: float, y: float):
-        """Chuột trái nhấn tại (x, y) toạ độ UI."""
+        """Left mouse press at (x, y) UI coordinates."""
         for b in self.buttons:
             if b.contains(x, y):
                 b.callback()
@@ -493,7 +493,7 @@ class DebugPanel:
                 self._set_from_x(spec, x)
         elif spec.kind == 'bool':
             self.store.set(spec, not self.store.get(spec))
-        else:                                             # chọn một trong vài: lần lượt từng lựa chọn
+        else:                                             # pick one of a few: cycle through the choices
             values = [c for c, _ in spec.choices]
             cur = self.store.get(spec)
             idx = next((i for i, c in enumerate(values) if c == cur and type(c) is type(cur)), -1)
@@ -523,7 +523,7 @@ class DebugPanel:
         self._bind_rows()
 
     def on_input(self, key: str) -> bool:
-        """Game.input chuyển phím / chuột vào đây khi bảng mở. Trả về True nếu đã xử lý."""
+        """Game.input forwards keys / mouse here while the panel is open. Returns True if handled."""
         if not self.is_open:
             return False
         if key == 'left mouse down':
@@ -540,7 +540,7 @@ class DebugPanel:
             return False
         return True
 
-    # --- mỗi khung (chỉ khi mở) ---
+    # --- per frame (only while open) ---
     def update(self, dt: float):
         x, y = self.pointer()
         if self._drag:
@@ -566,7 +566,7 @@ class DebugPanel:
             self._fps_frames, self._fps_time = 0, 0.0
         self._update_cone(dt)
 
-    # --- hình nón ---
+    # --- cone ---
     def _update_cone(self, dt: float):
         game = self.game
         combat, player = game.combat, game.player

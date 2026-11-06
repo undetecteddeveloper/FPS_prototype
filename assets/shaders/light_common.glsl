@@ -1,23 +1,23 @@
-// Ánh sáng DÙNG CHUNG cho thế giới (world.frag) và súng + tay (viewmodel.frag): cùng đèn trần, cùng bóng, cùng tia lửa, cùng đường tông.
-// Súng không có đèn riêng nên đi vào chỗ tối là súng tối theo. `lamp_att` phải khớp core/exposure.py (test_lighting kiểm con số).
+// SHARED lighting for the world (world.frag) and the rifle + hands (viewmodel.frag): same ceiling lamps, same shadows, same muzzle flash, same tone curve.
+// The rifle has no lamp of its own, so it darkens when it moves into a dark place. `lamp_att` must match core/exposure.py (test_lighting checks the numbers).
 uniform sampler2DShadow look_shadow_atlas;
 uniform vec3 look_camera_pos;
-uniform vec3 look_frame;            // x = phơi sáng hiện tại (đổi mỗi khung)
-uniform vec4 look_lamp;             // x, y, z đèn đầu, khoảng cách giữa hai đèn
-uniform vec4 look_lamp2;            // số đèn, bán kính tắt hẳn, khoảng cách nửa độ rọi, cường độ
+uniform vec3 look_frame;            // x = current exposure (changes every frame)
+uniform vec4 look_lamp;             // x, y, z of the first lamp, distance between two lamps
+uniform vec4 look_lamp2;            // lamp count, radius where it fully cuts off, distance at half illuminance, intensity
 uniform vec3 look_lamp_color;
-uniform vec3 look_lamp_cone;        // cos góc nón rọi đủ sáng, cos góc nón ngoài, phần sáng lọt ra ngoài nón
+uniform vec3 look_lamp_cone;        // cos of the full-bright cone angle, cos of the outer cone angle, fraction of light leaking outside the cone
 uniform vec3 look_ambient_up;
 uniform vec3 look_ambient_down;
-uniform vec3 look_bounce;           // màu ánh dội giả từ vũng sáng trên sàn, tính cho mỗi đơn vị độ sáng đèn
-uniform vec4 look_shadow;           // chế độ (0 tắt, 1 thật, 2 giả), bias hằng (m), bias theo khoảng cách (m/m), độ phát sáng
-uniform vec4 look_shadow_grid;      // số cột ô, số hàng ô, 1/rộng atlas, 1/cao atlas
-uniform vec4 look_shadow_lod;       // cách camera dưới x: 4 mẫu bóng, dưới y: 1 mẫu, xa hơn: không lấy; z = số đèn mỗi bên cần xét
-uniform mat4 look_face_mat[5];      // vector đèn->điểm sang clip của mặt +x, -x, -y, +z, -z
-uniform vec3 look_flash_pos;        // tia lửa đầu nòng, toạ độ thế giới (đổi mỗi khung lúc bắn)
-uniform vec3 look_flash_color;      // đen = tắt
+uniform vec3 look_bounce;           // fake bounce colour from the light pool on the floor, per unit of lamp brightness
+uniform vec4 look_shadow;           // mode (0 off, 1 real, 2 fake), constant bias (m), distance-dependent bias (m/m), emissive strength
+uniform vec4 look_shadow_grid;      // number of grid columns, number of grid rows, 1/atlas width, 1/atlas height
+uniform vec4 look_shadow_lod;       // closer to the camera than x: 4 shadow samples, closer than y: 1 sample, farther: none; z = number of lamps per side to check
+uniform mat4 look_face_mat[5];      // lamp-to-point vector into clip space for faces +x, -x, -y, +z, -z
+uniform vec3 look_flash_pos;        // muzzle flash, world coordinates (changes every frame while firing)
+uniform vec3 look_flash_color;      // black = off
 
-// ACES xấp xỉ (Narkowicz): vùng tối bị ép xuống đen, vùng sáng cháy trắng nhanh, đúng chất camera giá rẻ
+// ACES approximation (Narkowicz): dark areas are pushed to black, bright areas blow out to white quickly, matching the look of a cheap camera
 vec3 tonemap(vec3 c) {
     c *= look_frame.x;
     return clamp((c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14), 0.0, 1.0);
@@ -31,7 +31,7 @@ float lamp_att(float d2, float d, float cos_down) {
     return look_lamp2.w * cone * win * win / (1.0 + d2 / (look_lamp2.z * look_lamp2.z));
 }
 
-// bóng thật: một đèn, vector đèn -> điểm v. `taps`: 4 mẫu (gần camera, bóng mềm) hoặc 1 mẫu (lọc song tuyến của phần cứng)
+// real shadow: one lamp, lamp -> point vector v. `taps`: 4 samples (near the camera, soft shadow) or 1 sample (the hardware's bilinear filtering)
 float lamp_shadow(float lamp, vec3 v, bool soft) {
     vec3 a = abs(v);
     int f;
@@ -55,8 +55,8 @@ float lamp_shadow(float lamp, vec3 v, bool soft) {
     return s * 0.25;
 }
 
-// Cộng ánh sáng của các đèn gần lên một điểm. `dist` = cách camera (chọn mức chi tiết của bóng); `shininess` <= 0 thì khỏi tính vệt bóng.
-// Đèn nào đóng góp quá nhỏ thì bỏ qua luôn bản đồ bóng: vùng tối giữa hai đèn vì thế cũng là vùng rẻ nhất.
+// Adds the light of the nearby lamps to one point. `dist` = distance from the camera (selects the shadow detail level); `shininess` <= 0 skips the specular highlight.
+// A lamp that contributes too little skips its shadow map entirely: the dark area between two lamps is therefore also the cheapest.
 float gather_lamps(vec3 p, vec3 n, vec3 v_dir, float dist, float shininess, out float spec, out float bounce) {
     int mode = int(look_shadow.x + 0.5);
     float count = look_lamp2.x, R = look_lamp2.y, ref2 = look_lamp2.z * look_lamp2.z;
@@ -78,10 +78,10 @@ float gather_lamps(vec3 p, vec3 n, vec3 v_dir, float dist, float shininess, out 
         L /= d;
         float x = d / R;
         float win = 1.0 - x * x * x * x;
-        // ánh sáng dội giả: vũng sáng trên sàn dưới đèn hắt lại lên tường / trần gần đó (không hướng, không bóng), giảm theo khoảng cách tới đèn; đèn tắt thì ánh dội cũng mất
+        // fake bounce light: the light pool on the floor under the lamp is reflected back onto nearby walls and ceiling (no direction, no shadow), falling off with distance to the lamp; when the lamp is off the bounce is gone too
         bounce += look_lamp2.w * win * win / (1.0 + d2 / (4.0 * ref2));
         float ndl = dot(n, L);
-        if (ndl <= 0.0 || L.y <= 0.0) continue;                    // quay lưng với đèn, hoặc ở trên mép chóa (chóa che)
+        if (ndl <= 0.0 || L.y <= 0.0) continue;                    // facing away from the lamp, or above the rim of the reflector (the reflector shades it)
         float att = lamp_att(d2, d, L.y);
         float amount = att * ndl;
         if (amount < 0.006) continue;
@@ -92,7 +92,7 @@ float gather_lamps(vec3 p, vec3 n, vec3 v_dir, float dist, float shininess, out 
     return light;
 }
 
-// tia lửa đầu nòng: đèn điểm không bóng. `falloff`: 1 / (1 + falloff * d^2)
+// muzzle flash: point light without shadow. `falloff`: 1 / (1 + falloff * d^2)
 vec3 flash_light(vec3 p, vec3 n, float falloff) {
     vec3 f = look_flash_pos - p;
     float d2 = dot(f, f);

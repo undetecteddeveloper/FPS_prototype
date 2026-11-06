@@ -1,7 +1,7 @@
-"""G2: bắn bằng game thật. Điều khiển qua đúng đường chuột/phím của game (held_keys, combat.pressed),
-đo nhịp bắn, độ rơi của đạn ở từng bia, đếm đạn, hit marker, lỗ đạn; chụp ảnh vào shots\\g2_*.png.
+"""G2: fire with the real game. Drive it through the game's own mouse/key path (held_keys, combat.pressed),
+measure fire rate, bullet drop at each target, ammo count, hit marker, bullet holes; save screenshots to shots\\g2_*.png.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g2_selftest.py        (thoát mã 1 nếu có mục trượt)
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g2_selftest.py        (exits with code 1 if any item fails)
 """
 import math
 import sys
@@ -19,12 +19,12 @@ from ursina import Entity, application, held_keys, mouse, time  # noqa: E402
 from fps.core.ballistics import GROUND, drop_at_distance  # noqa: E402
 from fps.game.targets import Target  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, hud=True, free_aim=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
+game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, hud=True, free_aim=False)     # G6: moving targets change the measurement over time; measure on still targets
 player, combat = game.player, game.combat
 gun = game.params.gun
-mouse.locked = False                      # không giữ con trỏ của người dùng
-combat.require_locked_mouse = False       # cho phép bắn dù chuột không bị bắt (chỉ trong bài kiểm tra)
-# G3 thêm độ tản và recoil. G2 đo độ rơi của đạn nên tắt độ tản (g3_selftest.py kiểm tra riêng phần đó)
+mouse.locked = False                      # do not grab the user's cursor
+combat.require_locked_mouse = False       # allow firing even when the mouse is not captured (test only)
+# G3 adds spread and recoil. G2 measures bullet drop, so spread is off here (g3_selftest.py checks that part separately)
 for _name in ('stand', 'walk', 'sprint', 'air', 'ads', 'ads_move', 'bloom_per_shot'):
     setattr(gun.accuracy, _name, 0.0)
 
@@ -94,11 +94,11 @@ class Script(Entity):
         combat.weapon.cooldown = 0.0
 
     def fire_single(self):
-        """Một lần bóp cò (chế độ bắn đơn) rồi chờ đạn bay tới."""
+        """One trigger pull (single-fire mode), then wait for the bullet to arrive."""
         self.reset(auto=False)
         combat.pressed = True
         yield
-        yield from self.wait(0.9)          # đạn tới 200 m mất 0,4 s
+        yield from self.wait(0.9)          # a bullet takes 0.4 s to reach 200 m
 
     def run(self):
         yield from self.wait(0.6)
@@ -109,7 +109,7 @@ class Script(Entity):
         check('ban đầu: chế độ tự động', combat.weapon.auto, True, combat.weapon.auto is True)
         check('số bia', len(game.targets), 6, len(game.targets) == 6)
 
-        # --- độ rơi của đạn ở từng bia: bắn ngang tầm mắt ---
+        # --- bullet drop at each target: fire level with eye height ---
         phase['name'] = 'độ rơi từng bia'
         eye = game.params.player.eye_height_stand
         holes_before = combat.decals.count
@@ -131,7 +131,7 @@ class Script(Entity):
         check('mỗi phát trúng bia để lại một lỗ đạn', combat.decals.count - holes_before, len(game.targets),
               combat.decals.count - holes_before == len(game.targets))
 
-        # --- hit marker và khoảng cách bia vừa trúng ---
+        # --- hit marker and distance to the last target hit ---
         phase['name'] = 'hit marker'
         t25 = game.targets[1]
         aim(yaw_to(t25), 0.0)
@@ -139,7 +139,7 @@ class Script(Entity):
         combat.pressed = True
         for _ in range(3):
             yield
-        yield from self.wait(0.12)         # đạn tới 25 m mất 50 ms; marker kéo dài 150 ms
+        yield from self.wait(0.12)         # a bullet takes 50 ms to reach 25 m; the marker lasts 150 ms
         check('hit marker bật khi trúng bia', round(combat.hit_marker_left, 3), '> 0', combat.hit_marker_left > 0)
         check('khoảng cách bia vừa trúng (m)', round(combat.last_hit_distance or 0, 1), '~25', abs((combat.last_hit_distance or 0) - 25) < 1)
         check('bia nháy màu khi trúng', round(t25.flash_left, 3), '> 0', t25.flash_left > 0)
@@ -147,7 +147,7 @@ class Script(Entity):
         yield from self.wait(0.5)
         check('hit marker tắt sau 0,15 s', round(combat.hit_marker_left, 3), 0, combat.hit_marker_left == 0)
 
-        # --- bắn trượt: lên trần (phòng tập kín, không còn trời) ---
+        # --- miss: shoot at the ceiling (closed range, no sky) ---
         phase['name'] = 'bắn trượt'
         aim(0, -25)
         marker_before = combat.target_hits
@@ -160,7 +160,7 @@ class Script(Entity):
               combat.hit_marker_left == 0 and combat.target_hits == marker_before)
         check('đạn lạc bị xoá sau khi hết hạn bay', len(combat.bullets), 0, len(combat.bullets) == 0)
 
-        # --- đất và bờ đất ---
+        # --- ground and earth bank ---
         phase['name'] = 'đất/bờ đất'
         aim(0, 45)
         holes = combat.decals.count
@@ -170,13 +170,13 @@ class Script(Entity):
         check('  lỗ đạn trên đất', combat.decals.count - holes, 1, combat.decals.count - holes == 1)
         check('  bắn đất không bật hit marker', combat.hit_marker_left, 0, combat.hit_marker_left == 0)
         shot('ground_hit')
-        aim(-90, 2)                        # tường trái cách ~12 m: chúc 10 độ như trước thì chạm sàn ở 9 m
+        aim(-90, 2)                        # left wall about 12 m away: aiming 10 degrees down as before hits the floor at 9 m
         yield from self.fire_single()
         imp = combat.last_impact
         ok = imp is not None and imp.owner not in (GROUND,) and not isinstance(imp.owner, Target) and imp.normal == (1.0, 0.0, 0.0)
         check('bắn sang bên trái: trúng tường (pháp tuyến +x)', imp.normal if imp else None, (1.0, 0.0, 0.0), ok)
 
-        # --- bắn đơn: một lần bóp một phát ---
+        # --- single fire: one trigger pull, one shot ---
         phase['name'] = 'bắn đơn'
         aim(0, -25)
         self.reset(auto=False)
@@ -190,7 +190,7 @@ class Script(Entity):
         check('bắn đơn: bóp một lần = một phát', combat.weapon.mag, 29, combat.weapon.mag == 29)
         held_keys['left mouse'] = 0
 
-        # --- nhịp bắn tự động, đo bằng đồng hồ thật ---
+        # --- automatic fire rate, measured with the real clock ---
         phase['name'] = 'nhịp bắn tự động'
         aim(0, -25)
         self.reset(auto=True, mag=5000)
@@ -209,7 +209,7 @@ class Script(Entity):
         check('khoảng cách giữa các phát đều (lệch tối đa, s)', round(max(gaps) - min(gaps), 6), '< 0,001', max(gaps) - min(gaps) < 0.001)
         yield from self.wait(3.2)
 
-        # --- đếm đạn: hết băng thì dừng; R nạp lại từ dự trữ ---
+        # --- ammo count: stop when the magazine is empty; R reloads from reserve ---
         phase['name'] = 'hết băng'
         aim(0, -25)
         self.reset(auto=True, mag=30)
@@ -219,13 +219,13 @@ class Script(Entity):
         check('bắn hết băng 30 viên: đúng 30 phát', combat.shots_fired - fired0, 30, combat.shots_fired - fired0 == 30)
         check('băng hết, giữ chuột vẫn không bắn thêm', combat.weapon.mag, 0, combat.weapon.mag == 0)
         held_keys['left mouse'] = 0
-        combat.handling.cancel()                      # giữ cò khi băng cạn đã tự nạp (G5): ở đây chỉ kiểm phép đếm đạn
+        combat.handling.cancel()                      # holding the trigger on an empty mag already reloads (G5): here only the ammo count is checked
         taken = combat.weapon.load_magazine()
         check('nạp lại: lấy 30 từ dự trữ', f'{combat.weapon.mag}/{combat.weapon.reserve} (lấy {taken})', f'30/{gun.reserve - 30} (lấy 30)',
               (combat.weapon.mag, combat.weapon.reserve, taken) == (30, gun.reserve - 30, 30))
         yield from self.wait(3.2)
 
-        # --- cảnh chụp: loạt đạn vào bia 50 m, và 150 m ---
+        # --- screenshot scene: a burst into the 50 m target and the 150 m target ---
         phase['name'] = 'cảnh chụp'
         t50, t150 = game.targets[2], game.targets[4]
         aim(yaw_to(t50), 0.0)
@@ -240,7 +240,7 @@ class Script(Entity):
         yield from self.wait(0.3)
         shot('view_150')
 
-        # --- lỗ đạn không phình mãi ---
+        # --- bullet holes do not grow forever ---
         phase['name'] = 'lỗ đạn tối đa'
         aim(yaw_to(t25), 0.0)
         for _ in range(3):

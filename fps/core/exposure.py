@@ -1,7 +1,7 @@
-"""Ánh sáng đèn trần tính trên CPU (cùng công thức với assets/shaders/light_common.glsl, không tính bóng) và phơi sáng tự động của camera.
+"""Lamp light computed on the CPU (same formula as assets/shaders/light_common.glsl, without shadows) and the camera's automatic exposure.
 
-Phơi sáng dựa trên độ sáng đo được ngay tại chỗ camera đứng và hướng nhìn, không đọc ngược ảnh từ GPU (đọc ảnh rất chậm trên chip đồ hoạ tích hợp):
-vào chỗ tối thì mở dần (chậm), ra chỗ sáng hoặc nhìn thẳng vào đèn thì khép nhanh hơn.
+Exposure is based on the brightness measured right where the camera stands and looks, not read back from the GPU (reading images is very slow on integrated graphics):
+moving into a dark spot opens slowly; moving into a bright spot, or looking straight at a lamp, closes faster.
 """
 import math
 
@@ -16,8 +16,8 @@ def _smoothstep(a: float, b: float, x: float) -> float:
 
 
 def lamp_attenuation(look: LookData, d2: float, cos_down: float) -> float:
-    """Độ rọi của một đèn tới một điểm cách đèn sqrt(d2) mét; `cos_down` = cos góc giữa phương thẳng đứng và đường đèn -> điểm.
-    Công thức y hệt `lamp_att` trong light_common.glsl."""
+    """Illuminance of one lamp at a point sqrt(d2) metres away; `cos_down` = cos of the angle between the vertical and the lamp-to-point line.
+    Same formula as `lamp_att` in light_common.glsl."""
     d = math.sqrt(d2)
     if d >= look.lamp_radius or cos_down <= 0.0:
         return 0.0
@@ -29,7 +29,7 @@ def lamp_attenuation(look: LookData, d2: float, cos_down: float) -> float:
 
 
 def nearest_lamps(look: LookData, z: float) -> list:
-    """Chỉ số các đèn có thể chiếu tới điểm có toạ độ z, gần nhất trước."""
+    """Indices of the lamps that can light a point at coordinate z, nearest first."""
     reach = lamp_reach(look)
     kc = math.floor((z - look.lamp_z0) / look.lamp_spacing + 0.5)
     out = [kc + j for j in sorted(range(-reach, reach + 1), key=abs)]
@@ -37,12 +37,12 @@ def nearest_lamps(look: LookData, z: float) -> list:
 
 
 def lamp_reach(look: LookData) -> int:
-    """Số đèn mỗi bên cần xét để không cắt ánh sáng của đèn nào (mỗi điểm ảnh tốn 2 * reach + 1 đèn)."""
+    """Number of lamps to check on each side so that no lamp's light is cut off (each pixel costs 2 * reach + 1 lamps)."""
     return max(1, math.ceil((look.lamp_radius - look.lamp_spacing / 2.0) / look.lamp_spacing))
 
 
 def light_at(look: LookData, pos: tuple, normal: tuple = (0.0, 1.0, 0.0)) -> float:
-    """Tổng độ rọi trực tiếp (chưa nhân màu đèn, không tính bóng) lên một mặt có pháp tuyến `normal` tại `pos`."""
+    """Total direct illuminance (not multiplied by lamp colour, no shadows) on a surface with normal `normal` at `pos`."""
     total = 0.0
     for k in nearest_lamps(look, pos[2]):
         lx, ly, lz = look.lamp_x - pos[0], look.lamp_y - pos[1], look.lamp_z0 + k * look.lamp_spacing - pos[2]
@@ -57,7 +57,7 @@ def light_at(look: LookData, pos: tuple, normal: tuple = (0.0, 1.0, 0.0)) -> flo
 
 
 def glare(look: LookData, pos: tuple, forward: tuple) -> float:
-    """Đèn gần trong khung hình: 0 (không thấy đèn nào) .. ~1 (nhìn thẳng vào đèn gần)."""
+    """Near lamp in view: 0 (no lamp visible) .. ~1 (looking straight at a near lamp)."""
     total = 0.0
     for k in nearest_lamps(look, pos[2]):
         lx, ly, lz = look.lamp_x - pos[0], look.lamp_y - pos[1], look.lamp_z0 + k * look.lamp_spacing - pos[2]
@@ -70,11 +70,11 @@ def glare(look: LookData, pos: tuple, forward: tuple) -> float:
 
 
 def target_exposure(lens: LensData, look: LookData, pos: tuple, forward: tuple) -> float:
-    """Phơi sáng mà camera muốn ở chỗ này. Đo trên mặt cầu (trung bình mặt ngửa lên và các mặt đứng) để không lệ thuộc hướng nhìn, cộng thêm phần loá đèn."""
+    """Exposure the camera wants at this spot. Measured over a sphere (average of the upward and the vertical faces) so it does not depend on the view direction, plus the lamp glare."""
     scene = 0.65 * light_at(look, pos) + 0.35 * light_at(look, pos, (forward[0], 0.0, forward[2]))
     scene += lens.lamp_glare * glare(look, pos, forward)
     ideal = lens.exposure_key / max(scene, 0.02)
-    # auto_exposure = 0: cố định ở 1; = 1: bù hoàn toàn; ở giữa: nội suy theo log để tỉ lệ đều
+    # auto_exposure = 0: fixed at 1; = 1: full compensation; in between: interpolate in log so the ratio is even
     value = math.exp(math.log(ideal) * lens.auto_exposure)
     return min(max(value, lens.exposure_min), lens.exposure_max)
 
@@ -87,7 +87,7 @@ class AutoExposure:
     def update(self, dt: float, pos: tuple, forward: tuple) -> float:
         target = target_exposure(self.lens, self.look, pos, forward)
         if self.value is None:
-            self.value = target                                 # khung đầu: khỏi mở dần từ một số vô nghĩa
+            self.value = target                                 # first frame: skip the slow fade-in from a meaningless value
         else:
             tau = self.lens.exposure_up_time if target > self.value else self.lens.exposure_down_time
             k = 1.0 - math.exp(-dt / tau) if tau > 0 else 1.0

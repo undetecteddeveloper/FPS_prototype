@@ -1,9 +1,9 @@
-"""Đo FPS theo từng tình huống chơi, cùng một kịch bản cho mọi phiên bản (vsync tắt).
+"""Measures FPS per play situation, with the same script for every version (vsync off).
 
-Mỗi tình huống: đặt người chơi vào chỗ + hướng nhìn, bỏ qua vài khung cho ổn định, rồi đo. In trung bình (số khung / tổng thời gian), trung vị và
-1% khung chậm nhất, cùng dòng TỔNG theo trung bình có trọng số. Thoát mã 1 nếu tổng < ngưỡng hoặc có tình huống < ngưỡng tình huống.
+Each situation: places the player and sets the view direction, skips a few frames for stability, then measures. Prints the average (frames / total time), the median and
+the slowest 1% of frames, plus a TOTAL line as a weighted average. Exits with code 1 if the total is below the threshold or any situation is below its threshold.
 
-Chạy (qua ổ khoá, kẻo nhiều game cùng lúc làm sai số đo):
+Run (through the lock, so several games at once do not skew the measurements):
   .venv\\Scripts\\python.exe -X utf8 tools\\with_game_lock.py .venv\\Scripts\\python.exe -X utf8 tools\\measure\\perf_scenarios.py [--size 1366x768] [--seconds 6]
 """
 import argparse
@@ -35,7 +35,7 @@ player = game.player
 game.params.gun.reserve = 9999
 game.combat.weapon.reserve = 9999
 
-# (tên, vị trí, yaw, pitch, phím giữ, hành động mỗi khung)
+# (name, position, yaw, pitch, held keys, action each frame)
 SCENES = [
     ('dứng yên, nhìn dọc làn', (0, 0, 0), 0, 0, {}, None),
     ('đứng dưới đèn, nhìn chéo tường', (-4, 0, 30), 35, 5, {}, None),
@@ -97,7 +97,7 @@ class Script(Entity):
                 if action == 'reload' and not game.combat.handling.busy:
                     game.combat.weapon.mag = max(0, game.combat.weapon.mag - 5)
                     game.combat.request_reload()
-                if player.z > 190:          # đi hết làn thì quay về đầu
+                if player.z > 190:          # back to the start when reaching the end of the lane
                     player.z = pos[2]
                 yield
             self.sink = None

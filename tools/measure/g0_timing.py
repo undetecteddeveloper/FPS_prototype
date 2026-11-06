@@ -1,6 +1,6 @@
-"""G0: chạy thật từng clip bằng Actor.play(from, to) trong cửa sổ Ursina, đo thời gian và FPS.
+"""G0: really plays each clip with Actor.play(from, to) in an Ursina window, measuring time and FPS.
 
-Không có bước nào ở đây dùng pose(): đây là đường chạy mà game sẽ dùng.
+No step here uses pose(): this is the path the game will use.
 """
 import sys
 import time as pytime
@@ -18,7 +18,7 @@ from direct.actor.Actor import Actor
 from panda3d.core import AmbientLight, DirectionalLight, Filename, loadPrcFileData
 from ursina import Entity, Ursina, camera, color, scene, window
 
-# khoảng khung hợp lệ (xem ghi chú: khung N của clip N khung bị bao về 0)
+# valid frame ranges (see the note: frame N of a clip with N frames is clamped to 0)
 CLIPS = [
     ('Draw', 269, 299, 1.03),
     ('Reload', 1, 110, 3.63),
@@ -27,7 +27,7 @@ CLIPS = [
     ('Holster', 251, 268, 0.57),
 ]
 
-loadPrcFileData('', 'sync-video 0')  # Ursina(vsync=False) một mình không tắt được vsync
+loadPrcFileData('', 'sync-video 0')  # Ursina(vsync=False) alone does not turn vsync off
 app = Ursina(vsync=False, development_mode=False, title='G0 timing', borderless=False, size=(1280, 720))
 window.color = color.rgb(0.55, 0.62, 0.7)
 window.fps_counter.enabled = False
@@ -50,7 +50,7 @@ def update():
     if state['last'] is not None:
         state['dts'].append(now - state['last'])
     state['last'] = now
-    if state['warm'] < 30:  # bỏ vài khung đầu (nạp shader, cache)
+    if state['warm'] < 30:  # skip the first few frames (shader loading, cache)
         state['warm'] += 1
         state['dts'].clear()
         return

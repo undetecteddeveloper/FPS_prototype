@@ -1,9 +1,9 @@
-"""Chốt số từ bảng F1 vào mã: sửa ĐÚNG ký tự của giá trị mặc định trong weapon_data.py (toán thuần chữ, không import ursina).
+"""Bake numbers from the F1 panel into the code: edits EXACTLY the characters of each default value in weapon_data.py (pure text logic, no ursina import).
 
-Mỗi số mặc định nằm ở một trong hai nơi: dòng `tên: kiểu = giá_trị` trong thân dataclass, hoặc tham số từ khoá của lời gọi
-`M4 = GunData(tên=giá_trị)` (ưu tiên nơi này nếu có). Dùng `ast` để lấy vị trí chính xác của giá trị rồi thay đúng đoạn đó:
-chú thích, thụt lề, kiểu xuống dòng (CRLF / LF) của file được giữ nguyên. Giá trị mặc định mà KHÔNG phải số viết thẳng
-(hàm, hằng số khác...) thì không sửa tự động, trả về lý do trong `failures` để người dùng sửa tay.
+Each default number lives in one of two places: the `name: type = value` line in the dataclass body, or a keyword argument of the call
+`M4 = GunData(name=value)` (this place wins if present). It uses `ast` to get the exact position of the value, then replaces exactly that span:
+comments, indentation and the file's line endings (CRLF / LF) are kept. A default value that is NOT a plain literal number
+(a function, another constant...) is not edited automatically; the reason is returned in `failures` so the user can edit it by hand.
 """
 import ast
 from dataclasses import dataclass
@@ -11,18 +11,18 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Edit:
-    owner: str                 # tên lớp có dòng `attr: kiểu = giá_trị` (vd 'GunKickData')
+    owner: str                 # name of the class that has the `attr: type = value` line (e.g. 'GunKickData')
     attr: str
-    value: object              # giá trị MỚI trọn vẹn (số, bool, chuỗi, hoặc tuple đủ mọi thành phần)
-    call: str = None           # biến gán bằng lời gọi lớp (vd 'M4'): nếu lời gọi có tham số `attr=` thì sửa ở đó
-    forbid_kw: tuple = None    # (tên lời gọi, tên tham số): lời gọi ghi đè cả đối tượng chứa trường thì không sửa tự động
+    value: object              # the NEW complete value (number, bool, string, or a tuple with every component)
+    call: str = None           # variable assigned from a class call (e.g. 'M4'): if that call has an `attr=` keyword, edit it there
+    forbid_kw: tuple = None    # (call name, keyword name): if the call overrides the whole object holding the field, it is not edited automatically
 
 
-CALLS = {'gun': 'M4'}      # đối tượng trên bảng -> biến gán bằng lời gọi lớp trong weapon_data.py
+CALLS = {'gun': 'M4'}      # object on the panel -> variable assigned from a class call in weapon_data.py
 
 
 def edits_for(root, specs, calls=CALLS) -> list:
-    """Từ các spec (thanh trượt) đã đổi, dựng danh sách Edit; tuple nhiều thành phần chỉ sinh MỘT Edit với tuple đầy đủ."""
+    """From the changed specs (sliders), build the Edit list; a multi-component tuple produces ONE Edit with the full tuple."""
     from fps.core.params import resolve
     out, seen = [], set()
     for s in specs:
@@ -78,7 +78,7 @@ def _call_of(tree, name: str):
 
 
 def _locate(tree, edit: Edit):
-    """(nút giá trị, None) hoặc (None, lý do)."""
+    """(value node, None) or (None, reason)."""
     if edit.forbid_kw:
         call = _call_of(tree, edit.forbid_kw[0])
         if call is not None and any(k.arg == edit.forbid_kw[1] for k in call.keywords):
@@ -98,7 +98,7 @@ def _locate(tree, edit: Edit):
 
 
 def patch_source(text: str, edits) -> tuple:
-    """Trả (mã mới, [(Edit, lý do)] cho các sửa không làm được). Các sửa làm được vẫn được áp."""
+    """Returns (new source, [(Edit, reason)] for the edits that could not be made). The edits that can be made are still applied."""
     tree = ast.parse(text)
     data = text.encode('utf-8')
     starts = [0]

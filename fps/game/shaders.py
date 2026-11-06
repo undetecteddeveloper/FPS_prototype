@@ -1,7 +1,7 @@
-"""Nạp shader GLSL từ thư mục `assets/shaders/` (mỗi shader hai file .vert / .frag). Có thể bật cờ biên dịch bằng `defines`.
+"""Loads GLSL shaders from the `assets/shaders/` folder (each shader has two files, .vert / .frag). Compile flags can be enabled with `defines`.
 
-`#include "tên.glsl"` chèn file cùng thư mục (GLSL 1.40 không có sẵn cách dùng chung mã giữa hai shader). File không có dòng `#version` thì được thêm
-`#version 140`; `#define` chèn ngay sau dòng version.
+`#include "name.glsl"` inserts a file from the same folder (GLSL 1.40 has no built-in way to share code between two shaders). A file without a `#version` line gets
+`#version 140`; `#define` lines are inserted right after the version line.
 """
 from pathlib import Path
 

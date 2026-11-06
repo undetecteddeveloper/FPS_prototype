@@ -1,4 +1,4 @@
-"""Bảng debug (G6): sinh thanh trượt từ weapon_data, lưu / nạp JSON, đổi số sống. Không mở cửa sổ."""
+"""Debug panel (G6): generates the sliders from weapon_data, saves / loads JSON, changes live numbers. No window is opened."""
 import copy
 import json
 import math
@@ -16,7 +16,7 @@ from fps.weapon_data import GameParams, M4
 
 
 def fresh() -> GameParams:
-    """GameParams độc lập với M4 toàn cục (store ghi thẳng vào đối tượng, không làm bẩn M4 của test khác)."""
+    """GameParams independent of the global M4 (the store writes straight into the object, without dirtying other tests' M4)."""
     return GameParams(gun=copy.deepcopy(M4))
 
 
@@ -25,7 +25,7 @@ def store():
     return ParamStore(fresh())
 
 
-# --- sinh thanh trượt ---
+# --- generating sliders ---
 def test_every_field_is_on_the_panel_or_excluded_with_a_reason():
     on_panel = {s.path + '.' + s.attr for s in ParamStore(fresh()).specs}
     covered = on_panel | set(param_meta.EXCLUDED)
@@ -61,7 +61,7 @@ def test_every_slider_has_label_hint_and_a_sane_range(store):
 
 
 def test_label_and_hint_fit_the_panel_width(store):
-    # panel rộng ~0,66 đơn vị UI: nhãn <= 30 ký tự (cột nhãn), chú thích <= 66 ký tự (một dòng)
+    # panel ~0.66 UI units wide: label <= 30 chars (label column), hint <= 66 chars (one line)
     for s in store.specs:
         assert len(s.label) <= 32, f'{s.id}: nhãn quá dài ({len(s.label)}): {s.label}'
         assert len(s.hint) <= 70, f'{s.id}: chú thích quá dài ({len(s.hint)}): {s.hint}'
@@ -110,12 +110,12 @@ def test_format_value_uses_vietnamese_decimal_comma(store):
     assert format_value(store.by_id['look.shadows'], False) == 'Tắt'
 
 
-# --- đặt giá trị ---
+# --- setting values ---
 def test_set_writes_into_the_live_object(store):
     gun = store.root.gun
     assert store.set(store.by_id['gun.rpm'], 900)
     assert gun.rpm == 900.0 and isinstance(gun.rpm, float)
-    assert not store.set(store.by_id['gun.rpm'], 900)                  # không đổi thì False
+    assert not store.set(store.by_id['gun.rpm'], 900)                  # unchanged returns False
     store.set(store.by_id['gun.kick.peak[2]'], -0.05)
     assert gun.kick.peak == (0.0, 0.004, -0.05, 0.7, 0.0, 0.0) and isinstance(gun.kick.peak, tuple)
     store.set(store.by_id['gun.tracer.every'], 5.0)
@@ -136,21 +136,21 @@ def test_set_clamps_to_range_and_rejects_wrong_types(store):
         with pytest.raises(ValueError):
             store.set(s, bad)
     with pytest.raises(ValueError):
-        store.set(store.by_id['player.sprint_blocks_fire'], 1)         # 1 không phải bool
+        store.set(store.by_id['player.sprint_blocks_fire'], 1)         # 1 is not a bool
     with pytest.raises(ValueError):
-        store.set(store.by_id['look.shadows'], 1)                       # 1 == True nhưng không phải lựa chọn True
+        store.set(store.by_id['look.shadows'], 1)                       # 1 == True, but it is not a valid True choice
     with pytest.raises(ValueError):
         store.set(store.by_id['look.shadows'], 'real')
     with pytest.raises(ValueError):
         store.set(store.by_id['gun.tracer.every'], 2.5)
-    assert store.root.gun.rpm == s.lo                                   # lỗi không làm đổi gì
+    assert store.root.gun.rpm == s.lo                                   # an error changes nothing
 
 
 def test_listeners_get_one_call_per_batch(store):
     calls = []
     store.subscribe(lambda specs: calls.append([s.id for s in specs]))
     store.set(store.by_id['gun.rpm'], 800)
-    store.set(store.by_id['gun.rpm'], 800)                              # không đổi: không gọi
+    store.set(store.by_id['gun.rpm'], 800)                              # unchanged: no call
     assert calls == [['gun.rpm']]
     store.set(store.by_id['gun.ads_time'], 0.3)
     calls.clear()
@@ -174,11 +174,11 @@ def test_defaults_are_snapshotted_before_changes_and_m4_stays_clean():
     params = fresh()
     store = ParamStore(params)
     store.set(store.by_id['gun.rpm'], 1000)
-    assert M4.rpm == 750.0                                              # M4 toàn cục không bị bẩn (deepcopy)
+    assert M4.rpm == 750.0                                              # the global M4 is not dirtied (deepcopy)
     assert store.by_id['gun.rpm'].default == 750.0
 
 
-# --- lưu / nạp ---
+# --- save / load ---
 def test_save_load_roundtrip(tmp_path, store):
     for sid, v in (('gun.rpm', 820), ('gun.kick.peak[1]', 0.01), ('gun.tracer.every', 4), ('player.sprint_blocks_fire', False),
                    ('look.shadows', 'fake'), ('look.lamp_color[1]', 0.5), ('gun.recoil.right_scale', -0.5)):
@@ -187,7 +187,7 @@ def test_save_load_roundtrip(tmp_path, store):
     path = tmp_path / 'user_params.json'
     assert store.save(path).ok
     data = json.loads(path.read_text(encoding='utf-8'))
-    assert data['version'] == 1 and set(data['values']) == {s.id for s in store.changed_specs()}   # chỉ ghi số khác mặc định
+    assert data['version'] == 1 and set(data['values']) == {s.id for s in store.changed_specs()}   # only writes values that differ from the default
     other = ParamStore(fresh())
     rep = other.load(path)
     assert rep.ok and rep.applied == 7 and not rep.ignored
@@ -200,7 +200,7 @@ def test_load_resets_everything_not_in_the_file(tmp_path, store):
     store.set(store.by_id['gun.rpm'], 800)
     assert store.save(tmp_path / 'a.json').ok
     store.reset_all()
-    store.set(store.by_id['gun.ads_time'], 0.5)                          # đổi thứ không có trong file
+    store.set(store.by_id['gun.ads_time'], 0.5)                          # change something that is not in the file
     assert store.load(tmp_path / 'a.json').ok
     assert store.root.gun.rpm == 800 and store.root.gun.ads_time == M4.ads_time
 
@@ -271,7 +271,7 @@ def test_saved_file_is_utf8_json_with_plain_values(tmp_path, store):
     assert values == {'look.shadows': 'fake', 'player.sprint_blocks_fire': False}
 
 
-# --- số sống: các module phải ĐỌC lại số mỗi lần dùng ---
+# --- live numbers: modules must RE-READ the number on every use ---
 def test_weapon_follows_rpm_changes_live():
     gun = copy.deepcopy(M4)
     w = Weapon(gun)
@@ -303,7 +303,7 @@ def test_camera_recoil_scales_with_the_panel_numbers():
     assert c.pending[0] == 0.0
 
 
-# --- hình nón ---
+# --- cone ---
 def test_ring_radius():
     assert ring_radius(0.0, 25.0) == 0.0
     assert ring_radius(2.0, 25.0) == pytest.approx(25 * math.tan(math.radians(2.0)))
@@ -315,7 +315,7 @@ def test_shot_offset_matches_the_angle_between(yaw, pitch):
     view = aim_direction(yaw, pitch)
     right, up = shot_offset(view, aim_direction(yaw + 0.5, pitch))
     assert right == pytest.approx(0.5 * math.cos(math.radians(pitch)), abs=0.02) and abs(up) < 0.02
-    right, up = shot_offset(view, aim_direction(yaw, pitch - 0.8))             # pitch nhỏ đi = nhìn lên
+    right, up = shot_offset(view, aim_direction(yaw, pitch - 0.8))             # smaller pitch = looking up
     assert up == pytest.approx(0.8, abs=0.02) and abs(right) < 0.02
     right, up = shot_offset(view, aim_direction(yaw - 0.3, pitch + 0.4))
     assert math.hypot(right, up) == pytest.approx(angle_between(view, aim_direction(yaw - 0.3, pitch + 0.4)), abs=0.02)

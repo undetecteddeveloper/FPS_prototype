@@ -1,4 +1,4 @@
-"""Camera đầu (core/headcam.py): nhún / lắc theo bước, rung tay, nhảy và chạm đất, liếc súng khi nạp. Toán thuần, không mở cửa sổ."""
+"""Head camera (core/headcam.py): bob / sway with the steps, hand tremor, jump and landing, glancing at the gun while reloading. Pure maths, no window opened."""
 import math
 from dataclasses import replace
 from types import SimpleNamespace
@@ -19,7 +19,7 @@ def still(look=(0.0, 0.0), ads=0.0, state=MoveState.IDLE, speed=0.0, landed=0.0,
 
 
 def quiet(**changes) -> HeadCamData:
-    """Không trôi lúc đứng yên: đo từng phần cho rõ."""
+    """No drift while standing still: measure each part on its own."""
     return replace(HeadCamData(), idle_pitch=0.0, idle_yaw=0.0, idle_roll=0.0, idle_y=0.0, **changes)
 
 
@@ -29,14 +29,14 @@ def run_head(head, inp, seconds=1.0, phase=0.0, lateral=0.0, forward=0.0, fps=12
 
 
 def stride_rate(speed, sprint):
-    """Pha bước chân như Sway (rad/s) theo số mặc định."""
+    """Footstep phase as in Sway (rad/s) with the default numbers."""
     s = M4.sway
     rate = s.bob_sprint_rate if sprint else s.bob_rate
     return 2.0 * math.pi * speed * rate / s.bob_stride
 
 
 def walk_samples(d, state, speed, seconds=4.0, fps=120, ads=0.0):
-    """Đi / chạy đều với pha tăng như Sway; trả các tư thế camera sau 1,5 s đầu (biên độ đã ổn định)."""
+    """Steady walk / sprint with the phase rising as in Sway; returns the camera poses after the first 1.5 s (amplitude has settled)."""
     head = HeadCam(d)
     w = stride_rate(speed, state is MoveState.SPRINT)
     out = []
@@ -53,11 +53,11 @@ def spread(poses, axis):
     return max(values) - min(values)
 
 
-# --- thân người (giữ nguyên hành vi cũ) ---
+# --- body (keeps the old behaviour) ---
 def test_turning_right_rolls_the_camera_and_the_body_arrives_late():
     d = HeadCamData()
     head = HeadCam(d)
-    inp = still(look=(100.0 / 120.0, 0.0))                  # 100 độ/s
+    inp = still(look=(100.0 / 120.0, 0.0))                  # 100 deg/s
     head.update(1 / 120, inp, 0.0)
     first = head.camera_pose()[5]
     run_head(head, inp)
@@ -90,7 +90,7 @@ def test_standing_still_drifts_slowly():
     assert max(abs(b - a) for a, b in zip(values, values[1:])) < 0.01
 
 
-# --- bước chân ---
+# --- footsteps ---
 def test_footfall_wave_bottoms_out_when_the_foot_lands_and_averages_zero():
     for sharp in (0.0, 0.6, 1.0):
         values = [footfall(2 * math.pi * i / 3600, sharp) for i in range(3600)]
@@ -98,7 +98,7 @@ def test_footfall_wave_bottoms_out_when_the_foot_lands_and_averages_zero():
         assert min(values) == pytest.approx(-1.0, abs=1e-6)
         assert footfall(0.75 * math.pi, sharp) == pytest.approx(-1.0)
         assert footfall(1.75 * math.pi, sharp) == pytest.approx(-1.0)
-    assert footfall(1.0, 0.0) == pytest.approx(math.sin(2.0))                   # sharp 0 = đúng hình sin cũ (cùng pha bob của súng)
+    assert footfall(1.0, 0.0) == pytest.approx(math.sin(2.0))                   # sharp 0 = exactly the old sine shape (same bob phase as the gun)
 
 
 def test_steps_bob_in_step_with_the_gun_phase():
@@ -107,26 +107,26 @@ def test_steps_bob_in_step_with_the_gun_phase():
     run_head(head, still(state=MoveState.WALK, speed=WALK))
     head.update(1 / 120, still(state=MoveState.WALK, speed=WALK), math.pi / 4)
     high = head.camera_pose()[1]
-    head.update(1 / 120, still(state=MoveState.WALK, speed=WALK), 3 * math.pi / 4)    # chân chạm đất (tiếng bước chân)
+    head.update(1 / 120, still(state=MoveState.WALK, speed=WALK), 3 * math.pi / 4)    # foot touches down (footstep sound)
     low = head.camera_pose()[1]
     assert high - low > 1.5 * d.step_y
 
 
 def test_walking_is_clearly_visible_but_not_dizzy():
     poses = walk_samples(HeadCamData(), MoveState.WALK, WALK)
-    assert 0.025 < spread(poses, 1) < 0.06                 # nhún 2,5-6 cm đỉnh-đỉnh
-    assert 1.5 < spread(poses, 5) < 4.0                     # nghiêng ±~1 độ
+    assert 0.025 < spread(poses, 1) < 0.06                 # bob 2.5-6 cm peak to peak
+    assert 1.5 < spread(poses, 5) < 4.0                     # tilt ±~1 degree
     assert spread(poses, 3) < 3.5
 
 
 def test_sprinting_shakes_harder_than_walking_and_leans_forward():
     walk = walk_samples(HeadCamData(), MoveState.WALK, WALK)
     run = walk_samples(HeadCamData(), MoveState.SPRINT, SPRINT)
-    assert spread(run, 5) > 1.8 * spread(walk, 5)          # nghiêng trái phải theo nhịp chân
+    assert spread(run, 5) > 1.8 * spread(walk, 5)          # leans left and right with the footsteps
     assert spread(run, 1) > 1.3 * spread(walk, 1)
-    assert 4.0 < spread(run, 5) < 7.5                       # ~ ±2,6 độ
+    assert 4.0 < spread(run, 5) < 7.5                       # ~ ±2.6 degrees
     mean_pitch = sum(p[3] for p in run) / len(run)
-    assert mean_pitch < -0.8 * HeadCamData().sprint_lean   # chúi tới
+    assert mean_pitch < -0.8 * HeadCamData().sprint_lean   # pitches forward
 
 
 def test_crouch_walk_is_gentler():
@@ -136,7 +136,7 @@ def test_crouch_walk_is_gentler():
 
 
 def hand_shake(state, speed, seconds=3.0, fps=240):
-    """Độ lệch chuẩn của pitch khi pha bước giữ nguyên (chỉ còn rung tay): đo riêng lớp tần số cao."""
+    """Standard deviation of pitch with the step phase held fixed (only hand tremor left): measures the high-frequency layer on its own."""
     head = HeadCam(quiet())
     values = []
     for i in range(round(seconds * fps)):
@@ -155,10 +155,10 @@ def test_hand_shake_grows_with_speed_and_is_strongest_when_sprinting():
     assert idle < 1e-6
     assert walk > 0.02
     assert run > 2.0 * walk
-    assert jumps < 0.1                                      # mượt: không nhảy cục giữa hai khung 240 FPS
+    assert jumps < 0.1                                      # smooth: no lurch between two 240 FPS frames
 
 
-# --- nhảy và chạm đất ---
+# --- jump and landing ---
 def test_jump_kicks_up_at_takeoff():
     d = quiet()
     head = HeadCam(d)
@@ -184,8 +184,8 @@ def test_landing_slams_down_bounces_back_and_settles():
     low = min(pitches)
     assert low < -0.85 * d.land_pitch
     assert min(ys) < -0.85 * d.land_y
-    assert pitches.index(low) < 25                          # dằn trong ~0,2 s đầu
-    assert max(pitches[pitches.index(low):]) > 0.1 * d.land_pitch   # nảy lại
+    assert pitches.index(low) < 25                          # slams down within the first ~0.2 s
+    assert max(pitches[pitches.index(low):]) > 0.1 * d.land_pitch   # bounces back
     run_head(head, still(), seconds=1.5)
     assert abs(head.camera_pose()[3]) < 0.05
 
@@ -201,7 +201,7 @@ def test_harder_landing_slams_harder():
             out = min(out, head.camera_pose()[3])
         return out
     assert low(3.0) > 0.6 * low(6.4)
-    assert low(30.0) > -HeadCamData().land_pitch * HeadCamData().land_max * 1.05      # rơi rất cao vẫn có trần
+    assert low(30.0) > -HeadCamData().land_pitch * HeadCamData().land_max * 1.05      # a very high fall is still capped
 
 
 def test_airborne_sways_gently():
@@ -215,7 +215,7 @@ def test_airborne_sways_gently():
     assert 0.05 < max(values) - min(values) < 4 * d.air_sway
 
 
-# --- liếc súng khi nạp ---
+# --- glancing at the gun while reloading ---
 def stub_handling(key, clip, t, speed=1.0):
     return SimpleNamespace(key=key, clip=clip, t=t, speed=speed)
 
@@ -230,7 +230,7 @@ def test_reload_state_reads_only_reloads():
 
 
 def run_reload(head, clip, fps=120, speed=1.0, until=None, inp=None, cancel_at=None, after=0.0):
-    """Chạy một lần nạp như Handling (t tính theo clip), rồi `after` giây không nạp. Trả [(giây, camera pose, glance)]."""
+    """Runs one reload as Handling does (t counted along the clip), then `after` seconds without reloading. Returns [(seconds, camera pose, glance)]."""
     inp = inp or still()
     out, t, real = [], 0.0, 0.0
     end = clip.duration if until is None else until
@@ -258,15 +258,15 @@ def test_glance_looks_down_at_the_gun_mid_reload_and_returns_before_ready():
         assert all(g == pytest.approx(1.0) for _, _, g in mid)
         assert max(p[3] for _, p, _ in mid) < -0.85 * d.glance_pitch
         assert min(p[3] for _, p, _ in mid) > -1.2 * d.glance_pitch
-        assert all(p[4] > 0 for _, p, _ in mid)                 # quay về phía súng (bên phải)
-        # đã ngẩng hẳn TRƯỚC khi súng sẵn sàng bắn (hết clip)
+        assert all(p[4] > 0 for _, p, _ in mid)                 # turns toward the gun (right side)
+        # fully head-up BEFORE the gun is ready to fire (end of clip)
         late = [r for r in rows if r[0] >= clip.duration - 0.3]
         assert late and all(g == 0.0 for _, _, g in late)
         assert all(abs(p[3]) < 0.3 for _, p, _ in late)
-        # vào mượt trong ~0,3-0,4 s
+        # eases in within ~0.3-0.4 s
         start = [g for t, _, g in rows if t <= d.glance_in_delay + d.glance_in_time + 0.01]
         assert start[0] < 0.05 and start[-1] == pytest.approx(1.0, abs=0.01)
-        assert max(abs(b - a) for (_, _, a), (_, _, b) in zip(rows, rows[1:])) < 0.06   # không giật
+        assert max(abs(b - a) for (_, _, a), (_, _, b) in zip(rows, rows[1:])) < 0.06   # no jerk
 
 
 def test_empty_reload_holds_the_glance_longer():
@@ -286,10 +286,10 @@ def test_glance_follows_reload_speed():
 def test_cancel_returns_smoothly_within_a_quarter_second():
     d = quiet()
     head = HeadCam(d)
-    rows = run_reload(head, RELOAD, cancel_at=1.2, after=0.4)    # trước mốc băng vào chỗ (2,0 s)
+    rows = run_reload(head, RELOAD, cancel_at=1.2, after=0.4)    # before the magazine-seat mark (2.0 s)
     i = next(k for k, r in enumerate(rows) if r[0] > 1.2)
     assert rows[i - 1][2] == pytest.approx(1.0)
-    assert rows[i][2] > 0.9                                    # không bật về ngay
+    assert rows[i][2] > 0.9                                    # does not snap back at once
     back = [r for r in rows if r[0] >= 1.2 + 0.25]
     assert all(g == 0.0 for _, _, g in back)
     assert all(abs(p[3]) < 0.3 for _, p, _ in back)
@@ -324,7 +324,7 @@ def test_gun_rises_with_the_glance_and_follows_normal_motion_partly():
     for c, g, q, m in zip(cam, gun, glance, move):
         assert c == pytest.approx(q + m)
         assert g == pytest.approx(-q * d.glance_follow - m * d.gun_follow)
-    assert gun[3] > 0.85 * d.glance_pitch                      # súng ngóc lên = đi lên giữa khung khi đầu cúi
+    assert gun[3] > 0.85 * d.glance_pitch                      # the gun tilts up = moves up in the frame while the head is lowered
 
 
 def test_glance_is_not_reduced_by_aiming_but_movement_is():
@@ -338,14 +338,14 @@ def test_glance_is_not_reduced_by_aiming_but_movement_is():
     assert spread(ads, 5) == pytest.approx(spread(hip, 5) * d.ads_multiplier, rel=0.02)
 
 
-# --- độc lập FPS ---
+# --- FPS independent ---
 def scripted(fps):
-    """Đi 1 s -> chạy 1 s -> nhảy, 0,5 s trên không, chạm đất -> đứng nạp 1,5 s. Trả tư thế camera ở vài mốc thời gian."""
+    """Walk 1 s -> sprint 1 s -> jump, 0.5 s airborne, touch down -> stand and reload for 1.5 s. Returns the camera pose at a few time marks."""
     head = HeadCam(HeadCamData())
 
-    def at(seconds):                                         # khung bắt đầu đúng lúc `seconds` (so sánh số nguyên, khỏi lệch float)
+    def at(seconds):                                         # the frame that starts exactly at `seconds` (integer comparison, avoids float drift)
         return round(seconds * fps)
-    marks = {at(m) - 1: m for m in (0.9, 1.9, 2.1, 2.5 + 2 / 30, 2.7, 3.4, 4.0)}     # tư thế SAU khung i ứng với thời điểm (i + 1) / fps
+    marks = {at(m) - 1: m for m in (0.9, 1.9, 2.1, 2.5 + 2 / 30, 2.7, 3.4, 4.0)}     # the pose AFTER frame i corresponds to time (i + 1) / fps
     out, phase, reload_t = {}, 0.0, 0.0
     dt = 1.0 / fps
     for i in range(at(4.2)):
@@ -371,7 +371,7 @@ def scripted(fps):
 def test_head_motion_is_frame_rate_independent():
     a, b = scripted(30), scripted(240)
     for m in a:
-        for axis, tol in ((0, 0.001), (1, 0.001), (3, 0.15), (4, 0.15), (5, 0.15)):     # đo được: lệch < 0,07 độ, < 0,1 mm
+        for axis, tol in ((0, 0.001), (1, 0.001), (3, 0.15), (4, 0.15), (5, 0.15)):     # measured: deviation < 0.07 deg, < 0.1 mm
             assert a[m][axis] == pytest.approx(b[m][axis], abs=tol), (m, axis)
 
 

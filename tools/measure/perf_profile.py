@@ -1,6 +1,6 @@
-"""Tìm thủ phạm tốn thời gian khung: chạy một tình huống rồi in các hàm Python tốn nhất (cProfile) và phần vẽ (`render_frame`).
+"""Finds what costs frame time: runs one situation, then prints the most expensive Python functions (cProfile) and the rendering part (`render_frame`).
 
-Chạy: .venv\\Scripts\\python.exe -X utf8 tools\\measure\\perf_profile.py idle|fire|ads_fire|reload [--seconds 6]
+Run: .venv\\Scripts\\python.exe -X utf8 tools\\measure\\perf_profile.py idle|fire|ads_fire|reload [--seconds 6]
 """
 import argparse
 import cProfile

@@ -1,9 +1,9 @@
-"""Người chơi: bộ điều khiển tự viết (FirstPersonController của Ursina không có đủ trạng thái).
+"""Player: a self-written controller (Ursina's FirstPersonController does not have the states we need).
 
-`state` (MoveState) là nguồn duy nhất cho tốc độ, spread (G3) và sway (G4).
-Phím: WASD đi, Shift chạy nước rút (giữ), Ctrl hoặc C ngồi (giữ), Space nhảy, chuột phải ngắm (giữ), chuột nhìn.
-Phần giật vào camera đi vào qua `kick_view`. ADS và tư thế chạy là hai tiến độ 0..1 (`ads_amount`, `sprint_amount`);
-đường cong êm (smoothstep) chỉ áp khi dùng, còn tiến độ thô để spread và sprint-to-fire dùng.
+`state` (MoveState) is the single source for speed, spread (G3) and sway (G4).
+Keys: WASD move, Shift sprint (hold), Ctrl or C crouch (hold), Space jump, right mouse aim (hold), mouse look.
+The camera-kick part enters through `kick_view`. ADS and the sprint pose are two 0..1 progress values (`ads_amount`, `sprint_amount`);
+a smooth curve (smoothstep) is applied only where it is used; the raw progress is what spread and sprint-to-fire use.
 """
 import math
 
@@ -16,7 +16,7 @@ from fps.core.spring import Spring, impulse_gain
 from fps.core.sway import SwayInput
 from fps.weapon_data import GunData, PlayerParams
 
-MAX_DT = 0.05   # sau một cú giật (nạp, cửa sổ kéo) không để vật lý nhảy một bước quá lớn
+MAX_DT = 0.05   # after a hitch (reload, window drag) do not let the physics take one oversized step
 
 
 class Player(Entity):
@@ -34,20 +34,20 @@ class Player(Entity):
         self.on_ground = True
         self.crouching = False
         self.sprinting = False
-        self.ads = False                      # đang giữ nút ngắm
-        self.ui_open = False                  # bảng debug F1 mở: chuột trái / phải không còn là bắn / ngắm
-        self.ads_blocked = False              # đang nạp / rút súng: nút ngắm không có tác dụng (animation tay không khớp tư thế ngắm)
-        self.ads_amount = 0.0                 # 0 hông .. 1 ngắm hẳn; spread (spread.py) nội suy theo số này
-        self.sprint_amount = 0.0              # 0 .. 1 tiến độ hạ súng vào tư thế chạy; về 0 mới bắn được
-        self.landed = 0.0                     # tốc độ chạm đất (m/s) nếu khung này vừa chạm đất
-        self.jumped = 0.0                     # tốc độ bật lên (m/s) nếu khung này vừa nhảy
-        self.eye_dy = 0.0                     # camera đi lên/xuống bao nhiêu mét trong khung này (cho quán tính súng)
+        self.ads = False                      # holding the aim button
+        self.ui_open = False                  # debug panel F1 open: left / right mouse no longer fire / aim
+        self.ads_blocked = False              # reloading / drawing the gun: the aim button has no effect (the hand animation does not match the aim pose)
+        self.ads_amount = 0.0                 # 0 hip .. 1 fully aimed; spread (spread.py) interpolates on this value
+        self.sprint_amount = 0.0              # 0 .. 1 progress of lowering the gun into the sprint pose; only back at 0 can it fire
+        self.landed = 0.0                     # landing speed (m/s) if the player touched down this frame
+        self.jumped = 0.0                     # take-off speed (m/s) if the player jumped this frame
+        self.eye_dy = 0.0                     # how many metres the camera moves up/down this frame (for gun inertia)
         self.eye_height = params.eye_height_stand
         self.state = MoveState.IDLE
-        self._look = [0.0, 0.0]               # MÀN HÌNH đã quay (yaw phải, pitch lên) độ, từ lần lấy gần nhất: thân người và ống kính phản ứng theo số này
-        self._mouse = [0.0, 0.0]              # CHUỘT đã quay, từ lần lấy gần nhất
-        self.free_look = FreeLook(gun.free_aim)   # chuột điều khiển súng trước, màn hình quay sau
-        self._dip = Spring(1, params.land_dip_omega, params.land_dip_zeta)   # camera nhún khi chạm đất
+        self._look = [0.0, 0.0]               # SCREEN turn (yaw right, pitch up) in degrees since the last read: body and lens react to this number
+        self._mouse = [0.0, 0.0]              # MOUSE turn since the last read
+        self.free_look = FreeLook(gun.free_aim)   # the mouse moves the gun first, the rest turns the screen
+        self._dip = Spring(1, params.land_dip_omega, params.land_dip_zeta)   # camera dips on landing
 
         self.camera_pivot = Entity(parent=self, y=self.eye_height)
         camera.parent = self.camera_pivot
@@ -56,9 +56,9 @@ class Player(Entity):
         camera.fov = params.fov
         mouse.locked = True
 
-    # --- đọc phím ---
+    # --- read keys ---
     def read_keys(self) -> dict:
-        free = not self.ui_open        # bảng debug (F1) đang mở: bấm chuột là để rê thanh trượt, không ngắm cũng không bắn
+        free = not self.ui_open        # debug panel (F1) open: clicking is for dragging sliders, neither aiming nor firing
         return dict(
             forward=held_keys['w'] - held_keys['s'],
             strafe=held_keys['d'] - held_keys['a'],
@@ -75,40 +75,40 @@ class Player(Entity):
 
     @property
     def can_fire(self) -> bool:
-        """Sprint-to-fire: bóp cò khi đang chạy thì súng phải hạ lên lại (sprint_out_time) rồi mới bắn được."""
+        """Sprint-to-fire: pulling the trigger while sprinting makes the gun come back up (sprint_out_time) before it can fire."""
         return not self.p.sprint_blocks_fire or self.sprint_amount <= 0.0
 
     def aim_ray(self) -> tuple:
-        """(gốc, hướng) của tia ngắm: từ mắt (đã gồm cú nhún chạm đất), theo hướng nhìn (đã gồm recoil camera).
-        Độ tản cộng thêm ở Combat."""
+        """(origin, direction) of the aim ray: from the eye (including the landing dip), along the view direction (including camera recoil).
+        The spread is added on top in Combat."""
         return (self.x, self.y + self.camera_pivot.y, self.z), aim_direction(self.yaw, self.pitch)
 
     def turn_rate(self, dt: float) -> float:
-        """Độ lớn tốc độ xoay chuột của khung này (độ/s). Gọi trước `sway_input` (hàm đó xoá số đã gom)."""
+        """Magnitude of the mouse turn speed in this frame (deg/s). Call before `sway_input` (that function clears the accumulated values)."""
         return math.hypot(self._mouse[0], self._mouse[1]) / dt if dt > 0 else 0.0
 
     def sway_input(self) -> SwayInput:
-        """Chuyển động của khung hình này cho Sway. Lấy chuột xong thì xoá, nên mỗi khung chỉ gọi một lần."""
+        """Movement of this frame for Sway. Clears the mouse accumulators after reading, so call it once per frame."""
         look = (self._look[0], self._look[1])
         self._look = [0.0, 0.0]
         self._mouse = [0.0, 0.0]
         return SwayInput(self.state, self.speed, self.ads_amount, self.sprint_amount, look, self.eye_dy, self.landed, self.jumped)
 
-    # --- vòng lặp (Game.update gọi, để thứ tự cập nhật rõ ràng: người chơi -> bắn -> sway -> súng -> HUD) ---
+    # --- loop (Game.update calls it, so the update order is explicit: player -> shooting -> sway -> gun -> HUD) ---
     def tick(self):
         before = tuple(self.free_look.offset)
         if mouse.locked:
             self.look(mouse.velocity[0], mouse.velocity[1])
         dt = min(time.dt, MAX_DT)
         self.step(dt, **self.read_keys())
-        # vùng co lại / đầu đuổi theo súng: màn hình quay, súng giữ nguyên hướng trong thế giới
+        # zone shrinks / head chases the gun: the screen turns while the gun keeps its direction in the world
         reloading = self.ads_blocked and not self.ads
         cam_yaw, cam_up = self.free_look.step(dt, self.ads_amount, self.sprint_amount, reloading, self.speed > self.p.moving_speed_threshold)
         self._turn_view(cam_yaw, cam_up)
         self.free_look.track(before)
 
     def look(self, dx: float, dy: float):
-        """Chuột quay (đơn vị chiều cao cửa sổ): đi vào súng trước, phần còn lại mới quay màn hình (FreeLook)."""
+        """Mouse turn (units of window height): goes into the gun first, the rest turns the screen (FreeLook)."""
         sens = self.p.mouse_sensitivity * (1.0 + (self.p.ads_look_multiplier - 1.0) * smoothstep(self.ads_amount))
         self._mouse[0] += dx * sens
         self._mouse[1] += dy * sens
@@ -116,7 +116,7 @@ class Player(Entity):
         self._turn_view(cam_yaw, cam_up)
 
     def _turn_view(self, yaw: float, up: float):
-        """Quay màn hình (độ). `_look` gom số này cho thân người, sway và ống kính."""
+        """Turn the screen (degrees). `_look` accumulates this for the body, sway and lens."""
         if yaw == 0.0 and up == 0.0:
             return
         self.yaw, self.pitch = apply_look(self.yaw, self.pitch, yaw, up, 1.0, self.p.pitch_limit)
@@ -125,7 +125,7 @@ class Player(Entity):
         self._apply_view()
 
     def kick_view(self, up: float, right: float):
-        """Recoil camera: lệch góc nhìn (độ). Cộng thẳng vào yaw/pitch nên người chơi phải kéo chuột bù."""
+        """Camera recoil: offsets the view angle (degrees). Added straight to yaw/pitch, so the player has to pull the mouse to compensate."""
         self.yaw = (self.yaw + right) % 360.0
         self.pitch = min(max(self.pitch - up, -self.p.pitch_limit), self.p.pitch_limit)
         self._apply_view()
@@ -150,7 +150,7 @@ class Player(Entity):
                 self.vy = p.jump_speed
                 self.jumped = p.jump_speed
                 self.on_ground = False
-        # trên không: giữ nguyên tư thế, chỉ lái nhẹ
+        # in the air: keep the current pose, steering only
 
         self.ads_amount = step_toward(self.ads_amount, 1.0 if ads else 0.0, 1.0 / self.gun.ads_time, dt)
         sprint_active = self.sprinting and has_input
@@ -161,14 +161,14 @@ class Player(Entity):
         wish = wish_direction(forward, strafe, self.yaw)
         accel = p.accel_ground if self.on_ground else p.accel_air
         speed = target_speed(intent, p, smoothstep(self.ads_amount)) if has_input else 0.0
-        if self.on_ground or has_input:       # trên không mà không bấm phím thì giữ nguyên đà
+        if self.on_ground or has_input:       # in the air with no key pressed: keep the momentum
             self.vx, self.vz = step_horizontal_velocity(self.vx, self.vz, wish, speed, accel, dt)
 
         if not self.on_ground:
             vy_before = self.vy
             self.y, self.vy, self.on_ground = step_vertical(self.y, self.vy, p.gravity, dt)
             if self.on_ground:
-                self.landed = max(0.0, p.gravity * dt - vy_before)     # tốc độ rơi ngay trước khi chạm
+                self.landed = max(0.0, p.gravity * dt - vy_before)     # fall speed just before touchdown
         x, z = clamp_to_bounds(self.x + self.vx * dt, self.z + self.vz * dt, self.walk_bounds)
         if x != self.x + self.vx * dt:
             self.vx = 0.0

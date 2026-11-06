@@ -1,11 +1,11 @@
-// Súng + tay: KHÔNG có đèn riêng. Mỗi điểm được đổi sang toạ độ thế giới (camera + vị trí trong hệ camera) rồi nhận đúng các đèn trần, bóng, ánh nền, tia lửa
-// và đường tông của thế giới (light_common.glsl): đi tới chỗ tối thì súng tối theo, đèn ở phía nào thì thân súng sáng phía đó.
-// Dùng normal map của file glb, tính khung tiếp tuyến từ đạo hàm nên không cần cột tangent trong mesh.
+// Rifle + hands: NO lamp of their own. Each point is converted to world coordinates (camera + position in camera space), then receives exactly the ceiling lamps, shadows, ambient light, muzzle flash
+// and tone curve of the world (light_common.glsl): walking into a dark place darkens the rifle, and the rifle body is lit on the side facing the lamp.
+// Uses the normal map from the glb file; the tangent frame is computed from derivatives, so the mesh needs no tangent column.
 uniform sampler2D p3d_Texture0;
 uniform sampler2D vm_normal_tex;
-uniform vec4 vm_mat;            // độ bóng, độ tập trung vệt sáng, phản chiếu môi trường, độ nổi normal map
-uniform vec4 vm_sleeve;         // rgb màu tay áo, a = 1 thì màu da của texture được thay bằng tay áo (cẳng tay trong asset là da trần)
-uniform vec3 vm_view_x;         // trục phải / lên / trước của camera thế giới (đổi mỗi khung)
+uniform vec4 vm_mat;            // gloss, highlight sharpness, environment reflection, normal map strength
+uniform vec4 vm_sleeve;         // rgb sleeve colour; a = 1 replaces the texture's skin colour with the sleeve colour (the forearm in the asset is bare skin)
+uniform vec3 vm_view_x;         // world camera's right / up / forward axes (changes every frame)
 uniform vec3 vm_view_y;
 uniform vec3 vm_view_z;
 uniform float vm_flash_falloff;
@@ -27,7 +27,7 @@ vec3 mapped_normal(vec3 n) {
     vec3 t = dp2p * du1.x + dp1p * du2.x;
     vec3 b = dp2p * du1.y + dp1p * du2.y;
     float m = max(dot(t, t), dot(b, b));
-    if (m <= 1e-14) return n;                 // uv suy biến (mảnh tam giác rất nhỏ)
+    if (m <= 1e-14) return n;                 // degenerate uv (a very small triangle sliver)
     m = 1.0 / sqrt(m);
     return normalize(t * m * s.x + b * m * s.y + n * s.z);
 }
@@ -43,7 +43,7 @@ void main() {
     if (!gl_FrontFacing) n = -n;
     n = mapped_normal(n);
 
-    // hệ camera GL (-z là phía trước) -> thế giới
+    // GL camera space (-z is forward) -> world
     vec3 local = vm_view_x * v_pos.x + vm_view_y * v_pos.y - vm_view_z * v_pos.z;
     vec3 p = look_camera_pos + local;
     vec3 n_w = normalize(vm_view_x * n.x + vm_view_y * n.y - vm_view_z * n.z);
@@ -51,14 +51,14 @@ void main() {
     vec3 v_dir = -local / max(dist, 1e-4);
 
     float spec, bounce;
-    // truyền khoảng cách >= ngưỡng bóng mềm: súng rất gần camera nhưng 1 mẫu bóng là đủ cho nó
+    // passes a distance >= the soft-shadow threshold: the rifle is very close to the camera, but 1 shadow sample is enough for it
     float light = gather_lamps(p, n_w, v_dir, max(dist, look_shadow_lod.x), vm_mat.y, spec, bounce);
     vec3 ambient = mix(look_ambient_down, look_ambient_up, n_w.y * 0.5 + 0.5) + look_bounce * bounce * (1.0 - 0.4 * max(n_w.y, 0.0));
     vec3 diffuse = ambient + look_lamp_color * light;
     vec3 lit = base.rgb * diffuse;
     lit += look_lamp_color * spec * vm_mat.x * (0.35 + base.rgb);
 
-    // phản chiếu mờ: đang ở chỗ có sáng thì mép kim loại bắt sáng theo ánh nền tại chỗ; chỗ tối thì mất
+    // faint reflection: where there is light, the metal edges pick up the local ambient light; in dark places it disappears
     float fres = pow(1.0 - max(dot(n_w, v_dir), 0.0), 4.0);
     vec3 r = reflect(-v_dir, n_w);
     lit += fres * vm_mat.z * mix(look_ambient_down, look_ambient_up, r.y * 0.5 + 0.5) * 6.0

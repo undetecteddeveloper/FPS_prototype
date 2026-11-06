@@ -1,6 +1,6 @@
-"""Chạy lần lượt các bài kiểm tra bằng game thật (mỗi bài một cửa sổ, qua ổ khoá toàn máy). In các mục TRƯỢT và tổng kết. Thoát mã 1 nếu có bài trượt.
+"""Runs the real-game tests one after another (one window per test, through the machine-wide lock). Prints the FAILED items and a summary. Exits with code 1 if any test fails.
 
-Chạy: .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\run_selftests.py [tên bài ...]       (mặc định: tất cả)
+Run: .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\run_selftests.py [test name ...]       (default: all)
 """
 import re
 import subprocess

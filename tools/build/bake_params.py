@@ -1,11 +1,11 @@
-"""Chốt các số đã chỉnh trên bảng F1 (user_params.json) thành MẶC ĐỊNH trong fps/weapon_data.py.
+"""Bakes the numbers tuned on the F1 panel (user_params.json) into the DEFAULTS in fps/weapon_data.py.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\build\\bake_params.py            chỉ in bảng thay đổi (không ghi gì)
-       .venv\\Scripts\\python.exe -X utf8 tools\\build\\bake_params.py --apply    ghi vào weapon_data.py
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\build\\bake_params.py            prints only the table of changes (writes nothing)
+       .venv\\Scripts\\python.exe -X utf8 tools\\build\\bake_params.py --apply    writes to weapon_data.py
 
-Khi --apply: sửa đúng giá trị (giữ chú thích), chạy lại trong tiến trình mới để đối chiếu TỪNG số, sai thì khôi phục file cũ.
-Thành công: bản cũ của user_params.json chuyển vào backups\\user_params.baked.<ngày-giờ>.json, user_params.json giữ lại chỉ những số chưa chốt được.
-Số nào không chốt tự động được (mặc định không phải số viết thẳng) được nêu rõ, cần sửa tay. Sau khi chốt: chạy pytest và ghi vào CLAUDE.md / docs/notes.
+With --apply: fixes the exact values (keeps the comments), then reruns in a new process to check EACH number; on any mismatch the old file is restored.
+On success: the old user_params.json moves to backups\\user_params.baked.<date-time>.json, and user_params.json keeps only the numbers that could not be baked.
+Numbers that cannot be baked automatically (by default, anything that is not a plain literal) are listed and need a manual fix. After baking: run pytest and record the changes in CLAUDE.md / docs/notes.
 """
 import argparse
 import copy

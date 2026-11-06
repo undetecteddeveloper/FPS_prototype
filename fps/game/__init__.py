@@ -1,4 +1,4 @@
-"""Phần ghép Ursina/Panda (người chơi, bắn, bia, súng, HUD, âm thanh).
+"""Ursina/Panda glue (player, shooting, targets, gun, HUD, audio).
 
-Để trống có chủ đích: `fps.game.gltf_patch` phải nạp được TRƯỚC khi import ursina.
+Intentionally empty: `fps.game.gltf_patch` must be loadable BEFORE ursina is imported.
 """

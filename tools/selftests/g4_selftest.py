@@ -1,12 +1,12 @@
-"""G4: ADS, sway (thở, lag chuột, bob), chạy nước rút (tư thế + trễ sprint-to-fire), ngồi/nhảy bằng game thật.
+"""G4: ADS, sway (breathing, mouse lag, bob), sprint (pose + sprint-to-fire delay), crouch/jump with the real game.
 
-Điều khiển qua đúng đường phím của game (held_keys, combat.pressed, player.look). Đo:
-  - ADS: thời gian vào/ra, FOV, tốc độ đi, độ nhạy chuột, đường ngắm (vòng sau + cột trước) trùng tâm màn hình theo phép chiếu thật
-  - sway: biên độ thở và ADS còn `ads_multiplier`, nhịp bob theo quãng đường, lag ngược hướng chuột, quán tính khi nhảy/ngồi, nhún khi chạm đất
-  - chạy: tư thế hạ súng, bóp cò khi đang chạy thì trễ ~0,25 s mới bắn, bắn đơn không mất cú bóp
-Ảnh vào shots\\g4_*.png.
+Drive through the game's own key path (held_keys, combat.pressed, player.look). Measures:
+  - ADS: time in/out, FOV, walk speed, mouse sensitivity, sight line (rear ring + front post) centred on screen per the real projection
+  - sway: breathing amplitude and ADS keeps `ads_multiplier`, bob rhythm by distance, lag opposite the mouse direction, inertia on jump/crouch, dip on landing
+  - running: lowered gun pose, pulling the trigger while running delays the shot ~0.25 s, single fire does not lose the pull
+Screenshots go to shots\\g4_*.png.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g4_selftest.py        (thoát mã 1 nếu có mục trượt)
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g4_selftest.py        (exits with code 1 if any item fails)
 """
 import math
 import sys
@@ -26,13 +26,13 @@ from fps.core.movement import MoveState  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.sway import ads_target_for  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, hud=True, free_aim=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
+game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, hud=True, free_aim=False)     # G6: moving targets change the measurement over time; measure on still targets
 player, combat, viewmodel = game.player, game.combat, game.viewmodel
 gun = game.params.gun
 pp = game.params.player
 sw = gun.sway
-mouse.locked = False                      # không giữ con trỏ của người dùng
-combat.require_locked_mouse = False       # cho phép bắn dù chuột không bị bắt (chỉ trong bài kiểm tra)
+mouse.locked = False                      # do not grab the user's cursor
+combat.require_locked_mouse = False       # allow firing even when the mouse is not captured (test only)
 combat.rng.seed(7)
 S = MoveState
 
@@ -42,7 +42,7 @@ frame_phase = []
 phase = {'name': 'khởi động'}
 skip = {'next': False}
 
-# Bài này đo từng thành phần sway và đường ngắm cho chính xác: tắt mọi phần ngẫu nhiên / tư thế cầm súng của kiểu Bodycam (kiểm riêng ở tools/selftests/g7_selftest.py)
+# This test measures each sway component and the sight line precisely: it turns off all randomness / holding poses of the Bodycam style (checked separately in tools/selftests/g7_selftest.py)
 _g = game.params.gun
 _g.sway.rest_pose = (0.0,) * 6
 _fa = _g.free_aim
@@ -54,7 +54,7 @@ _h.idle_pitch = _h.idle_yaw = _h.idle_roll = _h.idle_y = _h.gun_follow = 0.0
 _a = _g.accuracy
 _a.stand, _a.walk, _a.sprint, _a.air, _a.crouch_multiplier, _a.ads, _a.ads_move, _a.bloom_per_shot = 2.0, 3.5, 4.5, 6.0, 0.7, 0.1, 0.6, 0.25
 
-# ghi lại tư thế mà Game.update đưa cho viewmodel: (kick súng, sway)
+# record the pose that Game.update hands to the viewmodel: (gun kick, sway)
 last = {'poses': ((0,) * 6, (0,) * 6)}
 _orig_vm_update = viewmodel.update
 
@@ -87,7 +87,7 @@ def shot(name, crop=None):
 
 
 def gather_sight_points():
-    """Mọi đỉnh thân súng trong hệ rig (cố định) kèm toạ độ lúc nghỉ trong hệ camera, để chọn vòng sau / cột trước."""
+    """All gun-body vertices in the (fixed) rig frame, with their rest coordinates in the camera frame, to pick the rear ring / front post."""
     rest = viewmodel.rig.get_mat(viewmodel.sway)
     pts = []
     for gnp in viewmodel.actor.find('**/Main_M4_D_0-parent').find_all_matches('**/+GeomNode'):
@@ -102,7 +102,7 @@ def gather_sight_points():
 
 
 def project_px(point):
-    """Điểm trong hệ camera súng -> pixel so với tâm màn hình (x phải, y lên)."""
+    """Point in the gun camera frame -> pixels relative to screen centre (x right, y up)."""
     out = Point2()
     viewmodel.lens.project(Point3(*point), out)
     w, h = window.size
@@ -110,8 +110,8 @@ def project_px(point):
 
 
 def oscillation(timed):
-    """timed = [(t, giá trị)]. Trả về (tần số Hz, biên độ nửa đỉnh-đỉnh). Tần số = (số chu kỳ) / (khoảng giữa lần cắt lên
-    qua trung bình đầu và cuối), cắt nội suy giữa hai khung nên không lệch ±1 chu kỳ ở cửa sổ ngắn."""
+    """timed = [(t, value)]. Returns (frequency Hz, half peak-to-peak amplitude). Frequency = (number of cycles) / (the interval between the upward crossings
+    through the mean from first to last), crossings are interpolated between frames so they are not off by ±1 cycle in a short window."""
     mean = sum(v for _, v in timed) / len(timed)
     crossings = []
     for (t0, v0), (t1, v1) in zip(timed, timed[1:]):
@@ -148,7 +148,7 @@ class Script(Entity):
             t += min(time.dt, 0.05)
 
     def until(self, cond, timeout=3.0):
-        """Chờ tới khi cond() đúng; trả về số giây của game đã trôi (hoặc None nếu quá hạn)."""
+        """Wait until cond() is true; returns the game seconds that passed (or None if it times out)."""
         t = 0.0
         while not cond() and t < timeout:
             yield
@@ -156,7 +156,7 @@ class Script(Entity):
         return t if cond() else None
 
     def sample(self, seconds, getter):
-        """Lấy giá trị `getter()` mỗi khung trong `seconds` giây của game."""
+        """Take the value `getter()` every frame for `seconds` game seconds."""
         out = []
         t = 0.0
         while t < seconds:
@@ -166,7 +166,7 @@ class Script(Entity):
         return out
 
     def sample_timed(self, seconds, getter):
-        """Như sample, nhưng trả về [(giây của game kể từ lúc bắt đầu, giá trị)]."""
+        """Like sample, but returns [(game seconds since the start, value)]."""
         out = []
         t = 0.0
         while t < seconds:
@@ -176,8 +176,8 @@ class Script(Entity):
         return out
 
     def flick(self, rate, seconds, axis=0, after=1.0, shot_name=None):
-        """Quay chuột đều `rate` độ/s (độ nhìn thực, đã bù độ nhạy ADS) trong `seconds`, rồi dừng; ghi tư thế sway mỗi khung
-        trong `seconds + after`. Trả [(giây, tư thế sway)]. Có `shot_name` thì chụp ảnh đúng lúc súng bị bỏ lại xa nhất (yaw)."""
+        """Turn the mouse evenly at `rate` deg/s (real view degrees, ADS sensitivity already compensated) for `seconds`, then stop; record the sway pose every frame
+        for `seconds + after`. Returns [(seconds, sway pose)]. With `shot_name` it takes a screenshot at the moment the gun lags furthest behind (yaw)."""
         sens = pp.mouse_sensitivity * (1.0 + (pp.ads_look_multiplier - 1.0) * (player.ads_amount * player.ads_amount * (3 - 2 * player.ads_amount)))
         rec, t, low, shot_done = [], 0.0, 0.0, shot_name is None
         while t < seconds + after:
@@ -220,7 +220,7 @@ class Script(Entity):
         frame_dts.clear()
         frame_phase.clear()
 
-        # --- A. ADS: thời gian, FOV, tốc độ, độ nhạy ---
+        # --- A. ADS: time, FOV, speed, sensitivity ---
         phase['name'] = 'ADS'
         self.reset_state()
         yield from self.wait(0.3)
@@ -247,7 +247,7 @@ class Script(Entity):
         check('hông lại: độ nhạy chuột về (độ quay khi chuột đi 0,1)', round(player.yaw - yaw0, 3), round(0.1 * pp.mouse_sensitivity, 3),
               abs((player.yaw - yaw0) - 0.1 * pp.mouse_sensitivity) < 0.01)
 
-        # nửa chừng: FOV nằm giữa
+        # halfway: FOV is in between
         player.look(-0.1, 0.0)
         held_keys['right mouse'] = 1
         yield from self.until(lambda: player.ads_amount >= 0.5)
@@ -255,7 +255,7 @@ class Script(Entity):
               gun.ads_fov < camera.fov < pp.fov)
         yield from self.wait(0.4)
 
-        # tốc độ đi khi ngắm
+        # walk speed while aiming
         held_keys['w'] = 1
         yield from self.wait(1.0)
         check('ADS: tốc độ đi (m/s)', round(player.speed, 2), round(pp.walk_speed * pp.ads_speed_multiplier, 2),
@@ -264,7 +264,7 @@ class Script(Entity):
         yield from self.wait(0.8)
         check('thả ngắm: tốc độ đi về (m/s)', round(player.speed, 2), pp.walk_speed, abs(player.speed - pp.walk_speed) < 0.1)
 
-        # ngắm cắt chạy nước rút
+        # aiming cancels sprint
         held_keys['shift'] = 1
         yield from self.wait(0.6)
         check('đang chạy nước rút', player.state.value, 'sprint', player.state is S.SPRINT)
@@ -274,7 +274,7 @@ class Script(Entity):
         held_keys['right mouse'] = 0
         held_keys['w'] = held_keys['shift'] = 0
 
-        # --- B. đường ngắm trùng tâm màn hình (phép chiếu thật) ---
+        # --- B. sight line centred on screen (real projection) ---
         phase['name'] = 'căn đường ngắm'
         self.reset_state()
         pts = gather_sight_points()
@@ -289,7 +289,7 @@ class Script(Entity):
             tip = max(post, key=lambda p: p[1])
             return ring_c, tuple(tip)
 
-        yield from self.wait(0.3)                          # để viewmodel rời tư thế của phần trước (reset không chạy khung nào)
+        yield from self.wait(0.3)                          # so the viewmodel leaves the pose of the previous part (reset runs no frame)
         ring_c, tip = sights()
         rx, ry = project_px(ring_c)
         check('hông: vòng ngắm sau lệch phải so với tâm (px)', f'{rx:.0f}, {ry:.0f}', '> 100', rx > 100)
@@ -305,7 +305,7 @@ class Script(Entity):
         held_keys['right mouse'] = 0
         yield from self.wait(0.5)
 
-        # --- C. sway: thở ---
+        # --- C. sway: breathing ---
         phase['name'] = 'thở'
         self.reset_state()
         yield from self.wait(0.5)
@@ -321,7 +321,7 @@ class Script(Entity):
         held_keys['right mouse'] = 0
         yield from self.wait(0.4)
 
-        # --- D. bob theo bước chân ---
+        # --- D. bob with footsteps ---
         phase['name'] = 'bob'
         bob = {}
         for name, keys, state, speed in (('đi', ['w'], S.WALK, pp.walk_speed), ('chạy', ['w', 'shift'], S.SPRINT, pp.sprint_speed),
@@ -357,11 +357,11 @@ class Script(Entity):
         shot('walk')
         held_keys['w'] = 0
 
-        # --- E. lag theo chuột (MouseLag: hệ bậc hai theo vận tốc quay, nén mềm) ---
+        # --- E. mouse lag (MouseLag: second-order system on turn rate, soft compression) ---
         phase['name'] = 'lag chuột'
         self.reset_state()
         yield from self.wait(0.8)
-        rec = yield from self.flick(240, 0.15, after=1.0)               # 36 độ trong 0,15 s: cú flick vừa
+        rec = yield from self.flick(240, 0.15, after=1.0)               # 36 degrees in 0.15 s: a medium flick
         yaws, pitches, rolls = ([p[i] for _, p in rec] for i in (4, 3, 5))
         peak = -min(yaws)
         check('flick phải 240 độ/s: súng bị bỏ lại bên trái (độ)', round(peak, 2), f'4.5 .. {sw.lag_max * 1.4:.1f}', 4.5 <= peak <= sw.lag_max * 1.4)
@@ -372,19 +372,19 @@ class Script(Entity):
         t_settle = max((t for t, p in rec if abs(p[4]) > max(0.1 * peak, 0.05)), default=0.0) - 0.15
         check('  ổn định sau khi dừng chuột (s)', round(t_settle, 2), '<= 0.5', t_settle <= 0.5)
         check('  rồi súng về giữa (độ)', round(yaws[-1], 3), '< 0.15', abs(yaws[-1]) < 0.15)
-        rec2 = yield from self.flick(60, 1.0, after=0.6)                # xoay chậm 60 độ/s
+        rec2 = yield from self.flick(60, 1.0, after=0.6)                # slow turn at 60 deg/s
         peak2 = -min(p[4] for _, p in rec2)
         check('xoay chậm 60 độ/s: súng lệch nhẹ (độ)', round(peak2, 2), f'1 .. {peak * 0.6:.1f}', 1.0 <= peak2 <= peak * 0.6)
-        rec3 = yield from self.flick(10, 1.0, after=0.6)                # rà tâm chậm 10 độ/s
+        rec3 = yield from self.flick(10, 1.0, after=0.6)                # slow aim-settling at 10 deg/s
         peak3 = -min(p[4] for _, p in rec3)
         check('rà tâm chậm 10 độ/s: lệch rất ít (độ)', round(peak3, 3), '< 0.7', peak3 < 0.7)
-        rec4 = yield from self.flick(240, 0.15, axis=1, after=1.0)      # ngẩng lên
+        rec4 = yield from self.flick(240, 0.15, axis=1, after=1.0)      # look up
         check('ngẩng lên: súng trễ xuống (độ)', round(min(p[3] for _, p in rec4), 2), '< -2', min(p[3] for _, p in rec4) < -2.0)
         check('  kèm dịch xuống (m)', round(min(p[1] for _, p in rec4), 4), '< -0.003', min(p[1] for _, p in rec4) < -0.003)
-        player.yaw, player.pitch = 0.0, 0.0                               # các cú flick đã xoay camera: về hướng thẳng cho ảnh chụp
+        player.yaw, player.pitch = 0.0, 0.0                               # the flicks turned the camera: back to straight ahead for the screenshot
         player._apply_view()
         yield from self.wait(0.3)
-        # ảnh ở đỉnh một cú flick mạnh (hông), rồi lúc ngắm
+        # screenshot at the peak of a strong flick (hip), then while aiming
         yield from self.flick(600, 0.1, after=0.8, shot_name='sway_hip')
         held_keys['right mouse'] = 1
         yield from self.until(lambda: player.ads_amount >= 1.0)
@@ -396,7 +396,7 @@ class Script(Entity):
         held_keys['right mouse'] = 0
         yield from self.wait(0.5)
 
-        # --- F. nhảy, chạm đất, ngồi ---
+        # --- F. jump, landing, crouch ---
         phase['name'] = 'nhảy/ngồi'
         self.reset_state()
         yield from self.wait(0.5)
@@ -435,7 +435,7 @@ class Script(Entity):
         check('đứng lên: súng trễ xuống theo quán tính (m)', round(track['y_low'], 4), '< -0.002', track['y_low'] < -0.002)
         yield from self.wait(0.6)
 
-        # --- G. chạy nước rút: tư thế ---
+        # --- G. sprint: pose ---
         phase['name'] = 'chạy'
         self.reset_state()
         held_keys['w'] = held_keys['shift'] = 1
@@ -479,7 +479,7 @@ class Script(Entity):
         yield from self.wait(0.5)
         check('  và chỉ một phát (đạn còn lại)', combat.weapon.mag, 29, combat.weapon.mag == 29)
 
-        # đứng yên: bắn tức thì
+        # standing still: fires immediately
         self.reset_state()
         yield from self.wait(0.3)
         fired0 = combat.shots_fired
@@ -488,7 +488,7 @@ class Script(Entity):
         held_keys['left mouse'] = 0
         check('đứng yên: bóp cò là bắn ngay (s)', None if t is None else round(t, 3), '< 0.05', t is not None and t < 0.05)
 
-        # cho phép bắn từ tư thế chạy (tuỳ chọn)
+        # allow firing from the sprint pose (optional)
         pp.sprint_blocks_fire = False
         t, state, n = yield from first_shot_delay('không chặn')
         pp.sprint_blocks_fire = True
@@ -496,7 +496,7 @@ class Script(Entity):
         check('  vẫn đang chạy lúc bắn', state.value, 'sprint', state is S.SPRINT)
         yield from self.wait(0.6)
 
-        # thả cò mà còn giữ Shift + W thì chạy lại
+        # release the trigger while still holding Shift + W, then sprint again
         self.reset_state()
         held_keys['w'] = held_keys['shift'] = 1
         yield from self.until(lambda: player.sprint_amount >= 1.0)
@@ -511,7 +511,7 @@ class Script(Entity):
         held_keys['w'] = held_keys['shift'] = 0
         yield from self.wait(0.5)
 
-        # --- I. bắn khi đang vào ADS: độ tản theo mức ADS hiện tại ---
+        # --- I. firing while entering ADS: spread at the current ADS level ---
         phase['name'] = 'bắn lúc vào ADS'
         self.reset_state(auto=False)
         held_keys['right mouse'] = 1
@@ -530,7 +530,7 @@ class Script(Entity):
         held_keys['right mouse'] = 0
         yield from self.wait(0.5)
 
-        # --- J. cảnh tổng hợp ---
+        # --- J. combined scene ---
         phase['name'] = 'xong'
         self.reset_state()
         yield from self.wait(0.3)
@@ -545,7 +545,7 @@ def report():
     print(f"{'mục':68s} {'đo được':>22s} {'mong đợi':>26s}  kết quả")
     for name, got, expected, ok in results:
         print(f'{name:68s} {str(got):>22s} {str(expected):>26s}  {"ĐẠT" if ok else "TRƯỢT"}')
-    # loại phần tự làm chậm khung: quét hàng nghìn đỉnh để căn đường ngắm
+    # exclude the part that slows the frame itself: scanning thousands of vertices to align the sight line
     pairs = [(dt, ph) for dt, ph in zip(frame_dts, frame_phase) if ph != 'căn đường ngắm']
     dts = sorted(dt for dt, _ in pairs)
     n = len(dts)

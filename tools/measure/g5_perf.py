@@ -1,16 +1,16 @@
-"""G5: đo FPS lúc đứng yên so với lúc đang nạp đạn / rút súng, và tìm thứ làm tụt FPS bằng cách tắt từng thứ.
+"""G5: measures FPS while standing still versus while reloading or drawing the rifle, and finds what drops FPS by turning off each thing in turn.
 
-Mỗi lần chạy đo một "biến thể" (tên đưa vào dòng lệnh), vsync tắt, 1280x720:
-  base          nguyên trạng
-  noblend       tắt nội suy giữa hai khung của clip (setBlend(frameBlend=False))
-  nolook        không có shader thế giới (cách cũ: màu phẳng không đèn) để đo chi phí của nó
-  nofx          không có tia lửa / tracer
-  cpuskin       bỏ shader của súng: Panda skin bàn tay trên CPU (cách cũ, để so sánh)
-  noview        không đổi FOV / nhích súng khi nạp
-  nohud         tắt HUD
-In ra FPS trung bình, 1% thấp nhất, khung chậm nhất của từng đoạn: đứng yên, nạp (Reload), nạp (Reload_Empty), rút súng.
+Each run measures one "variant" (name passed on the command line), vsync off, 1280x720:
+  base          as is
+  noblend       turns off interpolation between two clip frames (setBlend(frameBlend=False))
+  nolook        no world shader (old way: flat unlit colour) to measure its cost
+  nofx          no muzzle flash / tracer
+  cpuskin       drops the rifle shader: Panda skins the hands on the CPU (old way, for comparison)
+  noview        no FOV change or rifle nudge while reloading
+  nohud         HUD off
+Prints the average FPS, the 1% low and the slowest frame of each segment: standing still, reloading (Reload), reloading (Reload_Empty), drawing the rifle.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\g5_perf.py base
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\g5_perf.py base
 """
 import sys
 import time as pytime
@@ -49,7 +49,7 @@ elif variant == 'nohud':
     game.hud.update = lambda *a, **k: None
 
 segments = {}
-parts = {}                      # đoạn -> {tên phần: tổng giây}: thời gian Python của từng phần trong Game.update
+parts = {}                      # segment -> {part name: total seconds}: Python time of each part of Game.update
 
 
 def timed(obj, name, label):

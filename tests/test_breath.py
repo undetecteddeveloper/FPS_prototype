@@ -1,4 +1,4 @@
-"""Tiếng thở khi đứng yên: một hơi mỗi chu kỳ thở của sway, cùng đồng hồ với sự nhấp nhô của súng."""
+"""Idle breathing sound: one breath per breath cycle of the sway, on the same clock as the gun's bob."""
 import array
 import math
 import wave
@@ -41,7 +41,7 @@ def test_breath_cadence_does_not_depend_on_fps(fps):
 
 
 def test_breath_starts_when_the_gun_starts_rising():
-    """Hơi thở bắt đầu ở pha dọc sin(2w + 0,6) = 0 đang đi lên: súng bắt đầu nhô lên."""
+    """Breathing starts at vertical phase sin(2w + 0.6) = 0 while rising: the gun starts to rise."""
     out = run(12.0, 240)
     for t, _ in out:
         arg = 2 * math.pi * SWAY.breath_freq * t * 2 + SWAY_BREATH_OFFSET
@@ -49,7 +49,7 @@ def test_breath_starts_when_the_gun_starts_rising():
 
 
 def test_no_breath_in_the_first_cycle_mid_way():
-    """Lần đầu không phát ngay giữa chu kỳ."""
+    """The first breath is not played right in the middle of a cycle."""
     assert run(0.5) == []
 
 
@@ -66,7 +66,7 @@ def test_breath_quieter_when_aiming_and_when_moving_a_little():
 
 
 def test_breath_clock_is_the_sways():
-    """Đồng hồ thở lấy từ Sway.clock: chạy Sway thật thì số hơi thở đúng chu kỳ."""
+    """The breath clock is taken from Sway.clock: with a real Sway running, the breath count matches the cycle."""
     sway, b, n = Sway(SWAY), Breathing(AUDIO, SWAY), 0
     for _ in range(60 * 30):
         sway.update(1 / 60, SwayInput(S.IDLE, 0.0, 0.0, 0.0))
@@ -75,7 +75,7 @@ def test_breath_clock_is_the_sways():
 
 
 def test_breath_sound_files_fit_one_sway_cycle():
-    """Mỗi file thở dài xấp xỉ một chu kỳ (game kéo giãn 0,85-1,2 lần cho vừa), không có tiếng tách ở hai đầu."""
+    """Each breath file lasts about one cycle (the game stretches it by 0.85-1.2x to fit), with no click at either end."""
     files = sorted((ROOT / AUDIO.folder).glob('el_breath_*.wav'))
     assert len(files) >= 2
     for f in files:

@@ -1,8 +1,8 @@
-"""G5: đọc animation reload để tìm MỐC THAY BĂNG: khung nào băng cũ rời súng, băng mới vào chỗ, bolt chạy.
-Đặt tư thế bằng pose(clip, khung) rồi đo tâm hộp bao của từng phần so với thân súng (Main), cùng tư thế sẵn sàng (cuối Draw).
-Không mở cửa sổ.
+"""G5: reads the reload animation to find the MAGAZINE-SWAP CUES: which frame the old magazine leaves the rifle, the new magazine seats, and the bolt runs.
+Sets the pose with pose(clip, frame), then measures the bounding-box centre of each part relative to the rifle body (Main), against the ready pose (end of Draw).
+Opens no window.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\g5_reload_probe.py
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\g5_reload_probe.py
 """
 import sys
 from pathlib import Path
@@ -51,7 +51,7 @@ def snap(clip, frame):
     bundle.force_update()
     c = {k: center(n) for k, n in nodes.items()}
     main = c['Main']
-    return {k: (v - main) * 1.0 for k, v in c.items()}      # tâm so với thân súng, đơn vị cm
+    return {k: (v - main) * 1.0 for k, v in c.items()}      # centre relative to the rifle body, in cm
 
 
 ready = snap('Draw', M4.clips['draw'].end)
@@ -72,7 +72,7 @@ for key in ('reload', 'reload_empty'):
     for f in range(clip.start, clip.end + 1):
         s = snap(clip.anim, f)
         d1 = dist(s['Mag1'], ready['Mag1'])
-        d2 = dist(s['Mag2'], ready['Mag1'])           # chỗ băng = chỗ của Mag1 lúc sẵn sàng
+        d2 = dist(s['Mag2'], ready['Mag1'])           # magazine seat = Mag1's position in the ready pose
         db = dist(s['Bolt'], ready['Bolt'])
         dc = dist(s['Catch'], ready['Catch'])
         dbul = [dist(s[k], ready['Mag1']) for k in ('Bul0', 'Bul1') if k in s]
@@ -83,7 +83,7 @@ for key in ('reload', 'reload_empty'):
     end = snap(clip.anim, clip.end)
     print('  cuối clip so với tư thế sẵn sàng (cm): ' + ', '.join(f'{k} {dist(end[k], ready[k]):.2f}' for k in ('Main', 'Mag1', 'Bolt', 'Catch')))
 
-# khớp tay: cuối mỗi clip có trùng tư thế sẵn sàng không?
+# hand fit: does the end of each clip match the ready pose?
 from panda3d.core import Mat4  # noqa: E402
 
 joints = [j for j in actor.getJoints()]

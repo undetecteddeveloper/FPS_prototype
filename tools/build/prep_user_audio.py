@@ -1,16 +1,16 @@
-r"""Cắt hai file âm thanh do người dùng cung cấp thành các tiếng riêng cho game (stdlib thuần, không numpy).
+r"""Cut the two user-supplied audio files into separate game sounds (pure stdlib, no numpy).
 
-Nguồn (giữ nguyên, nằm trong assets\sounds\source):
-  reload_user_original.wav          1,0 s: 3 cú va kim loại (chốt băng, băng vào chỗ, bolt) + tiếng băng trượt rất nhỏ giữa chúng
-  footstep_wood_user_original.wav   3,0 s: 4 bước chân trên sàn gỗ cách nhau ~0,7 s (mỗi bước là gót rồi mũi chân)
-Ra assets\sounds\foley\user_<tên>_<số>.wav, cùng định dạng với các tiếng khác (48 000 Hz, 2 kênh, 16 bit).
+Sources (kept as they are, in assets\sounds\source):
+  reload_user_original.wav          1.0 s: 3 metal impacts (magazine catch, magazine seated, bolt) + a very quiet magazine slide between them
+  footstep_wood_user_original.wav   3.0 s: 4 footsteps on a wooden floor, ~0.7 s apart (each step is heel, then toe)
+Output assets\sounds\foley\user_<name>_<index>.wav, same format as the other sounds (48 000 Hz, 2 channels, 16 bit).
 
-Điểm cắt đo bằng đường bao 5 ms (xem SLICES). `onset` là lúc cú va bắt đầu TÍNH TỪ ĐẦU lát cắt: lát cắt được cắt sát (cách mốc 10-15 ms)
-để mốc khung của SoundCue trong weapon_data đặt thẳng vào lúc va, không phải bù. Mỗi lát: mở đầu mờ vào (FADE_IN), mờ cuối (fade_out), nhân âm lượng theo `peak`
-(đỉnh sau chuẩn hoá từng lát; bước chân gốc to nhỏ chênh tới 7 dB nên chuẩn hoá về cùng đỉnh cho đều).
+Cut points are measured with a 5 ms envelope (see SLICES). `onset` is when the impact starts, MEASURED FROM THE START of the slice: each slice is cut tight (10-15 ms before the cue)
+so the frame cue of SoundCue in weapon_data lands exactly on the impact, with no offset. Each slice fades in at the start (FADE_IN), fades out at the end (fade_out), and its volume is multiplied by `peak`
+(peak after normalizing each slice; the original footsteps differ in loudness by up to 7 dB, so they are normalized to the same peak for evenness).
 
-Chạy:  .venv\Scripts\python.exe -X utf8 tools\build\prep_user_audio.py
-Game nối chúng qua AudioData.sound_files (tên logic -> nhóm file), nên đổi file chỉ cần chạy lại công cụ này.
+Run:  .venv\Scripts\python.exe -X utf8 tools\build\prep_user_audio.py
+The game links them through AudioData.sound_files (logical name -> file group), so changing a file only needs this tool re-run.
 """
 import array
 import sys
@@ -22,14 +22,14 @@ SRC = ROOT / 'assets' / 'sounds' / 'source'
 OUT = ROOT / 'assets' / 'sounds' / 'foley'
 FADE_IN = 0.002      # s
 
-# (nhóm, file nguồn, [(bắt đầu s, kết thúc s, mờ cuối s)], đỉnh đích sau chuẩn hoá)
+# (group, source file, [(start s, end s, fade-out s)], target peak after normalization)
 SLICES = {
-    # reload: chốt băng (onset 0,070), băng trượt vào (nhỏ, 0,245..0,358), băng vào chỗ (onset 0,363), bolt (onset 0,605; còn một cú nhẹ ở 0,65)
+    # reload: magazine catch (onset 0.070), magazine slide-in (quiet, 0.245..0.358), magazine seated (onset 0.363), bolt (onset 0.605; a light extra knock at 0.65)
     'user_mag_release': ('reload_user_original.wav', [(0.058, 0.200, 0.020)], 0.60),
     'user_mag_in':      ('reload_user_original.wav', [(0.245, 0.358, 0.006)], 0.25),
     'user_mag_seat':    ('reload_user_original.wav', [(0.353, 0.560, 0.030)], 0.80),
     'user_bolt':        ('reload_user_original.wav', [(0.590, 0.780, 0.040)], 0.85),
-    # bước chân gỗ: 4 bước, onset 0,530 / 1,240 / 1,970 / 2,640; mỗi lát từ 12 ms trước onset tới 0,30 s sau
+    # wood footsteps: 4 steps, onset 0.530 / 1.240 / 1.970 / 2.640; each slice runs from 12 ms before its onset to 0.30 s after
     'user_step':        ('footstep_wood_user_original.wav',
                          [(0.518, 0.832, 0.050), (1.228, 1.542, 0.050), (1.958, 2.272, 0.050), (2.628, 2.942, 0.050)], 0.85),
 }
@@ -74,7 +74,7 @@ def write(path: Path, x: list, ch: int, sr: int):
 
 
 def build() -> dict:
-    """{tên file: (kênh, tần số, mẫu float interleaved)} cho mọi lát cắt (chưa ghi)."""
+    """{file name: (channels, rate, interleaved float samples)} for every slice (not written yet)."""
     result = {}
     cache = {}
     for group, (src, spans, peak) in SLICES.items():

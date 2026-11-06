@@ -1,7 +1,7 @@
-"""Lỗ đạn gộp thành mesh: một lần vẽ cho cả bể, thay vì một Entity (một lần vẽ) cho mỗi lỗ. Bể 200 Entity làm FPS tụt dần theo số phát đã bắn.
+"""Bullet holes merged into meshes: one draw call for the whole pool, instead of one Entity (one draw call) per hole. A pool of 200 Entities made FPS drop steadily as shots were fired.
 
-Mỗi chủ nhân một mesh: lỗ trên tường / sàn / bia đứng yên chung một mesh; mỗi bia chạy một mesh riêng gắn vào `target.root` nên lỗ đi theo bia. Mỗi lỗ là 4 đỉnh;
-hết chỗ thì tái dùng lỗ cũ nhất (vòng tròn). Lỗ chưa dùng là 4 đỉnh trùng nhau nên không vẽ gì. Mesh chỉ đẩy lại lên GPU khi có lỗ mới.
+Each owner has one mesh: holes on walls / floor / still targets share one mesh; each moving target gets its own mesh attached to `target.root` so its holes follow it. Each hole is 4 vertices;
+when full, the oldest hole is reused (circular buffer). Unused holes are 4 coincident vertices, so nothing is drawn. The mesh is re-uploaded to the GPU only when a new hole is added.
 """
 import math
 
@@ -16,7 +16,7 @@ WHITE = (1.0, 1.0, 1.0, 1.0)
 
 
 def _basis(normal: tuple) -> tuple:
-    """Hai trục nằm trên mặt trúng, vuông góc với pháp tuyến."""
+    """Two axes lying on the hit surface, perpendicular to the normal."""
     nx, ny, nz = normal
     ax = (0.0, 1.0, 0.0) if abs(ny) < 0.9 else (1.0, 0.0, 0.0)
     ux, uy, uz = ax[1] * nz - ax[2] * ny, ax[2] * nx - ax[0] * nz, ax[0] * ny - ax[1] * nx
@@ -26,7 +26,7 @@ def _basis(normal: tuple) -> tuple:
 
 
 class _Batch:
-    """Một mesh `capacity` lỗ, đặt dưới `parent`."""
+    """One mesh holding `capacity` holes, placed under `parent`."""
 
     def __init__(self, capacity: int, parent, texture):
         self.capacity = capacity
@@ -52,12 +52,12 @@ class _Batch:
         self.entity.set_depth_offset(2)
         self.entity.set_two_sided(True)
         self.entity.set_bin('transparent', 0)
-        node.set_bounds(OmniBoundingVolume())       # đỉnh đổi lúc chạy: không để hộp bao cũ làm mất lỗ mới; mesh nhỏ nên khỏi cần cắt
+        node.set_bounds(OmniBoundingVolume())       # vertices change at runtime: do not let a stale bounding box hide new holes; the mesh is small, so no culling is needed
         node.set_final(True)
         self.geom = geom
 
     def write(self, center: tuple, normal: tuple, size: float, tint: tuple):
-        """Ghi một lỗ vào ô kế tiếp. `center` trong hệ của `parent`."""
+        """Write one hole into the next slot. `center` is in the `parent` frame."""
         (ux, uy, uz), (vx, vy, vz) = _basis(normal)
         h = size / 2.0
         row = self.next * 4
@@ -80,26 +80,26 @@ class HoleDecals:
         self.static = _Batch(params.max_holes, scene, texture)
         self.by_owner = {}                 # target.root -> _Batch
         self.used = 0
-        self.last_position = None          # lỗ vừa đặt, toạ độ thế giới (cho kiểm tra)
-        self.last_local = None             # lỗ vừa đặt, so với vật nó gắn vào
+        self.last_position = None          # last hole placed, world coordinates (for checks)
+        self.last_local = None             # last hole placed, relative to the object it is attached to
         self.last_parent = None
         self.last_size = 0.0
 
     @property
     def entities(self) -> list:
-        """Các Entity mang mesh, để gán shader thế giới."""
+        """The Entities that carry the meshes, so the world shader can be assigned to them."""
         return [self.static.entity, *(b.entity for b in self.by_owner.values())]
 
     def prepare_owner(self, parent):
-        """Tạo sẵn mesh cho một bia chạy lúc dựng game: tạo giữa lúc bắn sẽ khựng."""
+        """Create the mesh for a moving target while the game is built: creating it during shooting would stutter."""
         batch = _Batch(self.mover_capacity, parent, self.texture)
         self.by_owner[parent] = batch
         return batch
 
     def add(self, point, normal, distance: float, parent=None, tint=None):
-        """`parent` = target.root nếu lỗ phải đi theo một vật chạy."""
+        """`parent` = target.root if the hole must follow a moving object."""
         fb = self.params
-        offset = 0.02 + 0.0002 * distance      # nhích ra khỏi mặt phẳng: ở xa độ phân giải độ sâu thô (~1 cm ở 150 m)
+        offset = 0.02 + 0.0002 * distance      # nudge off the surface: far away the depth resolution is coarse (~1 cm at 150 m)
         world = tuple(p + n * offset for p, n in zip(point, normal))
         size = hole_size(distance, fb.hole_base_size, fb.hole_size_per_meter)
         rgba = (tint.r, tint.g, tint.b, tint.a) if tint is not None else WHITE

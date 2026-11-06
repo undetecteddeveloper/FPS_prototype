@@ -1,8 +1,8 @@
-"""Phòng tập kín: chụp ảnh các góc nhìn bằng game thật vào shots\\room_*.png để xem tường, đèn, bóng, sàn gạch.
+"""Closed range: takes screenshots of the views with the real game into shots\\room_*.png to check the walls, lamps, shadows and tile floor.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\room_shots.py [true|fake|off]   (chế độ bóng, mặc định theo LookData)
-Ảnh: lane (nhìn dọc làn từ vạch bắn), side (tường bên), back (phía sau), pillar (sát cột), target (sát bia 10 m),
-     z10 / z100 (đứng ở 10 m / 100 m nhìn xuôi), up (ngẩng nhìn trần), down (nhìn sàn gạch dưới chân), wallhit (lỗ đạn trên tường).
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\room_shots.py [true|fake|off]   (shadow mode, default from LookData)
+Images: lane (looking down the lane from the firing line), side (side wall), back (behind), pillar (close to a pillar), target (close to a 10 m target),
+     z10 / z100 (standing at 10 m / 100 m, looking downrange), up (looking up at the ceiling), down (looking at the tile floor below), wallhit (bullet hole on the wall).
 """
 import sys
 from pathlib import Path
@@ -25,7 +25,7 @@ if mode is not None and game.look:
 player = game.player
 mouse.locked = False
 
-VIEWS = [  # tên, vị trí người chơi, yaw, pitch
+VIEWS = [  # name, player position, yaw, pitch
     ('lane', (0, 0, 0), 0, 0),
     ('side', (0, 0, 3), 90, 0),
     ('back', (2, 0, 5), 180, 0),
@@ -75,7 +75,7 @@ class Script(Entity):
             for _ in range(6):
                 yield
             shot(name)
-        # bắn vào tường phải (giữa hai cột) để thấy lỗ đạn trên tường
+        # shoot the right wall (between two pillars) to see the bullet hole on the wall
         place((6, 0, 5), 90, 0)
         for _ in range(4):
             yield

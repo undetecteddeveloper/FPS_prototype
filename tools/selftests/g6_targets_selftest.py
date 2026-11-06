@@ -1,19 +1,19 @@
-"""G6: bia chạy + biển khoảng cách, bằng game thật.
+"""G6: moving targets + distance signs, with the real game.
 
-Đo:
-  - bố cục: 3 bia chạy (25 / 100 / 200 m: 1,5 / 3 / 4 m/s) + 3 bia đứng; hành lang chạy không chạm cột / tường / biển / cột mốc;
-    bia chạy không che hẳn bia đứng quá ~1/6 thời gian (nhìn từ vạch bắn)
-  - chuyển động: tốc độ đúng khi chạy bằng khung thật, chạm đúng hai biên rồi quay đầu, nghỉ đúng ở mỗi đầu, vị trí KHÔNG phụ thuộc FPS
-  - bắn: bắn có đón đầu vào bia chạy trúng đúng chỗ (độ lệch < 1 cm so với phép tính), bắn không đón thì trượt; quyết định trúng/trượt ở mép bia
-    giống nhau ở 20 / 60 / 240 FPS (hộp bia dò theo từng bước nhỏ, không lấy vị trí cuối khung); loạt liên thanh vào bia đang đi ngang
-  - phản hồi: lỗ đạn đi theo bia chạy, hit marker, nháy màu, khoảng cách HUD
-  - bóng: bóng thật của bia chạy được vẽ lại (và ngừng khi bia đứng yên), bóng đổ theo bia (so sáng sàn trong hai ảnh)
-  - biển: đủ 6 mốc x 2 bên, chữ có thật trong texture, nhìn từ vạch bắn nhận ra đúng số (so khớp mẫu với ảnh chụp thật)
-  - FPS xen kẽ: đứng yên / chạy + bóng thật / chạy + bóng giả / chạy + không bóng, cùng một lần chạy
-Ảnh vào shots\\targets_*.png.
+Measures:
+  - layout: 3 moving targets (25 / 100 / 200 m: 1.5 / 3 / 4 m/s) + 3 standing targets; the running lanes do not touch columns / walls / signs / markers;
+    a moving target does not hide a standing target for more than ~1/6 of the time (seen from the firing line)
+  - motion: correct speed when running with real frames, touches both edges then turns around, rests at each end, position does NOT depend on FPS
+  - firing: shots with lead hit the moving target exactly where calculated (error < 1 cm), shots without lead miss; hit/miss is decided at the target edge
+    identical at 20 / 60 / 240 FPS (the target box is swept in small steps, not taken at the end-of-frame position); a full-auto burst into the crossing target
+  - feedback: bullet holes follow the moving target, hit marker, colour flash, HUD distance
+  - shadows: the real shadow of a moving target is redrawn (and stops when the target stands still), the shadow moves with the target (compare floor brightness in two shots)
+  - signs: all 6 distances x 2 sides, the text really is in the texture, the correct number is readable from the firing line (matched against a real screenshot)
+  - interleaved FPS: still / running + real shadows / running + fake shadows / running + no shadows, in one run
+Screenshots go to shots\\targets_*.png.
 
-Chạy (qua ổ khoá):  .venv\\Scripts\\python.exe -X utf8 tools\\with_game_lock.py .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g6_targets_selftest.py
-(thoát mã 1 nếu có mục trượt)
+Run (through the lock):  .venv\\Scripts\\python.exe -X utf8 tools\\with_game_lock.py .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g6_targets_selftest.py
+(exits with code 1 if any item fails)
 """
 import math
 import statistics
@@ -36,14 +36,14 @@ from fps.core.signs import SignLayout, sign_rect  # noqa: E402
 from fps.game.shooting_range import DISTANCE_MARKS, aabb_of  # noqa: E402
 from fps.game.targets import LAYOUT, MOVERS, PATROL_EDGE_X, TARGET_THICKNESS, build_targets  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, hud=True, free_aim=False, lens=False)          # bia chạy BẬT (mặc định của game thật)
+game = create_game(vsync=False, sound=False, draw=False, hud=True, free_aim=False, lens=False)          # moving targets ON (the real game's default)
 player, combat, look = game.player, game.combat, game.look
 gun = game.params.gun
-# giật đều, chỉ đi lên: bài này đo độ chính xác va chạm với bia chạy chứ không đo cú giật
+# even kick, upward only: this test measures hit accuracy against moving targets, not the kick
 gun.recoil.up, gun.recoil.up_noise, gun.recoil.right_bias, gun.recoil.right_noise, gun.recoil.right_walk, gun.recoil.camera_share = 0.33, 0.03, 0.03, 0.0, 0.0, 1.0
 mouse.locked = False
 combat.require_locked_mouse = False
-for _name in ('stand', 'walk', 'sprint', 'air', 'ads', 'ads_move', 'bloom_per_shot'):      # đo hướng đạn nên tắt độ tản (như g2)
+for _name in ('stand', 'walk', 'sprint', 'air', 'ads', 'ads_move', 'bloom_per_shot'):      # measures bullet direction, so spread is off (as in g2)
     setattr(gun.accuracy, _name, 0.0)
 
 results = []
@@ -92,14 +92,14 @@ def restore(t, s):
 
 
 def place(t, x, direction=1.0):
-    """Đặt bia chạy ở x, đi theo `direction`, đang chạy (không nghỉ)."""
+    """Place the moving target at x, moving along `direction`, currently running (no rest)."""
     t.motion_enabled = True
     t.patrol.reset(x, direction)
     t.root.x = t.x_start = t.x_end = x
 
 
 def park_others(t, x=7.0):
-    """Đứng yên mọi bia chạy khác và dời sang bên phải (x = 7) để chúng không chắn đường đạn nhắm vào bia `t`."""
+    """Freeze every other moving target and move it to the right (x = 7) so they do not block the bullet path aimed at target `t`."""
     for m in MOVING:
         if m is not t:
             m.motion_enabled = False
@@ -142,7 +142,7 @@ def static_boxes():
 def screen_px(p):
     out = Point2()
     camera.lens.project(camera.getRelativePoint(application.base.render, Point3(*p)), out)
-    return (out.x + 1) / 2 * window.size[0], (1 - out.y) / 2 * window.size[1]      # pixel ảnh (gốc trên-trái)
+    return (out.x + 1) / 2 * window.size[0], (1 - out.y) / 2 * window.size[1]      # image pixels (origin top-left)
 
 
 def luma(img):
@@ -172,19 +172,19 @@ class Script(Entity):
         for _ in range(n):
             yield
 
-    # --- bắn theo bước cố định bằng đúng đường mã của game (combat.update) ---
+    # --- fire at a fixed step through the game's own code path (combat.update) ---
     def manual_shot(self, t, dt, offset, x0=-5.0, direction=1.0, stop_on_hit=False):
-        """Đặt bia chạy `t` ở x0 rồi bắn MỘT phát nhắm sao cho đạn tới vị trí (tâm bia lúc đạn tới + `offset`), chạy `combat.update(dt, dt)`
-        tới khi đạn hết. Trả về dict: hit (bia trúng?), local_x của lỗ đạn trên bia, mong đợi, hit marker..."""
+        """Place moving target `t` at x0, then fire ONE shot aimed so the bullet arrives at the position (target centre when the bullet arrives + `offset`), run `combat.update(dt, dt)`
+        until the bullet is spent. Returns a dict: hit (target hit?), local_x of the bullet hole on the target, expected, hit marker..."""
         reset_combat()
-        freeze(True)                            # chỉ bia `t` chạy: bia khác không được chắn đường đạn
+        freeze(True)                            # only target `t` runs: other targets must not block the bullet
         park_others(t)
         place(t, x0, direction)
         v = t.patrol.speed * direction
         z_hit = t.distance - TARGET_THICKNESS / 2
         theta = 0.0
-        for _ in range(4):                      # nghiệm lặp: thời gian bay phụ thuộc nhẹ vào góc
-            t_hit = dt + z_hit / (gun.muzzle_velocity * math.cos(theta))      # phát đầu nổ ở CUỐI khung đầu (age 0)
+        for _ in range(4):                      # iterative solution: flight time depends slightly on the angle
+            t_hit = dt + z_hit / (gun.muzzle_velocity * math.cos(theta))      # the first shot fires at the END of the first frame (age 0)
             x_target = x0 + v * t_hit
             theta = math.atan2(x_target + offset, z_hit)
         aim(math.degrees(theta))
@@ -218,7 +218,7 @@ class Script(Entity):
     def run(self):
         yield from self.wait(0.6)
 
-        # --- A. bố cục ---
+        # --- A. layout ---
         check('có 6 bia: 3 chạy, 3 đứng', (len(MOVING), len(STANDING)), '(3, 3)', (len(MOVING), len(STANDING)) == (3, 3))
         check('bia chạy ở 25 / 100 / 200 m', sorted(t.distance for t in MOVING), '[25, 100, 200]',
               sorted(t.distance for t in MOVING) == [25.0, 100.0, 200.0])
@@ -234,13 +234,13 @@ class Script(Entity):
         statics = static_boxes()
         clash = [(t.distance, i) for t in MOVING for i, b in enumerate(statics) if boxes_overlap(t.sweep_aabb(), b)]
         check(f'hành lang bia chạy không chạm cột / tường / dầm / trần / cột mốc / biển ({len(statics)} hộp)', clash, '[]', not clash)
-        # bia chạy che bia đứng: so khoảng góc nhìn từ vạch bắn
+        # a moving target hides a standing target: compare the angular gap seen from the firing line
         worst_full, worst_any = 0.0, 0.0
         for m in MOVING:
             lo, hi = m.patrol.lo, m.patrol.hi
             for s in STANDING:
                 if s.distance <= m.distance:
-                    continue                                               # chỉ bia chạy ĐỨNG TRƯỚC bia đứng mới che nó
+                    continue                                               # only a moving target IN FRONT of a standing target can hide it
                 full = any_ = 0
                 n = 2000
                 s_lo, s_hi = (s.root.x - s.width / 2) / s.distance, (s.root.x + s.width / 2) / s.distance
@@ -253,7 +253,7 @@ class Script(Entity):
         print(f'CHE: bia chạy che HẲN một bia đứng tối đa {worst_full * 100:.1f}% thời gian, che MỘT PHẦN tối đa {worst_any * 100:.1f}% (nhìn từ vạch bắn)')
         check('bia chạy che hẳn bia đứng phía sau <= 15% thời gian', round(worst_full, 3), '<= 0.15', worst_full <= 0.15)
         check('bia chạy che một phần bia đứng phía sau <= 35% thời gian', round(worst_any, 3), '<= 0.35', worst_any <= 0.35)
-        # build_targets(moving=False): tất cả đứng yên ở x của LAYOUT
+        # build_targets(moving=False): all stand still at the x of LAYOUT
         still = build_targets(game.params.feedback, moving=False)
         check('moving=False: mọi bia đứng yên ở x của LAYOUT', [(t.distance, t.root.x, t.patrol) for t in still][:2], 'LAYOUT, không patrol',
               all(t.patrol is None and t.root.x == LAYOUT[int(t.distance)] for t in still) and len(still) == 6)
@@ -261,8 +261,8 @@ class Script(Entity):
             t.root.enabled = False
             t.plate.enabled = False
 
-        # --- B. chuyển động ---
-        # B1. tốc độ khi chạy bằng khung thật (đoạn thẳng dài, không quay đầu)
+        # --- B. motion ---
+        # B1. speed when running with real frames (long straight stretch, no turnaround)
         saved = {t: snapshot(t) for t in MOVING}
         for t in MOVING:
             speed_ok = []
@@ -270,10 +270,10 @@ class Script(Entity):
             yield
             xs, dts = [t.root.x], []
             n = 0
-            while n < 40:                                                  # ~0,7 s: đủ ngắn để không chạm biên (đi tối đa 3 m)
+            while n < 40:                                                  # ~0.7 s: short enough not to touch an edge (at most 3 m)
                 yield
                 xs.append(t.root.x)
-                dts.append(combat.frame_dt)                                # dt mà bia vừa dùng
+                dts.append(combat.frame_dt)                                # the dt the target just used
                 n += 1
             measured = (xs[-1] - xs[0]) / sum(dts)
             check(f'tốc độ đo bằng khung thật, bia {t.distance:.0f} m (m/s)', round(measured, 3), t.patrol.speed,
@@ -281,7 +281,7 @@ class Script(Entity):
         for t, s in saved.items():
             restore(t, s)
 
-        # B2. chạm hai biên, quay đầu, nghỉ: mô phỏng bước cố định (không qua cửa sổ)
+        # B2. touch both edges, turn around, rest: simulated with a fixed step (no window)
         for t in MOVING:
             s0 = snapshot(t)
             p = t.patrol
@@ -307,10 +307,10 @@ class Script(Entity):
                   abs(min(xs) - p.lo) < 1e-5 and abs(max(xs) - p.hi) < 1e-5)
             check(f'  quay đầu >= 4 lần trong 2,2 vòng', turns, '>= 4', turns >= 4)
             check(f'  nghỉ ở mỗi đầu đúng {p.pause:.2f} s (+-1 khung)', round(max_rest * dt, 3), p.pause, abs(max_rest * dt - p.pause) <= dt * 1.5)
-            check(f'  luôn trong biên', (round(min(xs), 3), round(max(xs), 3)), f'[{p.lo:.2f}, {p.hi:.2f}]', min(xs) >= p.lo - 1e-5 and max(xs) <= p.hi + 1e-5)      # root.x là float32: sai số ~1e-6
+            check(f'  luôn trong biên', (round(min(xs), 3), round(max(xs), 3)), f'[{p.lo:.2f}, {p.hi:.2f}]', min(xs) >= p.lo - 1e-5 and max(xs) <= p.hi + 1e-5)      # root.x is float32: error ~1e-6
             restore(t, s0)
 
-        # B3. vị trí không phụ thuộc FPS: cùng quãng thời gian, bước 1/20, 1/60, 1/144 và bước thất thường
+        # B3. position does not depend on FPS: same time span, steps 1/20, 1/60, 1/144 and an irregular step
         t = target(100)
         s0 = snapshot(t)
         finals = []
@@ -328,10 +328,10 @@ class Script(Entity):
             k += 1
         finals.append(t.root.x)
         spread = max(finals) - min(finals)
-        check('vị trí sau 13,5 s giống nhau ở 20 / 60 / 144 / 240 FPS và bước thất thường (mm)', round(spread * 1000, 4), '< 0.5', spread < 0.0005)       # root.x là float32
+        check('vị trí sau 13,5 s giống nhau ở 20 / 60 / 144 / 240 FPS và bước thất thường (mm)', round(spread * 1000, 4), '< 0.5', spread < 0.0005)       # root.x is float32
         restore(t, s0)
 
-        # --- C. bắn trúng bia chạy ---
+        # --- C. hitting moving targets ---
         t = target(200)
         v = t.patrol.speed
         infos = {}
@@ -355,7 +355,7 @@ class Script(Entity):
             for label in ('ngoài mép +1,15', 'ngoài mép -1,15'):
                 inf = infos[(dt, label)]
                 check(f'[{tag}] {label} m: TRƯỢT', not inf['hit'], True, not inf['hit'])
-        # không đón đầu thì trượt (bia 200 m đi 4 m/s, đạn bay 0,4 s -> lệch 1,6 m > nửa rộng 1,1 m)
+        # without leading it misses (target at 200 m moves 4 m/s, bullet flies 0.4 s -> offset 1.6 m > half width 1.1 m)
         reset_combat()
         freeze(True)
         park_others(t)
@@ -370,7 +370,7 @@ class Script(Entity):
         check('bắn thẳng vào chỗ bia ĐANG đứng (không đón đầu): trượt bia 200 m', imp is not None and imp.owner is not t, True,
               imp is not None and imp.owner is not t)
 
-        # --- D. phản hồi (lần trúng giữa ở 60 FPS) ---
+        # --- D. feedback (middle hit at 60 FPS) ---
         mid = infos[(1 / 60, 'giữa')]
         check('hit marker bật lúc trúng bia chạy', round(mid['marker'], 3), '> 0', mid['marker'] > 0)
         check('bia chạy nháy màu lúc trúng', round(mid['flash'], 3), '> 0', mid['flash'] > 0)
@@ -381,9 +381,9 @@ class Script(Entity):
         check('HUD hiện khoảng cách bia chạy vừa trúng', mid['hud_text'], f'{expect_dist:.0f} m', mid['hud_text'] == f'{expect_dist:.0f} m')
         check('HUD: hit marker hiện (alpha)', round(mid['hud_marker'], 2), '> 0', mid['hud_marker'] > 0)
 
-        # lỗ đạn đi theo bia: bắn, rồi để bia chạy tiếp 1 s (bước cố định) -> lỗ cũng đi đúng bấy nhiêu và vẫn đứng yên trên mặt bia
+        # bullet hole follows the target: fire, then let the target run on for 1 s (fixed step) -> the hole moves exactly as much and stays still on the target face
         info = self.manual_shot(t, 1 / 60, 0.4, x0=-5.0, stop_on_hit=True)
-        decal = combat.decals.by_owner[t.root].entity                # mesh lỗ đạn của riêng bia này
+        decal = combat.decals.by_owner[t.root].entity                # bullet-hole mesh of this target only
         local0, world0 = decal.position[0], decal.world_position.x
         root0 = t.root.x
         check('lỗ đạn gắn vào target.root (đi theo bia)', decal.parent is t.root, True, decal.parent is t.root)
@@ -395,13 +395,13 @@ class Script(Entity):
         check('  toạ độ của lỗ trên bia không đổi (cm)', round((decal.position[0] - local0) * 100, 4), 0, abs(decal.position[0] - local0) < 1e-6)
         combat.bullets.clear()
 
-        # --- E. loạt liên thanh bằng khung thật vào bia 25 m đang đi ngang qua tâm ngắm cố định ---
+        # --- E. full-auto burst with real frames into the 25 m target crossing the fixed aim point ---
         t = target(25)
         reset_combat(auto=True)
         combat.weapon.mag = 30
         freeze(True)
         place(t, -1.0, 1.0)
-        aim(0.0, 3.0)                       # ngắm thấp (ngực/bụng): recoil kéo tâm ngắm lên dần mà vẫn trong thân bia cao 1,9 m
+        aim(0.0, 3.0)                       # aim low (chest/belly): recoil slowly pulls the aim point up, but it stays within the 1.9 m tall target body
         holes_before = combat.decals.count
         hits_before = combat.target_hits
         used = []
@@ -415,7 +415,7 @@ class Script(Entity):
             yield
             if combat.target_hits > last_hits:
                 last_hits = combat.target_hits
-                if combat.last_impact.owner is t:          # đạn cuối loạt có thể vượt qua bia gần và trúng bia xa phía sau
+                if combat.last_impact.owner is t:          # the last bullet of the burst may pass the near target and hit the far one behind
                     used.append((t.root.x, combat.decals.last_local[0]))
             marker_seen = marker_seen or max(e.color.a for e in game.hud.hit_marker) > 0
             if game.hud.last_hit.text:
@@ -431,7 +431,7 @@ class Script(Entity):
         if len(locals_) >= 3:
             drift = locals_[-1] - locals_[0]
             check('  lỗ dạt dần về phía sau bia (bia đi sang phải, ngắm cố định): rải qua bề rộng (cm)', round(drift * 100, 1), '< -15', drift < -0.15)
-            inc = sum(1 for a, b in zip(locals_, locals_[1:]) if b < a + 0.04)     # cho phép nhiễu recoil nhỏ
+            inc = sum(1 for a, b in zip(locals_, locals_[1:]) if b < a + 0.04)     # allow for small recoil noise
             check('  thứ tự lỗ giảm dần theo thời gian', f'{inc}/{len(locals_) - 1}', 'gần hết', inc >= len(locals_) - 2)
         check('  hit marker hiện trong loạt', marker_seen, True, marker_seen)
         check('  HUD hiện "25 m"', sorted(hud_texts), "['25 m']", hud_text_seen)
@@ -442,7 +442,7 @@ class Script(Entity):
         yield from self.frames(6)
         shot('burst')
 
-        # --- F. bóng thật của bia chạy ---
+        # --- F. real shadows of moving targets ---
         restore_state = {m: snapshot(m) for m in MOVING}
         reset_combat()
         t = target(25)
@@ -459,13 +459,13 @@ class Script(Entity):
         check('bóng bia chạy được vẽ lại khi bia chạy (lần/s tổng, 3 bia)', round(rate, 1), f'~{expect:.0f} (FPS thấp thì ít hơn)',
               0.5 * expect <= rate <= expect * 1.2)
         freeze(True)
-        yield from self.frames(40)                      # đủ cho mọi bia tới lượt vẽ lại lần cuối (6 lần/s mỗi bia)
+        yield from self.frames(40)                      # enough for every target to get its last redraw (6 times/s per target)
         r0 = look.mover_shadow_refreshes
         yield from self.frames(60)
         check('bia đứng yên: bóng không bị vẽ lại', look.mover_shadow_refreshes - r0, 0, look.mover_shadow_refreshes == r0)
-        # hai ảnh: bia 25 m ở x = -2,5 rồi +2,5; vùng sàn quanh chỗ bia đứng lần đầu phải tối hơn khi bia ở đó
+        # two shots: 25 m target at x = -2.5 then +2.5; the floor area around where the target first stood must be darker when the target is there
         for m in (target(100), target(200)):
-            m.root.x = m.x_start = m.x_end = m.patrol.x = (-6.0 if m.distance == 100 else 6.0)           # đẩy hai bia kia ra xa khỏi khung ảnh
+            m.root.x = m.x_start = m.x_end = m.patrol.x = (-6.0 if m.distance == 100 else 6.0)           # push the other two targets away from the frame
         player.position = (0, 0, 12)
         player.yaw, player.pitch = 0.0, 22.0
         player._apply_view()
@@ -477,7 +477,7 @@ class Script(Entity):
             look._mover_drawn_x.clear()
             yield from self.frames(25)
             imgs[label] = Image.open(shot(f'mover_shadow_{label}')).convert('L')
-        # độ sáng ở mỗi điểm sàn (cửa sổ 9x9 quanh điểm chiếu) khi bia ở A so với khi bia ở B
+        # floor brightness at each point (9x9 window around the projected point) when the target is at A vs at B
         def patch(img, p, r=5):
             x, y = screen_px(p)
             x, y = int(x), int(y)
@@ -488,7 +488,7 @@ class Script(Entity):
         for p in floor_pts:
             a, b = patch(imgs['a'], p), patch(imgs['b'], p)
             rows.append((p[0], p[2], a, b))
-        # bia ở A (x=-2,5): các điểm x=-2,5 phải tối hơn so với lúc bia ở B (và ngược lại)
+        # target at A (x=-2.5): the points at x=-2.5 must be darker than when the target is at B (and vice versa)
         ratio_a = statistics.mean(a / max(b, 1e-6) for x, z, a, b in rows if x == pos_a)
         ratio_b = statistics.mean(b / max(a, 1e-6) for x, z, a, b in rows if x == pos_b)
         print(f'BÓNG: độ sáng sàn quanh bia (tỉ lệ khi bia ở đó / khi bia ở chỗ khác): bên trái {ratio_a:.2f}, bên phải {ratio_b:.2f}')
@@ -498,7 +498,7 @@ class Script(Entity):
             restore(m, s)
         aim(0.0)
 
-        # --- G. biển khoảng cách ---
+        # --- G. distance signs ---
         rects = game.world['sign_rects']
         check('đủ biển: 6 mốc x 2 bên', len(rects), 12, len(rects) == 12 and sorted({d for d, _, _ in rects}) == sorted(DISTANCE_MARKS))
         atlas = game.world['sign_atlas'].pil_image
@@ -517,7 +517,7 @@ class Script(Entity):
         player.position = (0, 0, 0)
         player._apply_view()
         freeze(True)
-        # bài này tắt ống kính; lúc chơi ống kính phóng giữa khung (1 + fisheye) lần nên đo ở FOV tương đương của giữa khung, như mắt người chơi thấy
+        # this test turns the lens off; during play the lens magnifies the centre of the frame (1 + fisheye) times, so it is measured at the centre-frame equivalent FOV, as the player sees it
         saved_fov = game.params.player.fov
         game.params.player.fov = equivalent_center_fov(saved_fov, game.params.lens.fisheye)
         yield from self.frames(8)
@@ -553,7 +553,7 @@ class Script(Entity):
             check(f'  tương phản chữ / nền (0..255)', hi_p - lo_p, '>= 40', hi_p - lo_p >= 40)
             check(f'  nhận ra đúng số bằng so khớp mẫu', f'{best} (điểm {scores[d]:+.2f})', f'{d}', best == d)
         game.params.player.fov = saved_fov
-        # ảnh phóng gần (ngắm) cho biển xa nhất
+        # close-up screenshot (aiming) for the farthest sign
         player.position = (0, 0, 0)
         player.yaw, player.pitch = 0.0, 3.0
         player._apply_view()
@@ -575,7 +575,7 @@ class Script(Entity):
         shot('sign10')
         freeze(False)
 
-        # --- H. FPS xen kẽ ---
+        # --- H. interleaved FPS ---
         MODES = [('đứng yên + bóng thật', True, True), ('chạy + bóng thật', False, True), ('chạy + bóng giả', False, 'fake'), ('chạy + không bóng', False, False)]
         samples = {m[0]: [] for m in MODES}
         views = [((0, 0, 0), 0.0, 0.0), ((0, 0, 20), 0.0, 3.0), ((0, 0, 100), 10.0, 2.0)]

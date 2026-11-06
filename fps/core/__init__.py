@@ -1,1 +1,1 @@
-"""Toán thuần: không import ursina, kiểm thử được bằng pytest mà không mở cửa sổ."""
+"""Pure math: no ursina import; testable with pytest without opening a window."""

@@ -1,9 +1,9 @@
-"""Áp camera shake (core/shake.py) lên màn hình: camera thế giới và súng.
+"""Applies camera shake (core/shake.py) to the screen: world camera and gun.
 
-Rung chỉ đặt vào `camera.position/rotation` (tương đối so với `player.camera_pivot`). `Player.aim_ray()` đọc yaw/pitch/độ cao từ chính
-`Player` chứ không đọc camera: tia ngắm, hướng đạn, độ tản và recoil không thấy rung. Chỉ ảnh dựng ra là rung.
-Dấu đã đo bằng phép chiếu thật (tools/selftests/g6_shake_selftest.py kiểm lại): rotation_x dương = nhìn xuống, rotation_y dương = quay phải,
-rotation_z dương = nghiêng phải (điểm bên phải màn hình đi LÊN).
+Shake is applied only to `camera.position/rotation` (relative to `player.camera_pivot`). `Player.aim_ray()` reads yaw/pitch/height from the
+`Player` itself, not from the camera: aim ray, bullet direction, spread and recoil do not see the shake. Only the rendered image shakes.
+Signs measured with the real projection (tools/selftests/g6_shake_selftest.py re-checks them): rotation_x positive = looking down, rotation_y positive = turn right,
+rotation_z positive = tilt right (the point on the right side of the screen goes UP).
 """
 from ursina import camera
 
@@ -13,11 +13,11 @@ from fps.core.shake import Shake
 class ShakeView:
     def __init__(self, shake: Shake, head=None):
         self.shake = shake
-        self.head = head                 # core.headcam.HeadCam: chuyển động đầu + thân + liếc súng khi nạp, cũng thuần hình ảnh (Game.update gọi head.update trước apply)
+        self.head = head                 # core.headcam.HeadCam: head + body motion and glancing at the gun during reload; also image-only (Game.update calls head.update before apply)
 
     def apply(self, ads: float) -> tuple:
-        """Đặt rung + chuyển động đầu lên camera thế giới; trả về tư thế cộng thêm cho súng (đưa vào Viewmodel.update, `visual`).
-        Phần liếc súng của HeadCam đi theo `glance_follow` (~1) nên lúc cúi nhìn súng, súng đi lên giữa khung chứ không dính ống kính."""
+        """Sets shake + head motion on the world camera; returns the extra pose for the gun (fed to Viewmodel.update, `visual`).
+        The glance part of HeadCam follows `glance_follow` (~1), so when looking down at the gun, the gun rises to the middle of the frame instead of sticking to the lens."""
         sh = self.shake
         camera_pose = sh.camera_pose(ads) if sh.active else (0.0,) * 6
         gun_pose = sh.gun_pose(ads) if sh.active else (0.0,) * 6

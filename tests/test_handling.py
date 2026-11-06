@@ -23,10 +23,10 @@ def test_reload_changes_ammo_only_at_the_swap_frame():
     h, w = make(mag=12)
     assert h.start_reload()
     run(h, M4.clips['reload'].swap_time - 0.1)
-    assert (w.mag, w.reserve) == (12, 150)                  # chưa tới lúc băng mới vào chỗ
+    assert (w.mag, w.reserve) == (12, 150)                  # the new magazine has not seated yet
     run(h, 0.2)
-    assert (w.mag, w.reserve) == (30, 132)                  # lấy đúng 18 viên
-    assert h.busy                                           # nhưng clip còn chạy tiếp (tay còn nhả băng, kéo tay)
+    assert (w.mag, w.reserve) == (30, 132)                  # takes exactly 18 rounds
+    assert h.busy                                           # but the clip keeps playing (the hand still releasing the magazine, pulling the bolt)
 
 
 def test_reload_finishes_after_the_clip_duration():
@@ -81,7 +81,7 @@ def test_cannot_start_a_reload_while_busy():
     assert not h.start_draw()
     h2, _ = make()
     h2.start_draw()
-    assert not h2.start_reload()                            # đang rút súng chưa nạp được
+    assert not h2.start_reload()                            # cannot reload while the gun is being drawn
 
 
 def test_cancel_before_swap_keeps_ammo_untouched():
@@ -92,7 +92,7 @@ def test_cancel_before_swap_keeps_ammo_untouched():
     assert h.phase is Phase.READY
     assert (w.mag, w.reserve) == (12, 150)
     run(h, 5.0)
-    assert (w.mag, w.reserve) == (12, 150)                  # huỷ rồi thì không tự nạp nữa
+    assert (w.mag, w.reserve) == (12, 150)                  # after the cancel, it no longer reloads by itself
 
 
 def test_cancel_after_swap_keeps_the_new_magazine():
@@ -122,7 +122,7 @@ def test_draw_cannot_be_cancelled_and_blocks_fire_then_releases():
     assert not h.can_fire
     run(h, 0.1)
     assert h.can_fire
-    assert (w.mag, w.reserve) == (30, 150)                  # rút súng không đụng tới đạn
+    assert (w.mag, w.reserve) == (30, 150)                  # drawing the gun does not touch the ammo
 
 
 def test_speed_scales_the_time_but_not_the_swap_frame():
@@ -132,9 +132,9 @@ def test_speed_scales_the_time_but_not_the_swap_frame():
     run(h, half - 0.05)
     assert w.mag == 12
     run(h, 0.1)
-    assert w.mag == 30                                      # tốc độ x2: thay băng sau một nửa thời gian
+    assert w.mag == 30                                      # speed x2: the magazine is swapped after half the time
     clip = M4.clips['reload']
-    assert h.remaining == pytest.approx((clip.duration - clip.swap_time) / 2 - 0.05, abs=0.02)   # đã chạy half + 0,05 s thật
+    assert h.remaining == pytest.approx((clip.duration - clip.swap_time) / 2 - 0.05, abs=0.02)   # has really run half + 0.05 s
 
 
 def test_frame_follows_the_clip_and_stays_in_range():
@@ -147,14 +147,14 @@ def test_frame_follows_the_clip_and_stays_in_range():
     h.update(0.5)
     assert clip.start < h.frame <= clip.end
     run(h, 5.0)
-    assert h.frame is None                                  # xong thì không còn khung
+    assert h.frame is None                                  # when finished, there is no frame any more
 
 
 def test_hitch_frame_jumping_over_the_swap_still_swaps_once():
     h, w = make(mag=12)
     h.start_reload()
     h.update(0.2)
-    h.update(3.0)                                           # một khung treo 3 s: vượt qua mốc thay băng
+    h.update(3.0)                                           # one frame hangs for 3 s: it passes the magazine-swap mark
     assert (w.mag, w.reserve) == (30, 132)
     events = [e[0] for e in h.drain()]
     assert events.count('swap') == 1

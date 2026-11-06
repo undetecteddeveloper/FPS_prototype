@@ -14,7 +14,7 @@ def rendered():
 
 def test_every_group_has_enough_variants():
     for name in ('step_walk', 'step_run'):
-        assert pf.SOUNDS[name][0] >= 4                                  # 4-6 bản mỗi loại bước chân
+        assert pf.SOUNDS[name][0] >= 4                                  # 4-6 variants per footstep type
     assert pf.SOUNDS['land'][0] >= 3
 
 
@@ -38,24 +38,24 @@ def test_no_clipping_no_pop_no_dead_air(rendered):
         peak = max(abs(v) for v in x)
         target = pf.SOUNDS[name][2]
         assert peak == pytest.approx(target, abs=0.002), (name, i)
-        assert peak < 0.98                                              # còn chỗ trống phía trên thang đầy
-        assert abs(x[0]) < 1e-3 and abs(x[-1]) < 1e-3, (name, i)       # mở đầu và kết thúc ở 0: không có tiếng bụp
-        assert abs(sum(x) / len(x)) < 0.01 * peak, (name, i)            # không lệch một chiều
-        assert 0.04 < len(x) / pf.RATE < 0.7, (name, i)                 # có độ dài hợp lý (không câm, không kéo lê)
+        assert peak < 0.98                                              # leaves headroom below full scale
+        assert abs(x[0]) < 1e-3 and abs(x[-1]) < 1e-3, (name, i)       # starts and ends at 0: no pop
+        assert abs(sum(x) / len(x)) < 0.01 * peak, (name, i)            # no DC offset
+        assert 0.04 < len(x) / pf.RATE < 0.7, (name, i)                 # reasonable length (not silent, not dragged out)
         rms = (sum(v * v for v in x) / len(x)) ** 0.5
-        assert rms > 0.02, (name, i)                                    # không phải tiếng gần như câm
+        assert rms > 0.02, (name, i)                                    # not an almost-silent sound
 
 
 def test_tail_decays_before_the_fade(rendered):
-    """Mẫu cuối cùng 10 ms mờ dần từ mức đã thấp, không phải bị cắt ngang lúc còn to."""
+    """The last 10 ms fades out from an already low level, not cut off mid-way while still loud."""
     fade = pf.n_of(pf.FADE_OUT)
     for (name, i), x in rendered.items():
         peak = max(abs(v) for v in x)
-        assert max(abs(v) for v in x[-fade - pf.n_of(0.004):-fade]) < 0.12 * peak, (name, i)   # dưới -18 dB
+        assert max(abs(v) for v in x[-fade - pf.n_of(0.004):-fade]) < 0.12 * peak, (name, i)   # below -18 dB
 
 
 def test_attack_is_sharp(rendered):
-    """Kim loại / gót giày có đầu tiếng nhọn: đỉnh nằm trong 25 ms đầu (trừ tiếng cọ bắt đầu bằng ma sát)."""
+    """Metal and heel strikes have a sharp attack: the peak lies within the first 25 ms (except scrapes that start with friction)."""
     for (name, i), x in rendered.items():
         if name in ('mag_out', 'mag_in', 'draw_a', 'jump'):
             continue
@@ -74,7 +74,7 @@ def test_files_match_the_standard_of_the_gun_shot(tmp_path):
 
 
 def test_committed_files_are_up_to_date():
-    """assets/sounds/foley/*.wav phải đúng là đầu ra hiện tại của tools/build/prep_foley.py (sửa công thức thì phải chạy lại và commit)."""
+    """assets/sounds/foley/*.wav must be exactly the current output of tools/build/prep_foley.py (after changing the formula, re-run and commit)."""
     for name, i in ALL:
         path = pf.ROOT / 'assets' / 'sounds' / 'foley' / f'{name}_{i}.wav'
         assert path.exists(), f'thiếu {path.name}: chạy tools\\build\\prep_foley.py'

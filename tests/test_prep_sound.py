@@ -9,7 +9,7 @@ RATE = 48000
 
 
 def stereo_shot(silence=0.048, burst=0.3, total=2.0, amp=20000):
-    """Im lặng, rồi một tiếng nổ giảm dần, rồi im lặng; hai kênh giống nhau."""
+    """Silence, then a decaying bang, then silence; both channels identical."""
     out = array.array('h')
     for i in range(round(total * RATE)):
         t = i / RATE
@@ -23,31 +23,31 @@ def stereo_shot(silence=0.048, burst=0.3, total=2.0, amp=20000):
 def test_find_onset_reports_the_first_loud_frame():
     s = stereo_shot(silence=0.048)
     assert find_onset(s, 2) / RATE == pytest.approx(0.048, abs=0.004)
-    assert find_onset(array.array('h', [0] * 100), 2) == 0                       # toàn im lặng: không có gì để cắt
+    assert find_onset(array.array('h', [0] * 100), 2) == 0                       # all silence: nothing to cut
 
 
 def test_trim_removes_the_leading_silence_but_keeps_the_start_of_the_bang():
     s = stereo_shot(silence=0.048)
     out = trim(s, 2, RATE)
     first_loud = find_onset(out, 2) / RATE
-    assert first_loud == pytest.approx(PRE_ROLL, abs=0.004)                      # nổ ngay ở đầu file (trễ ~3 ms thay vì 48 ms)
-    assert max(abs(x) for x in out[:2 * round(0.012 * RATE)]) > 0.2 * 32768     # không cắt mất đầu tiếng nổ
+    assert first_loud == pytest.approx(PRE_ROLL, abs=0.004)                      # the bang is right at the start of the file (delay ~3 ms instead of 48 ms)
+    assert max(abs(x) for x in out[:2 * round(0.012 * RATE)]) > 0.2 * 32768     # does not cut off the start of the bang
 
 
 def test_trim_length_and_fade_out():
     out = trim(stereo_shot(), 2, RATE)
     frames = len(out) // 2
     assert frames / RATE == pytest.approx(PRE_ROLL + KEEP, abs=0.001)
-    assert out[-1] == 0 and out[-2] == 0                                         # kết thúc ở 0, không có tiếng "tách"
+    assert out[-1] == 0 and out[-2] == 0                                         # ends at 0, with no "click"
     tail = out[-2 * round(FADE * RATE):]
     peaks = [max(abs(x) for x in tail[i:i + 960]) for i in range(0, len(tail) - 960, 960)]
-    assert peaks == sorted(peaks, reverse=True)                                  # mờ dần đơn điệu
+    assert peaks == sorted(peaks, reverse=True)                                  # fades out monotonically
 
 
 def test_trim_keeps_channels_in_step():
     out = trim(stereo_shot(), 2, RATE)
     assert len(out) % 2 == 0
-    assert all(out[i] == out[i + 1] for i in range(0, len(out), 2))              # hai kênh vẫn giống nhau (không lệch kênh)
+    assert all(out[i] == out[i + 1] for i in range(0, len(out), 2))              # both channels still identical (no channel skew)
 
 
 def test_trim_short_sound_does_not_crash():

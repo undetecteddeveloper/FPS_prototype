@@ -47,11 +47,11 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 ## 6. Tài nguyên AI
 | Loại | Công cụ | Ghi chú |
 |---|---|---|
-| Ảnh / video | Higgsfield qua Composio (Nano Banana Pro, Seedance) | 3D AI Studio có Qwen 2.1 / Nano 2.1 rẻ cho bản nháp |
+| Ảnh / video | Higgsfield qua Composio, bộ **`higgsfield_mcp`** (đăng nhập bằng tài khoản; Nano Banana Pro = `nano_banana_pro`, Seedance = `seedance_2_5`). KHÔNG dùng bộ `higgsfield` cũ (chỉ có Soul, khoá API đã hỏng, báo 401) | Ảnh 1k chỉ 2 credit (đo 6/11/2026). Kết quả trả về dạng job: gọi `HIGGSFIELD_MCP_JOB_STATUS` (sync) lấy URL rồi tải về. 3D AI Studio có Qwen 2.1 / Nano 2.1 rẻ cho bản nháp |
 | Nhạc | ElevenLabs `music_v1` qua Composio | |
-| Tiếng hiệu ứng | ElevenLabs `eleven_text_to_sound_v2` (HOẶC `generate_sound_effect` của 3D AI Studio, rẻ) | V3 chỉ là model GIỌNG NÓI |
+| Tiếng hiệu ứng | ElevenLabs qua Composio `ELEVENLABS_GENERATE_SOUND_EFFECTS` với `model_id: eleven_text_to_sound_v3` (công cụ cho chọn v2 hoặc v3; theo yêu cầu người dùng luôn dùng V3). Trả về URL tạm 1 giờ: tải về ngay | Lệnh không trả số credit đã tốn |
 | Giọng nói | ElevenLabs V3 | Cần xác minh ID chính xác trước khi ghi cứng |
-| Model / texture 3D | 3D AI Studio (nối trực tiếp, không qua Composio): Prism 3.1 mặc định, Meshy 7.1 khi cần texture 4K/8K, P2 khi cần quad | Danh sách không có Tripo |
+| Model / texture 3D | 3D AI Studio (nối trực tiếp, không qua Composio): Prism 3.1 mặc định, Meshy 7.1 khi cần texture 4K/8K, P2 khi cần quad | Danh sách không có Tripo. CẢNH BÁO: Prism 3.1 xuất ~1,4 triệu tam giác (41,7 MB) cho một khẩu súng lục: phải hạ số mặt (`low_poly_model` 15-35 credit, hoặc dùng P2 game-ready) trước khi đưa vào game |
 - Phân loại: tài nguyên CHỦ CHỐT (súng, tiếng súng, tiếng nạp, tay) đi thẳng công cụ chính; ĐỒ PHỤ (đạo cụ, nền, tiếng nền, thử nghiệm) đi đường rẻ.
 - Cổng duyệt: người dùng duyệt TỪNG CÁI, và CHƯA xem/nghe thì CHƯA được duyệt. Mỗi mục kèm prompt + công cụ + chi phí credit. Lô lớn gom thành một bảng để duyệt một lượt.
 - Xem/nghe thử (nghiên cứu 6/11/2026; chỉ phiên chạy trong CLAUDE DESKTOP mới thấy thẻ xem, phiên VS Code chưa kiểm):
@@ -72,7 +72,7 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 
 ## 6c. Comment tiếng Anh (người dùng chốt 6/11/2026)
 - Mọi comment và docstring trong mã (`fps/`, `tests/`, `tools/`, `assets/shaders`) viết bằng TIẾNG ANH. Giữ nguyên TIẾNG VIỆT: chữ hiển thị cho người (HUD, bảng F1 và `param_meta`, tên mục của selftest, thông báo lỗi cho người dùng) và mọi file `.md` / `CREDITS.txt`.
-- Đợt dịch toàn bộ một lần cho mã hiện có (CHƯA LÀM): subagent model rẻ dịch theo nhóm file không chồng nhau; kiểm bằng cách so cây AST đã bỏ docstring trước/sau (phải trùng) cộng pytest; mã GLSL chỉ đổi phần comment. Các số đo nằm trong comment phải giữ nguyên chữ số và đơn vị.
+- Đợt dịch toàn bộ cho mã hiện có (ĐÃ LÀM 6/11/2026: 106 file .py + 8 file GLSL, kiểm đạt, còn 0 dòng comment tiếng Việt): subagent model rẻ dịch theo nhóm file không chồng nhau; kiểm bằng cách so cây AST đã bỏ docstring trước/sau (phải trùng) cộng pytest; mã GLSL chỉ đổi phần comment. Các số đo nằm trong comment phải giữ nguyên chữ số và đơn vị.
 - Truy nguyên: mỗi tài nguyên giữ prompt, công cụ, model, seed trong `assets/source/` (hoặc `sounds/source/`) để làm lại được; ghi nguồn/giấy phép vào `CREDITS.txt`.
 
 ## 7. Hạ tầng và multiplayer
@@ -91,9 +91,8 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 ## 9. Việc còn mở
 - NỢ HIỆU NĂNG: `perf_scenarios` bắn liên thanh khi ngắm 51,7 FPS (ngưỡng 55); tổng 77,1 đạt. Cần phiên tối ưu riêng.
 - NỢ KIỂM TRA: sau G7 `tools\selftests\audio_selftest.py` trượt 11/50 mục (kỳ vọng cũ: chưa tính tiếng thở `breath`, tiếng ElevenLabs dài hơn, số nhóm tiếng 15 thay vì 11); g1-g7 và g5/g6 chưa chạy lại đầy đủ.
-- Xác minh ID model giọng nói của ElevenLabs V3 trước khi dùng.
+- Mẫu xem thử súng lục (6/11/2026) nằm ở `assets/review/pistol_sample/`; chờ người dùng duyệt từng cái. Higgsfield ghi nhận model thực chạy là `nano_banana_2` dù yêu cầu `nano_banana_pro`: cần kiểm lại.
 - Xác minh Cloudflare có đủ cho tần số cập nhật của FPS 4 người (đo thật, đừng đoán).
 - Tripo không có trong 3D AI Studio: hỏi người dùng muốn dùng đường khác hay thay bằng Prism/P2.
 - Thử xem/nghe thử trong Claude Desktop với ElevenLabs và Higgsfield (mục 6, mỗi nền tảng một bản rẻ nhất), ghi kết quả vào mục 6.
-- Đợt dịch comment sang tiếng Anh (mục 6c): chờ người dùng nói bắt đầu.
 - Chưa có cách tự đọc số dư ElevenLabs (khoá thiếu quyền) nên số dư do người dùng khai.

@@ -1,10 +1,10 @@
-"""Súng đung đưa trên màn hình (toán thuần, không import ursina).
+"""Viewmodel gun sway on screen (pure math, no ursina import).
 
-Gồm: thở lúc đứng yên, lag theo chuột, bob theo bước chân, tư thế chạy nước rút, quán tính theo chuyển động dọc
-của camera (nhảy, ngồi, rơi) + cú nhún khi chạm đất, và tư thế ADS đưa mắt ngắm vào giữa màn hình.
+Includes: breathing while standing still, mouse lag, bob with footsteps, the sprint pose, inertia on vertical camera motion
+(jump, crouch, fall) plus the landing bump, and the ADS pose that brings the sight to the centre of the screen.
 
-Mọi tư thế là (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải), mét và độ, cùng quy ước với
-`GunKick.pose`; `Viewmodel.update` cộng chúng lại rồi đặt lên nút `sway`. Trạng thái di chuyển đọc từ MoveState.
+Every pose is (x right, y up, z forward, pitch up, yaw right, roll right), metres and degrees, same convention as
+`GunKick.pose`; `Viewmodel.update` adds them together and sets them on the `sway` node. Movement state is read from MoveState.
 """
 import math
 from dataclasses import dataclass
@@ -19,20 +19,20 @@ MOVING_ON_GROUND = (MoveState.WALK, MoveState.SPRINT, MoveState.CROUCH_WALK)
 
 @dataclass
 class SwayInput:
-    """Ảnh chụp chuyển động của người chơi cho một khung hình."""
+    """Snapshot of the player's motion for one frame."""
     state: MoveState
-    speed: float                  # tốc độ ngang, m/s
-    ads_amount: float             # 0 hông .. 1 ngắm hẳn (tiến độ tuyến tính; đường cong êm áp ở đây)
-    sprint_amount: float          # 0 .. 1, tương tự
-    look: tuple = (0.0, 0.0)      # (yaw sang phải, pitch lên) độ mà CHUỘT vừa quay trong khung này
-    eye_dy: float = 0.0           # camera đi lên (+) / xuống (-) bao nhiêu mét trong khung này
-    landed: float = 0.0           # tốc độ chạm đất (m/s) nếu vừa chạm đất, ngược lại 0
-    jumped: float = 0.0           # tốc độ bật lên (m/s) nếu vừa nhảy trong khung này, ngược lại 0 (camera đầu: xung lúc bật)
+    speed: float                  # horizontal speed, m/s
+    ads_amount: float             # 0 hip .. 1 fully aimed (linear progress; the smooth curve is applied here)
+    sprint_amount: float          # 0 .. 1, similar
+    look: tuple = (0.0, 0.0)      # (yaw right, pitch up) degrees the MOUSE turned during this frame
+    eye_dy: float = 0.0           # camera moved up (+) / down (-) by this many metres in this frame
+    landed: float = 0.0           # landing speed (m/s) if it landed this frame, otherwise 0
+    jumped: float = 0.0           # launch speed (m/s) if it jumped this frame, otherwise 0 (head cam: impulse on launch)
 
 
-# --- tư thế ADS ---
+# --- ADS pose ---
 def apply_pose(point: tuple, pose: tuple) -> tuple:
-    """Áp tư thế lên một điểm, đúng thứ tự của Panda (roll, rồi pitch, rồi heading), roll theo chiều kim đồng hồ."""
+    """Apply a pose to a point, in Panda's order (roll, then pitch, then heading), roll clockwise."""
     x, y, z = point
     tx, ty, tz, pitch_up, yaw_right, roll_right = pose
     r, p, h = math.radians(roll_right), math.radians(pitch_up), math.radians(yaw_right)
@@ -43,10 +43,10 @@ def apply_pose(point: tuple, pose: tuple) -> tuple:
 
 
 def ads_pose(rear: tuple, front: tuple, eye_relief: float) -> tuple:
-    """Tư thế đưa đường ngắm (tâm vòng sau -> đỉnh cột trước) trùng trục nhìn của camera, vòng sau cách mắt `eye_relief`.
-    Xoay quanh mắt cho đường ngắm song song trục z, rồi tịnh tiến cho vòng sau nằm trên trục."""
+    """Pose that brings the sight line (rear ring centre -> front post top) onto the camera's view axis, with the rear ring `eye_relief` from the eye.
+    Rotates about the eye so the sight line is parallel to the z axis, then translates so the rear ring lies on the axis."""
     dx, dy, dz = front[0] - rear[0], front[1] - rear[1], front[2] - rear[2]
-    pitch_up = -math.degrees(math.atan2(dy, dz))                       # đường ngắm chếch lên thì chúc nòng xuống
+    pitch_up = -math.degrees(math.atan2(dy, dz))                       # sight line tilted up -> pitch the barrel down
     dz1 = math.hypot(dy, dz)
     yaw_right = -math.degrees(math.atan2(dx, dz1))
     turned = apply_pose(rear, (0.0, 0.0, 0.0, pitch_up, yaw_right, 0.0))
@@ -54,7 +54,7 @@ def ads_pose(rear: tuple, front: tuple, eye_relief: float) -> tuple:
 
 
 def ads_target_for(gun: GunData) -> tuple:
-    """Tư thế ADS của một khẩu súng, tính từ hai điểm ngắm đo trên mô hình (không có thì không dịch gì)."""
+    """ADS pose for a gun, computed from its two sight points measured on the model (no points -> no shift)."""
     if gun.ads_sights is None:
         return ZERO_POSE
     rear, front = ([c + h for c, h in zip(point, gun.hip_offset)] for point in gun.ads_sights)
@@ -67,38 +67,38 @@ def _add(total: list, pose, scale: float = 1.0):
 
 
 class MouseLag:
-    """Súng bị bỏ lại phía sau khi xoay chuột (trễ theo VẬN TỐC quay), toán thuần, nghiệm chính xác theo dt.
+    """The gun lags behind when the mouse turns (lag follows the angular VELOCITY). Pure math, exact solution for each dt.
 
-    Súng bám góc nhìn qua hệ bậc hai (tần số `lag_omega`, giảm chấn `lag_zeta`): g'' + 2ζω g' + ω² g = ω² x + r·2ζω x',
-    x = góc nhìn, g = góc súng, r = `lag_follow`. Màn hình thấy độ lệch e = g - x, nên
+    The gun tracks the view angle through a second-order system (frequency `lag_omega`, damping `lag_zeta`): g'' + 2ζω g' + ω² g = ω² x + r·2ζω x',
+    x = view angle, g = gun angle, r = `lag_follow`. The screen sees the error e = g - x, so
         e'' + 2ζω e' + ω² e = -x'' - (1-r)·2ζω x'.
-    Mỗi khung x' (= ve) coi như hằng: vận tốc của SÚNG liên tục (e' nhảy -Δve), lực hằng đưa điểm cân bằng sang
-    e_eq = -(1-r)·2ζ·ve/ω, rồi giải chính xác như `Spring.step` (không Euler, ổn ở mọi FPS). Hệ tuyến tính nên khi chuột
-    dừng súng đuổi kịp, vượt (ζ<1) rồi lắc về chỗ cũ: độ quá đà do `lag_zeta` quyết định.
+    each frame x' (= ve) is treated as constant: the gun's velocity is continuous (e' jumps by -Δve), and a constant force moves the equilibrium point to
+    e_eq = -(1-r)·2ζ·ve/ω, then solved exactly like `Spring.step` (no Euler, stable at any FPS). The system is linear: when the mouse
+    stops the gun catches up, overshoots (ζ<1), then wobbles back to where it was; the overshoot is set by `lag_zeta`.
 
-    Phi tuyến chỉ nằm ở ĐẦU VÀO (vận tốc đã làm mượt `lag_smooth`, để chuột 1000 Hz rung số đếm không làm sai):
-      - ngưỡng mềm `lag_deadzone`: xoay chậm khi ngắm chính xác thì gần như không làm súng nhúc nhích;
-      - nén mềm tanh tới `lag_max / lag_gain` (độ/s): xoay rất mạnh không bị cắt phẳng (kẹp cứng gây cảm giác cứng) mà tiệm cận.
-    Chuẩn hoá: ở tốc độ quay ve cố định (vùng tuyến tính) súng lệch `lag_gain * ve` độ, không phụ thuộc omega/zeta.
+    Non-linearity sits ONLY at the INPUT (the velocity after smoothing with `lag_smooth`, so a 1000 Hz mouse with quantised counts does not distort it):
+      - soft dead zone `lag_deadzone`: slow turns while aiming precisely barely move the gun;
+      - soft tanh compression toward `lag_max / lag_gain` (deg/s): very fast turns are not cut off flat (a hard clamp feels stiff) but approach the limit.
+    Normalised: at a constant turn speed ve (linear region) the gun lags by `lag_gain * ve` degrees, independent of omega / zeta.
     """
 
     def __init__(self, data: SwayData):
         self.d = data
-        self.v_smooth = [0.0, 0.0]           # vận tốc quay đã làm mượt (độ/s): (yaw phải, pitch lên)
-        self.v_in = [0.0, 0.0]               # vận tốc sau ngưỡng + nén mềm
-        self.spring = Spring(2, data.lag_omega, data.lag_zeta)     # x = e - e_eq (độ), v = e' (độ/s)
-        self.e_eq = [0.0, 0.0]               # điểm cân bằng của e ở khung này; e = spring.x + e_eq
+        self.v_smooth = [0.0, 0.0]           # smoothed turn velocity (deg/s): (yaw right, pitch up)
+        self.v_in = [0.0, 0.0]               # velocity after the dead zone + soft compression
+        self.spring = Spring(2, data.lag_omega, data.lag_zeta)     # x = e - e_eq (deg), v = e' (deg/s)
+        self.e_eq = [0.0, 0.0]               # equilibrium point of e this frame; e = spring.x + e_eq
 
     def shape(self, v: float) -> float:
-        """Vận tốc quay thô (độ/s) -> vận tốc đưa vào lò xo: ngưỡng mềm rồi nén tanh."""
+        """Raw turn velocity (deg/s) -> velocity fed to the spring: soft dead zone, then tanh compression."""
         d = self.d
         knee = v * abs(v) / (abs(v) + d.lag_deadzone) if d.lag_deadzone > 0 else v
         vmax = d.lag_max / d.lag_gain if d.lag_gain > 0 else 0.0
         return vmax * math.tanh(knee / vmax) if vmax > 0 else 0.0
 
     def update(self, dt: float, look: tuple) -> tuple:
-        """`look` = (yaw phải, pitch lên) độ mà chuột quay trong khung này. Trả (độ lệch yaw, độ lệch pitch) HIỂN THỊ, độ
-        (âm = súng trễ trái / xuống)."""
+        """`look` = (yaw right, pitch up) degrees the mouse turned this frame. Returns the DISPLAYED (yaw offset, pitch offset), degrees
+        (negative = gun lags left / down)."""
         d = self.d
         if dt <= 0.0:
             return self.output()
@@ -109,10 +109,10 @@ class MouseLag:
         for i in (0, 1):
             self.v_smooth[i] += (look[i] / dt - self.v_smooth[i]) * k
             ve = self.shape(self.v_smooth[i])
-            sp.v[i] -= ve - self.v_in[i]                          # vận tốc của súng liên tục khi vận tốc nhìn đổi
+            sp.v[i] -= ve - self.v_in[i]                          # the gun's velocity stays continuous when the view velocity changes
             self.v_in[i] = ve
             eq = -(1.0 - d.lag_follow) * 2.0 * zeta * ve / sp.omega
-            sp.x[i] += self.e_eq[i] - eq                           # sp.x = u = e - e_eq: đổi điểm cân bằng mà e giữ nguyên
+            sp.x[i] += self.e_eq[i] - eq                           # sp.x = u = e - e_eq: change the equilibrium while e stays the same
             self.e_eq[i] = eq
         sp.step(dt)
         return self.output()
@@ -129,16 +129,16 @@ class Sway:
         self.d = data
         self.ads_target = ads_target
         self.clock = 0.0
-        self.phase = 0.0                           # pha bước chân (rad)
-        self.bob_amount = 0.0                      # biên độ bob đang trượt về mức mục tiêu
-        self.lag = MouseLag(data)                                 # (yaw phải, pitch lên)
-        self.jolt = Spring(6, data.jolt_omega, data.jolt_zeta)    # quán tính dọc + nhún chạm đất
+        self.phase = 0.0                           # footstep phase (rad)
+        self.bob_amount = 0.0                      # bob amplitude, sliding toward its target
+        self.lag = MouseLag(data)                                 # (yaw right, pitch up)
+        self.jolt = Spring(6, data.jolt_omega, data.jolt_zeta)    # vertical inertia + landing bump
 
     def update(self, dt: float, inp: SwayInput) -> tuple:
         d = self.d
         ads = smoothstep(inp.ads_amount)
         sprint = smoothstep(inp.sprint_amount) * (1.0 - ads)
-        calm = 1.0 + (d.ads_multiplier - 1.0) * ads            # ngắm: thở, lag, bob, quán tính còn ads_multiplier (0,4)
+        calm = 1.0 + (d.ads_multiplier - 1.0) * ads            # when aiming, breathing, lag, bob and inertia still get ads_multiplier (0.4)
         total = [0.0] * 6
         self.clock += dt
 
@@ -152,7 +152,7 @@ class Sway:
         return tuple(total)
 
     def _breath(self, inp: SwayInput) -> tuple:
-        """Lissajous 1:2: ngang một nhịp, dọc hai nhịp. Nhỏ dần khi bob (đi) chiếm chỗ."""
+        """Lissajous 1:2: one cycle horizontally, two vertically. Shrinks as the bob (walking) takes over."""
         d = self.d
         w = 2.0 * math.pi * d.breath_freq * self.clock
         k = 1.0 - min(self.bob_amount, 1.0) * 0.8
@@ -160,7 +160,7 @@ class Sway:
         return (d.breath_x * s1 * k, d.breath_y * s2 * k, 0.0, d.breath_pitch * s2 * k, d.breath_yaw * s1 * k, 0.0)
 
     def _lag(self, dt: float, inp: SwayInput) -> tuple:
-        """Chuột quay sang phải thì súng bị bỏ lại bên trái (và ngược lại), kèm nghiêng + dịch nhẹ; xem MouseLag."""
+        """Mouse turned right, the gun is left behind (and vice versa), plus a slight tilt and shift; see MouseLag."""
         d = self.d
         yaw, pitch = self.lag.update(dt, inp.look)
         return (yaw * d.lag_shift, pitch * d.lag_shift, 0.0, pitch, yaw, yaw * d.lag_roll)
@@ -183,7 +183,7 @@ class Sway:
                 a * d.bob_pitch * math.sin(2.0 * ph + 0.5), 0.0, a * d.bob_roll * math.sin(ph))
 
     def _jolt(self, dt: float, inp: SwayInput) -> tuple:
-        """Camera đi lên thì súng trễ xuống (và ngược lại); chạm đất thì súng nhún thêm theo tốc độ rơi."""
+        """Camera moves up and the gun lags down (and vice versa); on landing the gun bumps further according to fall speed."""
         d = self.d
         self.jolt.omega, self.jolt.zeta = d.jolt_omega, d.jolt_zeta
         self.jolt.x[1] = max(-d.vlag_max, min(d.vlag_max, self.jolt.x[1] - inp.eye_dy * d.vlag_gain))

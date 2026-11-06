@@ -1,10 +1,10 @@
-"""G5: đo vị trí miệng nòng từ đỉnh mô hình (hệ camera súng, tư thế nghỉ) để đặt tia lửa đầu nòng và điểm xuất phát của tracer.
+"""G5: measures the muzzle position from the model vertices (rifle camera space, rest pose) to place the muzzle flash and the tracer's start point.
 
-Miệng nòng = tâm hộp bao (ngang, dọc) của các đỉnh nằm trong `TIP_DEPTH` mét cuối cùng của thân súng theo trục z (ra trước);
-z = đỉnh xa nhất. Hướng nòng lấy từ trục của lát đó so với lát lùi lại `AXIS_BACK` mét (nòng M4 gần như song song trục z).
-Kết quả dán vào GunData.muzzle (weapon_data.py).
+Muzzle = centre of the bounding box (horizontal, vertical) of the vertices within the last `TIP_DEPTH` metres of the rifle body along the z axis (forward);
+z = the farthest vertex. The barrel direction is taken from that slice's axis relative to the slice `AXIS_BACK` metres back (the M4 barrel is almost parallel to the z axis).
+The result is pasted into GunData.muzzle (weapon_data.py).
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\g5_muzzle_align.py
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\g5_muzzle_align.py
 """
 import sys
 from pathlib import Path
@@ -18,7 +18,7 @@ from panda3d.core import GeomVertexReader  # noqa: E402
 from ursina import mouse  # noqa: E402
 
 TIP_DEPTH = 0.012
-AXIS_BACK = (0.05, 0.08)           # lát dùng để ước lượng hướng nòng: lùi 5..8 cm so với đầu
+AXIS_BACK = (0.05, 0.08)           # slice used to estimate the barrel direction: 5..8 cm back from the tip
 
 game = create_game(vsync=False, draw=False, sound=False)
 mouse.locked = False

@@ -1,12 +1,12 @@
-"""Danh sách thanh trượt của bảng debug (F1): nhóm, mục, nhãn tiếng Việt, chú thích ngắn, khoảng giá trị.
+"""Slider list for the debug panel (F1): groups, sections, Vietnamese labels, short hints, value ranges.
 
-Thuần dữ liệu (không import ursina). `fps/core/params.py` đọc bảng này rồi dò các dataclass của `weapon_data.py` (introspection) để
-biết kiểu và giá trị mặc định của từng trường, nên con số mặc định chỉ nằm ở `weapon_data.py`. Ở đây chỉ có cái KHÔNG suy ra được:
-tên hiển thị, chú thích, khoảng kéo hợp lý, trường nâng cao, trường cần khởi động lại.
+Pure data (no ursina import). `fps/core/params.py` reads this table, then introspects the dataclasses of `weapon_data.py` to
+learn the type and default value of each field, so the default numbers live only in `weapon_data.py`. Here are only the things that CANNOT be derived:
+display names, hints, sensible ranges, advanced fields, fields that need a restart.
 
-Quy ước cờ (chuỗi ký tự): 'A' = nâng cao (ẩn cho tới khi bấm "Nâng cao"), 'R' = cần khởi động lại mới có hiệu lực.
-Thiếu lo/hi/step thì `params.py` tự suy từ giá trị mặc định (0 .. 3 lần mặc định). Mọi trường số / bật-tắt của `GameParams` phải nằm trong
-một nhóm HOẶC trong `EXCLUDED` kèm lý do (test_params.py kiểm đủ), nên thêm trường mới vào weapon_data mà quên đây thì pytest báo.
+Flag convention (string characters): 'A' = advanced (hidden until the "Advanced" button), 'R' = needs a restart to take effect.
+If lo/hi/step are missing, `params.py` derives them from the default (0 .. 3 x default). Every numeric / on-off field of `GameParams` must be in
+a group OR in `EXCLUDED` with a reason (test_params.py checks this), so adding a new field to weapon_data and forgetting it here makes pytest fail.
 """
 from dataclasses import dataclass
 
@@ -19,7 +19,7 @@ class Meta:
     hi: float = None
     step: float = None
     flags: str = ''
-    choices: tuple = None      # ((giá trị, chữ hiện), ...) cho trường chọn một trong vài
+    choices: tuple = None      # ((value, displayed text), ...) for a field that picks one of several
 
     @property
     def advanced(self) -> bool:
@@ -34,15 +34,15 @@ def p(label, hint='', lo=None, hi=None, step=None, flags='') -> Meta:
     return Meta(label, hint, lo, hi, step, flags)
 
 
-# --- cụm trường lặp lại ---
+# --- repeated field groups ---
 POSE_AXES = ('sang phải', 'lên', 'ra trước', 'ngóc nòng', 'xoay nòng phải', 'nghiêng phải')
 POSE_HINTS = ('mét; âm = sang trái', 'mét; âm = xuống', 'mét; âm = lùi về phía người', 'độ; dương = nòng ngóc lên',
               'độ; dương = nòng quay sang phải', 'độ; dương = nghiêng sang phải')
 
 
 def pose(prefix: str, ranges: tuple, adv: str = '', hints: tuple = POSE_HINTS) -> tuple:
-    """6 thành phần của một tư thế (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải). `ranges` = 6 bộ (lo, hi, step);
-    `adv` = chuỗi 6 ký tự, 'A' ở thành phần nâng cao (bất kỳ ký tự khác = thường)."""
+    """The 6 components of a pose (x right, y up, z forward, pitch up, yaw right, roll right). `ranges` = 6 tuples (lo, hi, step);
+    `adv` = string of 6 characters, 'A' on advanced components (any other character = normal)."""
     adv = adv.ljust(6)
     return tuple(p(f'{prefix}: {axis}', hint, lo, hi, step, 'A' if a == 'A' else '')
                  for axis, hint, (lo, hi, step), a in zip(POSE_AXES, hints, ranges, adv))
@@ -56,7 +56,7 @@ MOVE = (-0.05, 0.05, 0.0005)
 ANGLE = (-5.0, 5.0, 0.1)
 
 META = {
-    # ---------------- Bắn ----------------
+    # ---------------- Firing ----------------
     'gun.rpm': p('Tốc độ bắn', 'phát mỗi phút; M4 ngoài đời khoảng 750', 120, 1500, 10),
     'gun.muzzle_velocity': p('Tốc độ đạn', 'm/s; chậm thì đạn tới bia muộn và rơi nhiều', 100, 1200, 10),
     'gun.bullet_gravity': p('Độ rơi của đạn', 'm/s²; 0 = bay thẳng, 9,81 = như thật', 0, 30, 0.1),
@@ -66,7 +66,7 @@ META = {
     'feedback.hole_base_size': p('Cỡ lỗ đạn', 'mét; lỗ thật nhỏ hơn nhiều, phóng to cho dễ thấy', 0.01, 0.2, 0.005),
     'feedback.hole_size_per_meter': p('Lỗ to thêm theo xa', 'mét cộng thêm cho mỗi mét khoảng cách', 0, 0.01, 0.0005, 'A'),
 
-    # ---------------- Giật ----------------
+    # ---------------- Recoil ----------------
     'gun.recoil.up': p('Giật lên mỗi phát', 'độ; tổng phần vào camera và phần làm súng trôi', 0, 3, 0.02),
     'gun.recoil.up_noise': p('Giật lên: ngẫu nhiên', '± độ mỗi phát', 0, 1, 0.01),
     'gun.recoil.right_bias': p('Xu hướng lệch phải', 'độ mỗi phát; âm = lệch trái', -1, 1, 0.01),
@@ -97,7 +97,7 @@ META = {
                                                 (0, 2, 0.05), (0, 3, 0.05)), adv='AAAAAA',
                             hints=('mét; ± thêm vào mỗi phát',) * 3 + ('độ; ± thêm vào mỗi phát',) * 3),
 
-    # ---------------- Độ tản ----------------
+    # ---------------- Spread ----------------
     'gun.accuracy.stand': p('Đứng yên', 'độ; nửa góc hình nón đạn rải ra', 0, 10, 0.05),
     'gun.accuracy.walk': p('Đi bộ', 'độ', 0, 12, 0.05),
     'gun.accuracy.sprint': p('Chạy nước rút', 'độ (chỉ có tác dụng khi tắt "bóp cò thì thôi chạy")', 0, 12, 0.05),
@@ -111,7 +111,7 @@ META = {
     'gun.accuracy.bloom_recovery_delay': p('Chờ trước khi hồi', 'giây sau phát cuối mới bắt đầu hồi', 0, 0.6, 0.01),
     'gun.accuracy.ads_bloom_multiplier': p('Bloom còn lại khi ngắm', 'nhân vào bloom lúc ngắm hẳn', 0, 1, 0.01),
 
-    # ---------------- Ngắm ----------------
+    # ---------------- Aiming ----------------
     'gun.ads_time': p('Thời gian vào ngắm', 'giây để đưa súng lên mắt (và ngược lại)', 0.05, 0.8, 0.01),
     'gun.ads_eye_relief': p('Mắt cách điểm ngắm', 'mét; xa hơn thì vòng ngắm nhỏ lại, ít che hình', 0.05, 0.4, 0.005),
     'player.fov': p('Tầm nhìn lúc bắn hông', 'độ (FOV ngang, trước ống kính); lớn = thấy rộng hơn', 60, 125, 1),
@@ -197,7 +197,7 @@ META = {
     'gun.sway.land_reference_speed': p('Tốc độ rơi chuẩn', 'm/s ứng với cú nhún đầy đủ', 1, 12, 0.1, 'A'),
     'gun.sway.ads_multiplier': p('Sway còn lại khi ngắm', 'nhân vào thở, trễ, bob, nhún lúc ngắm hẳn', 0, 1, 0.05),
 
-    # ---------------- Camera đội đầu ----------------
+    # ---------------- Head camera ----------------
     'gun.head.turn_roll': p('Nghiêng khi xoay', 'độ nghiêng mỗi độ/s', 0, 0.05, 0.001),
     'gun.head.turn_roll_max': p('Nghiêng khi xoay: tối đa', 'độ', 0, 15, 0.5),
     'gun.head.strafe_roll': p('Nghiêng khi đi ngang', 'độ mỗi m/s', 0, 2, 0.05),
@@ -260,7 +260,7 @@ META = {
     'gun.head.glance_seat_nod': p('Liếc súng: gật khi băng vào', 'độ', 0, 5, 0.1, 'A'),
     'gun.head.glance_follow': p('Liếc súng: súng đi theo', '1 = súng đứng yên theo thân, lên giữa khung', 0, 1.2, 0.05),
 
-    # ---------------- Rung camera ----------------
+    # ---------------- Camera shake ----------------
     'gun.shake.fire_bias': pose('Giật cố định', ((-0.005, 0.005, 0.0001), (-0.005, 0.005, 0.0001), (-0.02, 0.005, 0.0005), (-1, 4, 0.05),
                                                  (-2, 2, 0.05), (-3, 3, 0.05)), adv='AAA  A',
                                 hints=('mét; mỗi phát, độ mạnh 1',) * 3 + ('độ; mỗi phát (pitch dương = camera ngóc lên)',) + ('độ; mỗi phát',) * 2),
@@ -287,7 +287,7 @@ META = {
     'gun.shake.gun_follow': p('Súng đi theo thế giới', 'súng rung bao nhiêu phần so với màn hình', 0, 1.5, 0.05),
     'gun.shake.gun_delay': p('Súng trễ so với thế giới', 'giây', 0, 0.1, 0.005),
 
-    # ---------------- Âm lượng ----------------
+    # ---------------- Volume ----------------
     'gun.shot_volume': p('Tiếng súng', '0 = tắt, 1 = to nhất', 0, 1, 0.05),
     'gun.shot_pitch_variation': p('Đổi cao độ tiếng súng', '± tỉ lệ ngẫu nhiên mỗi phát cho đỡ "máy"', 0, 0.15, 0.005),
     'audio.reload_volume': p('Nạp / rút súng', 'tiếng kim loại khi nạp', 0, 1, 0.05),
@@ -316,7 +316,7 @@ META = {
     'audio.land_min_speed': p('Rơi tối thiểu để có tiếng bịch', 'm/s', 0.5, 6, 0.1, 'A'),
     'audio.land_reference_speed': p('Tốc độ rơi chuẩn', 'm/s ứng với âm lượng chạm đất đầy đủ', 1, 12, 0.1, 'A'),
 
-    # ---------------- Nạp đạn ----------------
+    # ---------------- Reload ----------------
     'gun.reload.speed': p('Tốc độ nạp', 'nhân tốc độ clip; áp từ lần nạp kế tiếp', 0.3, 3, 0.05),
     'gun.reload.draw_speed': p('Tốc độ rút súng', 'áp lúc vào game', 0.3, 3, 0.05, 'R'),
     'gun.reload.sprint_cancels': p('Chạy nước rút cắt nạp', 'bật: chạy thì huỷ nạp (kiểu CoD)'),
@@ -327,7 +327,7 @@ META = {
     'gun.reload.view_pose': pose('Súng lúc nạp', ((-0.15, 0.15, 0.005), (-0.15, 0.15, 0.005), (-0.15, 0.15, 0.005),
                                                  (-15, 15, 0.5), (-15, 15, 0.5), (-15, 15, 0.5)), adv='A A  A'),
 
-    # ---------------- Ánh sáng ----------------
+    # ---------------- Lighting ----------------
     'look.lamp_intensity': p('Độ sáng đèn trần', '0 = tắt hết đèn', 0, 15, 0.1),
     'look.lamp_ref': p('Tầm sáng của đèn', 'mét; ở khoảng này độ rọi còn một nửa', 1, 15, 0.5),
     'look.lamp_color': rgb('Màu đèn', 1.0, 0.01),
@@ -357,7 +357,7 @@ META = {
     'gun.view_light.albedo': p('Độ sáng màu súng', 'nhân màu texture', 0.3, 4, 0.05),
     'gun.view_light.sleeve_color': rgb('Màu tay áo', 0.5, 0.005),
 
-    # ---------------- Ống kính ----------------
+    # ---------------- Lens ----------------
     'lens.fisheye': p('Độ méo mắt cá', '0 = ảnh phẳng; giữa khung phóng (1 + số này) lần', 0, 0.6, 0.01),
     'lens.fisheye_ads': p('Độ méo khi ngắm', 'méo bớt khi ngắm hẳn', 0, 0.6, 0.01),
     'lens.chroma': p('Viền màu', 'tách đỏ / lam ở rìa khung', 0, 0.05, 0.001),
@@ -382,7 +382,7 @@ META = {
     'lens.exposure_down_time': p('Ra sáng: khép dần', 'giây', 0.05, 3, 0.05),
     'lens.lamp_glare': p('Loá khi nhìn vào đèn', 'nhìn đèn thì phần còn lại của khung tối đi', 0, 3, 0.05),
 
-    # ---------------- Di chuyển ----------------
+    # ---------------- Movement ----------------
     'player.walk_speed': p('Đi bộ', 'm/s', 1, 10, 0.1),
     'player.sprint_speed': p('Chạy nước rút', 'm/s', 2, 14, 0.1),
     'player.crouch_speed': p('Đi khi ngồi', 'm/s', 0.5, 6, 0.1),
@@ -401,7 +401,7 @@ META = {
     'player.moving_speed_threshold': p('Tốc độ tính là "đang đi"', 'm/s; dưới mức này coi như đứng', 0.1, 2, 0.1, 'A'),
     'player.sprint_blocks_fire': p('Bóp cò thì thôi chạy', 'bật: chạy mà bóp cò thì hạ súng rồi mới bắn'),
 
-    # ---------------- Hiệu ứng ----------------
+    # ---------------- Effects ----------------
     'gun.flash.life': p('Tia lửa: thời gian chớp', 'giây', 0.01, 0.2, 0.005),
     'gun.flash.size': p('Tia lửa: cỡ', 'mét (trong cảnh súng)', 0.05, 0.6, 0.01),
     'gun.flash.size_jitter': p('Tia lửa: đổi cỡ ngẫu nhiên', '± tỉ lệ mỗi phát', 0, 0.6, 0.05, 'A'),
@@ -422,7 +422,7 @@ META = {
     'gun.tracer.intensity': p('Độ sáng vệt', '1 = bình thường, 0 = ẩn', 0, 2, 0.05),
 }
 
-# --- nhóm và mục (thứ tự hiển thị). Mỗi mục: (tiêu đề, (id trường, ...)); id trường = 'đường dẫn.tên', tuple tự bung ra thành các thành phần ---
+# --- groups and sections (display order). Each section: (title, (field ids, ...)); field id = 'path.name'; a tuple expands automatically into its components ---
 GROUPS = (
     ('fire', 'Bắn', (
         ('Nhịp bắn và đạn', ('gun.rpm', 'gun.muzzle_velocity', 'gun.bullet_gravity', 'gun.bullet_lifetime')),
@@ -547,7 +547,7 @@ GROUPS = (
     )),
 )
 
-# --- trường KHÔNG có trên bảng, kèm lý do (test kiểm mọi trường của GameParams hoặc ở GROUPS hoặc ở đây) ---
+# --- fields NOT on the panel, with a reason (the test checks that every GameParams field is in GROUPS or here) ---
 EXCLUDED = {
     'gun.name': 'chữ', 'gun.glb': 'chữ', 'gun.credit': 'chữ', 'gun.clips': 'bảng clip animation của file glb',
     'gun.ads_sights': 'điểm ngắm đo trên mô hình (tools/measure/g4_ads_align.py)',

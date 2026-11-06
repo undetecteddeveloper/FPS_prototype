@@ -1,9 +1,9 @@
-"""Mô phỏng sway lag theo chuột (toán thuần, KHÔNG mở cửa sổ): so TRƯỚC (lò xo vị trí + kẹp cứng) với SAU (MouseLag).
+"""Simulates mouse sway lag (pure maths, opens NO window): compares BEFORE (position spring + hard clamp) with AFTER (MouseLag).
 
-Các kịch bản xoay chuột in: lệch cực đại (độ), quá đà (% của cực đại, ngược dấu), thời gian ổn định (s, tới khi |lệch| < 10%
-cực đại hoặc 0,05 độ rồi ở yên), kèm roll/dịch ngang tương ứng ở cực đại.
+The mouse-turn scenarios print: peak offset (degrees), overshoot (% of the peak, opposite sign), settling time (s, until |offset| < 10%
+of the peak or 0.05 degrees, then stays still), along with the matching roll / horizontal shift at the peak.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\sway_sim.py
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\measure\\sway_sim.py
 """
 import sys
 from dataclasses import dataclass
@@ -21,7 +21,7 @@ from fps.weapon_data import SwayData  # noqa: E402
 
 @dataclass
 class Legacy:
-    """Cách cũ (trước khi có MouseLag): mỗi khung cộng -góc quay * gain vào VỊ TRÍ lò xo (kẹp cứng ±max), lò xo zeta 0,7."""
+    """Old method (before MouseLag): each frame adds -turn angle * gain to the spring POSITION (hard clamp at ±max), spring zeta 0.7."""
     gain: float = 0.35
     max: float = 4.0
     omega: float = 13.0
@@ -49,7 +49,7 @@ class New:
 
 
 def run(model, rate_dps, move_s, fps, total_s=2.0, pattern=None):
-    """Quay yaw đều `rate_dps` trong `move_s` giây rồi dừng. `pattern(t)` (nếu có) cho vận tốc theo thời gian. Trả [(t, yaw, roll)]."""
+    """Turns yaw at a steady `rate_dps` for `move_s` seconds, then stops. `pattern(t)` (if given) gives the velocity over time. Returns [(t, yaw, roll)]."""
     dt = 1.0 / fps
     out = []
     for i in range(round(total_s * fps)):
@@ -65,7 +65,7 @@ def metrics(trace, move_end):
     peak_i = max(range(len(trace)), key=lambda i: sign * trace[i][1])
     peak = sign * trace[peak_i][1]
     after = [(t, sign * y) for t, y, _ in trace if t >= trace[peak_i][0]]
-    over = max(0.0, -min(y for _, y in after))                    # đoạn ngược dấu sau cực đại
+    over = max(0.0, -min(y for _, y in after))                    # the part with the opposite sign after the peak
     thresh = max(0.1 * peak, 0.05)
     settle = None
     for t, y in reversed([(t, sign * y) for t, y, _ in trace]):
@@ -93,7 +93,7 @@ def report(label, model_factory, fps=144):
         tr = run(model_factory(), rate, dur, fps, total_s=dur + 1.5, pattern=pat)
         peak, over, settle, roll = metrics(tr, dur)
         print(f'{name:<34}{peak:>12.2f}°{over:>9.1f}%{settle:>10.2f}s{abs(roll):>10.2f}°')
-    # qua lại: +240 độ/s 0,15 s, nghỉ 0,1 s, -240 độ/s 0,15 s
+    # back and forth: +240 deg/s for 0.15 s, rest 0.1 s, then -240 deg/s for 0.15 s
     pat = lambda t: 240 if t < 0.15 else (-240 if 0.25 <= t < 0.40 else 0.0)  # noqa: E731
     tr = run(model_factory(), 0, 0, fps, total_s=1.9, pattern=pat)
     ys = [y for _, y, _ in tr]

@@ -1,4 +1,4 @@
-"""Chốt số từ bảng F1 vào weapon_data.py: sửa đúng giá trị, giữ chú thích / kiểu xuống dòng, báo rõ cái không sửa được."""
+"""Lock F1-panel values into weapon_data.py: change exactly the right values, keep comments and line-wrap style, and report clearly what cannot be changed."""
 import copy
 import sys
 import types
@@ -64,7 +64,7 @@ def test_call_keyword_wins_over_class_default():
     new, fails = patch_source(SRC, [Edit('GunData', 'rpm', 900.0, call='M4')])
     assert not fails
     assert "rpm=900.0,\n)" in new
-    assert 'rpm: float = 750.0' in new                      # mặc định lớp giữ nguyên
+    assert 'rpm: float = 750.0' in new                      # the class default stays as it is
 
 
 def test_falls_back_to_class_default_when_call_has_no_keyword():
@@ -77,7 +77,7 @@ def test_unpatchable_reported_not_silent():
     new, fails = patch_source(SRC, [Edit('KickData', 'computed', 9.0), Edit('KickData', 'nope', 1.0), Edit('KickData', 'back', 0.1)])
     reasons = {e.attr: why for e, why in fails}
     assert set(reasons) == {'computed', 'nope'}
-    assert 'back: float = 0.1 ' in new                       # cái làm được vẫn được áp
+    assert 'back: float = 0.1 ' in new                       # whatever can be patched is still applied
 
 
 def test_forbid_when_call_overrides_whole_object():
@@ -108,7 +108,7 @@ def _changed_value(spec):
 
 
 def test_every_slider_roundtrips_through_real_weapon_data():
-    """Đổi MỌI thanh trượt, chốt vào mã thật, nạp lại: mọi số phải ra đúng. Thanh nào không chốt được thì phải nằm trong danh sách chủ ý."""
+    """Change EVERY slider, bake into the real code, reload: every number must come back exactly. Any slider that cannot be baked must be on the intentional-exception list."""
     store = ParamStore(copy.deepcopy(GameParams()))
     for s in store.specs:
         store.set(s, _changed_value(s))

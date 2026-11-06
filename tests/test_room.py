@@ -19,10 +19,10 @@ def test_room_is_closed_and_lane_fits():
     (lo_l, hi_l), (lo_r, hi_r), (lo_b, hi_b), (lo_e, hi_e) = wall_boxes(ROOM)
     assert hi_l[0] == -ROOM.half_width and lo_r[0] == ROOM.half_width
     assert hi_b[2] == ROOM.z_back and lo_e[2] == ROOM.z_end
-    assert ROOM.z_end - 0.0 >= 200.0                                 # làn >= 200 m tính từ vạch bắn
-    for lo, hi in wall_boxes(ROOM):                                  # tường cao tới trần
+    assert ROOM.z_end - 0.0 >= 200.0                                 # lane >= 200 m measured from the firing line
+    for lo, hi in wall_boxes(ROOM):                                  # walls reach the ceiling
         assert hi[1] >= ROOM.height
-    # các tường chạm nhau ở góc (không có khe)
+    # the walls meet at the corners (no gaps)
     assert lo_b[0] <= lo_l[0] and hi_b[0] >= hi_r[0] and lo_e[0] <= lo_l[0] and hi_e[0] >= hi_r[0]
 
 
@@ -30,16 +30,16 @@ def test_pillars_stay_inside_the_walls_and_off_the_walk_area():
     x_min, x_max, z_min, z_max = walk_bounds(ROOM, -15.0, 198.0)
     for lo, hi in pillar_boxes(ROOM):
         assert -ROOM.half_width <= lo[0] and hi[0] <= ROOM.half_width
-        assert hi[0] < x_min or lo[0] > x_max                         # cột không lấn vào chỗ đi được
+        assert hi[0] < x_min or lo[0] > x_max                         # pillars do not intrude on the walkable area
     assert all(ROOM.z_back < z < ROOM.z_end for z in pillar_zs(ROOM))
     assert (z_min, z_max) == (-15.0, 198.0)
 
 
 @pytest.mark.parametrize('direction, owner, axis, sign', [
-    ((1, 0, 0), 'wall', 0, -1), ((-1, 0, 0), 'wall', 0, 1),          # bắn ngang vào tường bên (giữa hai cột)
+    ((1, 0, 0), 'wall', 0, -1), ((-1, 0, 0), 'wall', 0, 1),          # shots across into the side walls (between two pillars)
     ((0, 1, 0), 'ceiling', 1, -1), ((0, 0, -1), 'wall', 2, 1)])
 def test_bullets_hit_walls_and_ceiling_from_inside(direction, owner, axis, sign):
-    p0 = (0.0, 1.6, 5.0)                                              # z = 5: giữa hai cột (cột ở 0 và 10)
+    p0 = (0.0, 1.6, 5.0)                                              # z = 5: between two pillars (pillars at 0 and 10)
     p1 = tuple(p + d * 50 for p, d in zip(p0, direction))
     hit = first_hit(p0, p1, colliders())
     assert hit is not None and hit.owner == owner
@@ -61,17 +61,17 @@ def test_bullet_down_the_lane_hits_the_end_wall_or_ground_never_escapes():
 
 
 def test_group_is_equivalent_to_flat_list_and_is_skipped_when_far():
-    boxes = [(lo, hi, i) for i, (lo, hi) in enumerate(pillar_boxes(ROOM)) if lo[0] > 0]      # dãy cột bên phải
+    boxes = [(lo, hi, i) for i, (lo, hi) in enumerate(pillar_boxes(ROOM)) if lo[0] > 0]      # row of pillars on the right
     group = BoxGroup(boxes)
     p0, p1 = (0.0, 1.0, 9.0), (20.0, 1.2, 11.0)
     flat, grp = first_hit(p0, p1, boxes, None), first_hit(p0, p1, [group.entry()], None)
     assert flat.owner == grp.owner and flat.t == pytest.approx(grp.t)
     assert not segment_touches_aabb((0.0, 1.6, 0.0), (0.0, 1.6, 8.0), group.lo, group.hi)
-    assert segment_touches_aabb((11.9, 1.0, 0.0), (11.9, 1.0, 1.0), group.lo, group.hi)   # xuất phát bên trong
+    assert segment_touches_aabb((11.9, 1.0, 0.0), (11.9, 1.0, 1.0), group.lo, group.hi)   # starts inside
 
 
 def test_thin_wall_is_not_tunnelled_at_low_fps():
-    # bước đạn dài 25 m (20 FPS, không chia nhỏ) vẫn dừng ở mặt tường dày 0,5 m
+    # a 25 m bullet step (20 FPS, not subdivided) still stops at the face of the 0.5 m thick wall
     hit = first_hit((0.0, 1.6, 5.0), (25.0, 1.6, 5.0), colliders())
     assert hit.point[0] == pytest.approx(ROOM.half_width)
 
@@ -82,7 +82,7 @@ def test_panels_sit_on_the_side_walls_between_pillars():
     pillars = pillar_boxes(ROOM)
     for lo, hi in panels:
         assert lo[0] == -ROOM.half_width or hi[0] == ROOM.half_width
-        for plo, phi in pillars:                                     # không chồng lên cột
+        for plo, phi in pillars:                                     # does not overlap a pillar
             assert hi[2] <= plo[2] or lo[2] >= phi[2]
 
 
@@ -100,8 +100,8 @@ def test_nearest_lamp_and_positions():
 def test_cube_face_picks_the_major_axis():
     for i, d in enumerate(FACES):
         assert cube_face(tuple(c * 3 + 0.1 for c in d)) == i
-    assert cube_face((0.1, 2.0, -0.3)) is None                         # phía trên đèn: không có mặt
-    assert cube_face((1.0, -1.0, 0.0)) == 0                            # bằng nhau: ưu tiên x như shader
+    assert cube_face((0.1, 2.0, -0.3)) is None                         # above the lamp: no face
+    assert cube_face((1.0, -1.0, 0.0)) == 0                            # tie: x takes priority, as in the shader
 
 
 def test_atlas_tiles_do_not_overlap_and_cover_all_lamps():
@@ -116,6 +116,6 @@ def test_atlas_tiles_do_not_overlap_and_cover_all_lamps():
 
 def test_face_fov_guard_band():
     fov = face_fov(256, 2)
-    # 90 độ chiếm đúng 252 điểm ảnh giữa ô
+    # 90 degrees fills exactly 252 pixels in the middle of the tile
     assert math.tan(math.radians(45)) / math.tan(math.radians(fov / 2)) == pytest.approx(252 / 256)
     assert face_fov(256, 0) == pytest.approx(90.0)

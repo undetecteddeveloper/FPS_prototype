@@ -1,11 +1,11 @@
-"""Dựng bản tiếng súng dùng trong game từ file gốc (giữ nguyên file gốc).
+"""Builds the gunshot sound used in the game from the original file (the original is kept).
 
-File gốc dài 2 s nhưng tiếng nổ chỉ ~0,36 s, và mở đầu bằng ~48 ms im lặng: để nguyên thì tiếng súng trễ ~3 khung
-so với phát bắn. Công cụ này: (1) bỏ phần im lặng đầu (giữ `PRE_ROLL` đệm để không cắt vào đầu tiếng nổ),
-(2) cắt đuôi ở `KEEP` giây kể từ lúc nổ, mờ dần `FADE` giây để không bị tiếng "tách". Tần số, số kênh giữ nguyên.
+The original file is 2 s long but the blast lasts only ~0.36 s, and it starts with ~48 ms of silence: left as is, the shot sounds ~3 frames late
+after the trigger pull. This tool: (1) removes the leading silence (keeping a `PRE_ROLL` pad so the start of the blast is not cut),
+(2) cuts the tail at `KEEP` seconds after the blast and fades out over `FADE` seconds so it does not click. Sample rate and channel count are unchanged.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\build\\prep_sound.py [gốc.wav] [đích.wav]
-Mặc định: assets\\sounds\\source\\m4_shot_original.wav -> assets\\sounds\\m4_shot.wav
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\build\\prep_sound.py [src.wav] [dst.wav]
+Default: assets\\sounds\\source\\m4_shot_original.wav -> assets\\sounds\\m4_shot.wav
 """
 import array
 import math
@@ -14,14 +14,14 @@ import wave
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ONSET_THRESHOLD = 0.02      # tỉ lệ thang: mẫu đầu tiên vượt mức này là lúc nổ
-PRE_ROLL = 0.003            # s giữ lại trước lúc nổ
-KEEP = 0.50                 # s giữ lại kể từ lúc nổ
-FADE = 0.08                 # s mờ dần ở cuối
+ONSET_THRESHOLD = 0.02      # fraction of full scale: the first sample above this level is the blast
+PRE_ROLL = 0.003            # seconds kept before the blast
+KEEP = 0.50                 # seconds kept after the blast
+FADE = 0.08                 # seconds of fade-out at the end
 
 
 def find_onset(samples, channels: int, threshold: float = ONSET_THRESHOLD) -> int:
-    """Chỉ số KHUNG (không phải mẫu) của khung đầu tiên có biên độ vượt `threshold` * thang đầy (16 bit)."""
+    """FRAME index (not sample index) of the first frame whose amplitude exceeds `threshold` * full scale (16 bit)."""
     limit = threshold * 32768
     for i, x in enumerate(samples):
         if abs(x) > limit:
@@ -30,14 +30,14 @@ def find_onset(samples, channels: int, threshold: float = ONSET_THRESHOLD) -> in
 
 
 def trim(samples, channels: int, rate: int, pre_roll: float = PRE_ROLL, keep: float = KEEP, fade: float = FADE):
-    """Trả về mảng mẫu 16 bit đã cắt đầu/đuôi và mờ dần cuối."""
+    """Returns the 16-bit sample array with the head and tail trimmed and the end faded out."""
     start = max(0, find_onset(samples, channels) - round(pre_roll * rate))
     end = min(len(samples) // channels, start + round((pre_roll + keep) * rate))
     out = array.array('h', samples[start * channels:end * channels])
     frames = len(out) // channels
     fade_frames = min(round(fade * rate), frames)
     for f in range(frames - fade_frames, frames):
-        gain = 0.5 * (1.0 + math.cos(math.pi * (f - (frames - fade_frames)) / fade_frames))   # 1 -> 0, nửa cosine
+        gain = 0.5 * (1.0 + math.cos(math.pi * (f - (frames - fade_frames)) / fade_frames))   # 1 -> 0, half cosine
         for c in range(channels):
             out[f * channels + c] = int(out[f * channels + c] * gain)
     return out

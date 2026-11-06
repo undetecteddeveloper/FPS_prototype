@@ -1,14 +1,14 @@
-"""G5: rút súng (Draw), nạp đạn hai kiểu, huỷ nạp, logic đạn, bằng game thật.
+"""G5: draw (Draw), two reload types, cancel reload, bullet logic, with the real game.
 
-Điều khiển qua đúng đường phím của game (held_keys, game.input('r'), combat.pressed). Đo:
-  - Draw: không bắn được cho tới khi xong (~1 s), tay đi từ dưới lên tới đúng tư thế sẵn sàng
-  - Reload (còn đạn) và Reload_Empty (băng cạn): thời lượng, đạn chỉ đổi đúng lúc băng mới vào chỗ (so với vị trí băng thật
-    trên màn hình), không bắn / không ngắm được trong lúc nạp, tay trở về tư thế sẵn sàng, bolt khoá sau khi băng cạn
-  - huỷ: chạy nước rút cắt nạp trước / sau mốc thay băng (đạn y nguyên / đã nạp), trượt êm về tư thế sẵn sàng; tuỳ chọn tắt
-  - biên: băng đầy, hết dự trữ, nạp dở dang, bấm R lúc chạy, bắn đơn bấm cò khi cạn, tổng số đạn không đổi
-Ảnh vào shots\\g5_*.png.
+Drive through the game's own key path (held_keys, game.input('r'), combat.pressed). Measures:
+  - Draw: cannot fire until it finishes (~1 s), the hand moves from below up to the exact ready pose
+  - Reload (rounds left) and Reload_Empty (empty mag): duration, rounds change only when the new magazine is seated (compared with the real magazine position
+    on screen), no firing / aiming during reload, hand returns to the ready pose, bolt locks back after the magazine empties
+  - cancel: sprinting cuts the reload before / after the swap cue (rounds unchanged / already loaded), slides smoothly back to the ready pose; optional off
+  - limits: full magazine, no reserve left, half-finished reload, pressing R while running, single fire pulling the trigger when empty, total rounds unchanged
+Screenshots go to shots\\g5_*.png.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g5_selftest.py        (thoát mã 1 nếu có mục trượt)
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g5_selftest.py        (exits with code 1 if any item fails)
 """
 import sys
 import time as pytime
@@ -61,27 +61,27 @@ def center(name):
 
 
 def rel(name):
-    """Tâm phần súng so với thân súng (cm, hệ actor): không phụ thuộc cả súng đang bị nâng hay hạ."""
+    """Centre of the gun part relative to the gun body (cm, actor frame): does not depend on whether the whole gun is raised or lowered."""
     return center(name) - center('Main')
 
 
-READY = {}      # tư thế sẵn sàng: đo sau khi Draw xong
+READY = {}      # ready pose: measured after Draw finishes
 
 
 def main_y():
-    """Độ cao (m) của thân súng so với mắt, trong hệ camera vẽ súng: lúc rút súng thấp hơn nhiều so với tư thế sẵn sàng."""
+    """Height (m) of the gun body relative to the eye, in the gun-render camera frame: during the draw it is much lower than the ready pose."""
     lo, hi = viewmodel.actor.find('**/Main_M4_D_0-parent').get_tight_bounds(viewmodel.cam_np)
     return (lo.y + hi.y) / 2
 
 
 def flash_level() -> float:
-    """Độ sáng đèn tia lửa mà shader của súng đang nhận (kênh lớn nhất)."""
-    v = viewmodel.light.flash_color.get_element(0)              # mảng PTA mà shader của súng đọc
+    """Brightness of the muzzle-flash light the gun shader receives (largest channel)."""
+    v = viewmodel.light.flash_color.get_element(0)              # PTA array that the gun shader reads
     return max(v[0], v[1], v[2])
 
 
 def project_view(p):
-    """Điểm trong hệ cảnh súng (x phải, y lên, z ra trước) -> pixel so với tâm màn hình, theo ống kính của súng."""
+    """Point in the gun scene frame (x right, y up, z forward) -> pixels relative to screen centre, using the gun's lens."""
     out = Point2()
     viewmodel.lens.project(Point3(*p), out)
     w, h = window.size
@@ -89,7 +89,7 @@ def project_view(p):
 
 
 def project_world(p):
-    """Điểm thế giới -> pixel so với tâm màn hình, theo camera thế giới."""
+    """World point -> pixels relative to screen centre, using the world camera."""
     out = Point2()
     camera.lens.project(camera.getRelativePoint(application.base.render, Point3(*p)), out)
     w, h = window.size
@@ -97,13 +97,13 @@ def project_world(p):
 
 
 def gap(name):
-    """Khoảng cách (cm) của phần súng so với chỗ của nó ở tư thế sẵn sàng."""
+    """Distance (cm) of the gun part from its position in the ready pose."""
     return (rel(name) - READY[name]).length()
 
 
 def swap_in(samples, want, loaded):
-    """Đạn đổi thành `loaded` ở mẫu đầu tiên có mag == loaded: thời điểm mong đợi phải nằm giữa mẫu đó và mẫu ngay trước
-    (khung treo vì chụp ảnh làm hai mẫu cách xa nhau, nên không so từng mẫu với mốc)."""
+    """Rounds change to `loaded` at the first sample where mag == loaded: the expected time must lie between that sample and the one just before
+    (a frame hitch from taking screenshots spreads two samples apart, so samples are not compared one by one with the cue)."""
     for prev, cur in zip(samples, samples[1:]):
         if cur[1] == loaded and prev[1] != loaded:
             return prev[0] - 0.03 <= want <= cur[0] + 0.03
@@ -128,21 +128,21 @@ class Script(Entity):
             report()
             sys.exit(0 if all(r[3] for r in results) else 1)
 
-    # đồng hồ THẬT của tiến trình (clip nạp đạn chạy theo đồng hồ Panda, không cắt ở 50 ms)
+    # the process's REAL clock (reload clips run on the Panda clock, not clipped at 50 ms)
     def wait(self, seconds):
         t0 = pytime.perf_counter()
         while pytime.perf_counter() - t0 < seconds:
             yield
 
     def until(self, cond, timeout=6.0):
-        """Chờ tới khi cond() đúng; trả về số giây thật đã chờ (None nếu quá hạn)."""
+        """Wait until cond() is true; returns the real seconds waited (None if it times out)."""
         t0 = pytime.perf_counter()
         while not cond() and pytime.perf_counter() - t0 < timeout:
             yield
         return pytime.perf_counter() - t0 if cond() else None
 
     def sample(self, seconds, getter):
-        """[(giây thật kể từ lúc bắt đầu, getter())] mỗi khung trong `seconds` giây."""
+        """[(real seconds since start, getter())] for every frame in `seconds` seconds."""
         out = []
         t0 = pytime.perf_counter()
         while pytime.perf_counter() - t0 < seconds:
@@ -163,7 +163,7 @@ class Script(Entity):
         combat.gun_kick = GunKick(gun.kick, combat.rng)
         combat.accuracy.bloom = 0.0
         combat.accuracy.since_shot = 1e9
-        for b in combat.bullets:                                # bỏ đạn đang bay: báo cho tracer đang bám theo là đạn đã hết
+        for b in combat.bullets:                                # drop bullets in flight: tell the tracer that follows them that the bullet is gone
             b.alive, b.end_pos = False, b.pos
         combat.bullets.clear()
         combat.pressed = False
@@ -178,18 +178,18 @@ class Script(Entity):
         handling.drain()
 
     def press_r(self):
-        """Bấm R rồi chờ một khung để Combat xử lý."""
+        """Press R, then wait one frame for Combat to process it."""
         game.input('r')
         yield
 
     def run(self):
-        # --- A. rút súng ---
+        # --- A. draw ---
         yield from self.until(lambda: handling.phase is Phase.DRAW, 3.0)
         t_draw0 = pytime.perf_counter()
         check('vào game: đang rút súng (Draw)', handling.phase.value, 'draw', handling.phase is Phase.DRAW)
         combat.require_locked_mouse = False
-        weapon.mag = 20                                         # để thử bấm R khi đang rút súng (băng chưa đầy)
-        low_track = yield from self.sample(0.12, main_y)         # lúc đầu súng nằm thấp dưới màn hình rồi nhô lên
+        weapon.mag = 20                                         # to test pressing R during the draw (magazine not full)
+        low_track = yield from self.sample(0.12, main_y)         # at first the gun sits low below the screen, then rises
         low = min(v for _, v in low_track)
         shot('draw_start')
         held_keys['left mouse'] = 1
@@ -212,11 +212,11 @@ class Script(Entity):
         check('rút súng xong: tay về đúng tư thế sẵn sàng (Mag1, cm)', round(gap('Mag1'), 2), '< 0.5', gap('Mag1') < 0.5)
         check('lúc bắt đầu rút súng, súng nằm thấp hơn tư thế sẵn sàng (m)', round(main_y() - low, 2), '> 0.05', main_y() - low > 0.05)
 
-        # --- B. nạp khi còn đạn (Reload) ---
+        # --- B. reload with rounds left (Reload) ---
         self.reset_state(mag=17)
         yield from self.wait(0.3)
         total = weapon.mag + weapon.reserve
-        held_keys['right mouse'] = 1                            # giữ ngắm: nạp phải kéo súng ra khỏi ADS
+        held_keys['right mouse'] = 1                            # hold aim: reloading must pull the gun out of ADS
         yield from self.until(lambda: player.ads_amount >= 1.0)
         shots0 = combat.shots_fired
         t0 = pytime.perf_counter()
@@ -233,16 +233,16 @@ class Script(Entity):
         samples = []
         shot_times = {0.5: 'reload_a', 1.2: 'reload_b', 1.7: 'reload_c', 2.3: 'reload_d'}
         t_rel = pytime.perf_counter()
-        held_keys['left mouse'] = 1                             # bóp cò suốt lúc nạp: không được bắn
+        held_keys['left mouse'] = 1                             # hold the trigger the whole reload: must not fire
         pending = sorted(shot_times)
         while pytime.perf_counter() - t_rel < 6.0:
             yield
             if handling.phase is not Phase.RELOAD:
-                break                                           # khung này nạp xong: cò đang giữ sẽ bắn (đúng ý), không tính vào "trong lúc nạp"
+                break                                           # reload finishes this frame: the held trigger fires (as intended), not counted as "during reload"
             now = pytime.perf_counter() - t_rel
             samples.append((now,) + watch())
             if handling.remaining < 0.1:
-                held_keys['left mouse'] = 0                     # nhả cò sát cuối để phát đầu sau khi nạp xong không lẫn vào số đạn
+                held_keys['left mouse'] = 0                     # release the trigger near the end so the first shot after the reload does not mix into the ammo count
             if pending and now >= pending[0]:
                 shot(shot_times[pending.pop(0)])
         held_keys['left mouse'] = 0
@@ -272,11 +272,11 @@ class Script(Entity):
               t_back is not None and t_back < 0.5)
         held_keys['right mouse'] = 0
         yield from self.wait(0.4)
-        # chuyển động mượt: chia khung theo nội suy 30 fps -> 100+ Hz
+        # smooth motion: split frames by 30 fps interpolation -> 100+ Hz
         self.reset_state(mag=17)
         yield from self.wait(0.3)
         yield from self.press_r()
-        yield from self.wait(1.0)                               # tới đoạn băng cũ đang kéo đi nhanh (~1,0 s)
+        yield from self.wait(1.0)                               # until the old magazine segment that is pulled away fast (~1.0 s)
         pos = yield from self.sample(0.5, lambda: tuple(center('Mag1')))
         moved = sum(1 for a, b in zip(pos, pos[1:]) if sum((x - y) ** 2 for x, y in zip(a[1], b[1])) ** 0.5 > 1e-3)
         frac = moved / (len(pos) - 1)
@@ -284,7 +284,7 @@ class Script(Entity):
         yield from self.until(lambda: handling.phase is Phase.READY, 5.0)
         yield from self.wait(0.2)
 
-        # --- C. nạp khi băng cạn (Reload_Empty), tự nạp khi giữ cò ---
+        # --- C. reload on an empty magazine (Reload_Empty), auto-reloads when the trigger is held ---
         self.reset_state(auto=True, mag=30)
         yield from self.wait(0.3)
         total = weapon.mag + weapon.reserve
@@ -330,7 +330,7 @@ class Script(Entity):
         yield from self.wait(0.5)
         check('Reload_Empty xong: bolt đóng (cm)', round(gap('Bolt'), 2), '< 1', gap('Bolt') < 1)
 
-        # bolt khoá sau ngay khi bắn phát cuối, trước khi nạp
+        # bolt locks back right after the last shot, before reloading
         self.reset_state(auto=False, mag=1)
         yield from self.wait(0.3)
         shots0 = combat.shots_fired
@@ -342,7 +342,7 @@ class Script(Entity):
         check('bắn phát cuối: bolt khoá sau (cm)', round(gap('Bolt'), 1), '> 4', gap('Bolt') > 4)
         check('  và chưa tự nạp khi chưa bấm gì', handling.phase.value, 'ready', handling.phase is Phase.READY)
         shot('bolt_locked')
-        # bắn đơn: bấm cò khi băng cạn thì nạp, không bắn
+        # single fire: pulling the trigger on an empty mag reloads, does not fire
         shots0 = combat.shots_fired
         combat.pressed = True
         held_keys['left mouse'] = 1
@@ -354,7 +354,7 @@ class Script(Entity):
         yield from self.until(lambda: handling.phase is Phase.READY, 6.0)
         yield from self.wait(0.2)
 
-        # --- D. huỷ nạp bằng chạy nước rút ---
+        # --- D. cancel reload by sprinting ---
         self.reset_state(mag=12)
         yield from self.wait(0.3)
         yield from self.press_r()
@@ -373,7 +373,7 @@ class Script(Entity):
               viewmodel.clip_key is None and viewmodel._fade is None)
         check('sau huỷ: tay về tư thế sẵn sàng (Mag1, Bolt, cm)', f'{gap("Mag1"):.2f}, {gap("Bolt"):.2f}', '< 1', gap('Mag1') < 1 and gap('Bolt') < 1)
         check('huỷ: không tự nạp tiếp', f'{weapon.mag}/{weapon.reserve}', '12/150', (weapon.mag, weapon.reserve) == (12, 150))
-        # R lúc đang chạy: bị bỏ qua
+        # R while running: ignored
         held_keys['w'] = held_keys['shift'] = 1
         yield from self.until(lambda: player.sprint_amount >= 1.0)
         yield from self.press_r()
@@ -386,7 +386,7 @@ class Script(Entity):
         check('thôi chạy rồi bấm R: nạp', handling.phase.value, 'reload', handling.phase is Phase.RELOAD)
         yield from self.until(lambda: handling.phase is Phase.READY, 6.0)
 
-        # huỷ sau mốc thay băng: đạn đã nạp
+        # cancel after the magazine-swap cue: rounds already loaded
         self.reset_state(mag=12)
         yield from self.wait(0.3)
         yield from self.press_r()
@@ -400,7 +400,7 @@ class Script(Entity):
         yield from self.wait(0.7)
         check('  và tay về tư thế sẵn sàng (cm)', round(gap('Mag1'), 2), '< 1', gap('Mag1') < 1)
 
-        # huỷ khi băng cạn (Reload_Empty) trước mốc thay băng: băng vẫn cạn, bolt lại khoá sau
+        # cancel an empty-mag reload (Reload_Empty) before the swap cue: magazine still empty, bolt locks back again
         self.reset_state(mag=0)
         yield from self.wait(0.3)
         yield from self.press_r()
@@ -412,7 +412,7 @@ class Script(Entity):
         check('huỷ Reload_Empty trước mốc: băng vẫn cạn', f'{weapon.mag}/{weapon.reserve}', '0/150', (weapon.mag, weapon.reserve) == (0, 150))
         check('  và bolt khoá sau trở lại (cm)', round(gap('Bolt'), 1), '> 4', gap('Bolt') > 4)
 
-        # tuỳ chọn: sprint_cancels = False thì nạp tiếp
+        # optional: with sprint_cancels = False the reload continues
         rl.sprint_cancels = False
         self.reset_state(mag=12)
         yield from self.wait(0.3)
@@ -427,7 +427,7 @@ class Script(Entity):
         rl.sprint_cancels = True
         yield from self.wait(0.5)
 
-        # --- E. biên của logic đạn ---
+        # --- E. bullet logic limits ---
         self.reset_state(mag=30)
         yield from self.wait(0.3)
         yield from self.press_r()
@@ -462,12 +462,12 @@ class Script(Entity):
         check('còn ít đạn: HUD nhắc nạp', hud.prompt.text, 'R  NẠP ĐẠN', hud.prompt.text == 'R  NẠP ĐẠN')
         yield from self.press_r()
         yield from self.wait(0.2)
-        self.press_r()                                          # bấm R nữa khi đang nạp: bỏ qua
+        self.press_r()                                          # press R again during a reload: ignored
         yield from self.wait(0.3)
         check('đang nạp, bấm R nữa không bắt đầu lại', round(handling.progress, 2), '> 0.1 (không về 0)', handling.progress > 0.1)
         yield from self.until(lambda: handling.phase is Phase.READY, 6.0)
 
-        # tổng số đạn: bắn, nạp, huỷ lung tung vẫn bảo toàn
+        # total rounds: firing, reloading and cancelling in any order keeps the total constant
         self.reset_state(auto=True, mag=30)
         yield from self.wait(0.3)
         total = weapon.mag + weapon.reserve
@@ -487,7 +487,7 @@ class Script(Entity):
         fired = combat.shots_fired - fired0
         check('bảo toàn đạn: đã bắn + còn lại = ban đầu', f'{fired} + {weapon.mag + weapon.reserve}', total, fired + weapon.mag + weapon.reserve == total)
 
-        # --- F. tia lửa đầu nòng và tracer ---
+        # --- F. muzzle flash and tracer ---
         fx = game.fx
         self.reset_state(auto=True, mag=30)
         yield from self.wait(0.4)
@@ -534,7 +534,7 @@ class Script(Entity):
         check('  đèn tia lửa tắt', round(flash_level(), 3), 0,
               flash_level() < 0.01)
 
-        # vệt bám đúng viên đạn thật
+        # the trail follows the real bullet exactly
         self.reset_state(auto=False, mag=30)
         yield from self.wait(0.3)
         shots0 = combat.shots_fired
@@ -557,7 +557,7 @@ class Script(Entity):
         check('mọi vệt được trả về bể sau khi đạn trúng / hết hạn', f'{len(fx.tracers.active)} đang bay, {len(fx.tracers.free)} rảnh',
               f'0, {gun.tracer.pool}', not fx.tracers.active and len(fx.tracers.free) == gun.tracer.pool)
 
-        # ngắm: tia lửa nhỏ lại; tắt tracer bằng every = 0
+        # aiming: the flash gets smaller; tracer off via every = 0
         sizes = {}
         for label, ads_on in (('hông', False), ('ngắm', True)):
             vals = []
@@ -589,7 +589,7 @@ class Script(Entity):
         fx.on_shot = orig_on_shot
         yield from self.wait(0.5)
 
-        # --- cảnh tổng ---
+        # --- overall scene ---
         self.reset_state()
         yield from self.wait(0.4)
         shot('ready')

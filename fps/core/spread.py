@@ -1,8 +1,8 @@
-"""Độ tản đạn (toán thuần, không import ursina).
+"""Bullet spread (pure math, no ursina import).
 
-Góc tản = nửa góc của hình nón quanh hướng nhìn = nền theo trạng thái + bloom cộng dồn theo từng phát.
-Nền đọc từ MoveState của người chơi (nguồn duy nhất); `ads_amount` (0 hông .. 1 ngắm hẳn) nội suy giữa nền hông và nền ngắm,
-nên phát bắn lúc đang vào ADS tản theo mức hiện tại của ADS.
+Spread angle = half-angle of the cone around the view direction = state-based base + bloom accumulated shot by shot.
+The base is read from the player's MoveState (the single source); `ads_amount` (0 hip .. 1 fully aimed) interpolates between the hip base and the aim base,
+so a shot fired while entering ADS spreads at the current ADS level.
 """
 import math
 
@@ -17,7 +17,7 @@ class Accuracy:
     def __init__(self, data: AccuracyData):
         self.d = data
         self.bloom = 0.0
-        self.since_shot = 1e9             # s kể từ phát cuối
+        self.since_shot = 1e9             # s since the last shot
 
     def hip_base(self, state: MoveState) -> float:
         d = self.d
@@ -28,7 +28,7 @@ class Accuracy:
     def ads_base(self, state: MoveState) -> float:
         d = self.d
         if state is MoveState.AIR:
-            return d.air                  # nhảy thì ngắm cũng không chính xác hơn
+            return d.air                  # jumping does not make aiming more accurate either
         base = d.ads_move if state in MOVING else d.ads
         return base * d.crouch_multiplier if state in CROUCHING else base
 
@@ -37,7 +37,7 @@ class Accuracy:
         return hip + (ads - hip) * ads_amount
 
     def angle(self, state: MoveState, ads_amount: float = 0.0) -> float:
-        """Nửa góc hình nón (độ) hiện tại."""
+        """Current half-angle of the cone (degrees)."""
         d = self.d
         bloom_effect = 1.0 + (d.ads_bloom_multiplier - 1.0) * ads_amount
         return self.base(state, ads_amount) + self.bloom * bloom_effect
@@ -48,13 +48,13 @@ class Accuracy:
 
     def update(self, dt: float):
         d = self.d
-        recovering = min(dt, max(0.0, self.since_shot + dt - d.bloom_recovery_delay))   # chỉ phần dt sau thời gian chờ
+        recovering = min(dt, max(0.0, self.since_shot + dt - d.bloom_recovery_delay))   # only the part of dt past the delay
         self.since_shot += dt
         self.bloom = max(0.0, self.bloom - d.bloom_recovery * recovering)
 
 
 def random_in_cone(direction: tuple, half_angle_deg: float, rng) -> tuple:
-    """Hướng ngẫu nhiên đều trên đĩa tròn bán kính `half_angle_deg` quanh `direction` (vector đơn vị)."""
+    """Uniform random direction on a disc of radius `half_angle_deg` around `direction` (unit vector)."""
     if half_angle_deg <= 0:
         return direction
     dx, dy, dz = direction
@@ -63,7 +63,7 @@ def random_in_cone(direction: tuple, half_angle_deg: float, rng) -> tuple:
     rn = math.sqrt(rx * rx + ry * ry + rz * rz)
     rx, ry, rz = rx / rn, ry / rn, rz / rn
     vx, vy, vz = dy * rz - dz * ry, dz * rx - dx * rz, dx * ry - dy * rx      # up' = d x right
-    off = math.tan(math.radians(half_angle_deg) * math.sqrt(rng.random()))    # sqrt: đều theo diện tích đĩa
+    off = math.tan(math.radians(half_angle_deg) * math.sqrt(rng.random()))    # sqrt: uniform by disc area
     phi = 2.0 * math.pi * rng.random()
     c, s = math.cos(phi) * off, math.sin(phi) * off
     x, y, z = dx + rx * c + vx * s, dy + ry * c + vy * s, dz + rz * c + vz * s
@@ -72,34 +72,34 @@ def random_in_cone(direction: tuple, half_angle_deg: float, rng) -> tuple:
 
 
 def angle_between(a: tuple, b: tuple) -> float:
-    """Góc (độ) giữa hai vector. Dùng atan2(|tích có hướng|, tích vô hướng) vì acos mất chính xác ở góc nhỏ:
-    dot = 1 - 1e-8 do làm tròn float32 đã cho sai ~0,01 độ."""
+    """Angle (degrees) between two vectors. Uses atan2(|cross product|, dot product), because acos loses precision at small angles:
+    a float32 rounding of dot = 1 - 1e-8 gave an error of ~0.01 degrees."""
     cx, cy, cz = a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]
     return math.degrees(math.atan2(math.sqrt(cx * cx + cy * cy + cz * cz), a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
 
 
 def crosshair_gap(angle_deg: float, vfov_half_tan: float) -> float:
-    """Khoảng từ tâm màn hình tới mép trong vạch tâm ngắm (đơn vị UI: chiều cao cửa sổ = 1) để vạch nằm đúng
-    trên rìa hình nón tản. vfov_half_tan = tan(nửa FOV dọc) của camera thế giới."""
+    """Distance from the screen centre to the inner edge of the crosshair tick (UI units: window height = 1), so the tick sits
+    on the edge of the spread cone. vfov_half_tan = tan(half the vertical FOV) of the world camera."""
     return 0.5 * math.tan(math.radians(angle_deg)) / vfov_half_tan
 
 
 def ring_radius(angle_deg: float, distance: float) -> float:
-    """Bán kính (m) của hình nón tản nửa góc `angle_deg` cắt bởi mặt phẳng vuông góc ở `distance` m (cho hình minh hoạ ở bảng debug)."""
+    """Radius (m) of the spread cone of half-angle `angle_deg`, cut by a plane perpendicular at `distance` m (for the illustration in the debug panel)."""
     return distance * math.tan(math.radians(min(angle_deg, 89.0)))
 
 
 def shot_offset(view_dir: tuple, direction: tuple) -> tuple:
-    """Độ lệch (phải, lên), tính bằng độ, của hướng đạn so với hướng nhìn: chiếu hướng đạn lên hai trục phải / lên của người nhìn.
-    Vẽ chấm đạn ở bảng debug: vị trí trên mặt cắt tại d mét = d * tan(độ lệch)."""
+    """Offset (right, up), in degrees, of the bullet direction from the view direction: projects the bullet direction onto the viewer's right / up axes.
+    Draws the bullet dot in the debug panel: its position on the cross-section at d metres = d * tan(offset)."""
     vx, vy, vz = view_dir
-    if abs(vy) > 0.9999:                                   # nhìn thẳng lên / xuống: chọn trục phải tuỳ ý
+    if abs(vy) > 0.9999:                                   # looking straight up / down: pick the right axis arbitrarily
         rx, ry, rz = 1.0, 0.0, 0.0
     else:
-        rx, ry, rz = vz, 0.0, -vx                          # phải = up(0,1,0) x dir, chuẩn hoá bên dưới
+        rx, ry, rz = vz, 0.0, -vx                          # right = up(0,1,0) x dir, normalised below
         n = math.hypot(rx, rz)
         rx, rz = rx / n, rz / n
-    ux, uy, uz = ry * vz - rz * vy, rz * vx - rx * vz, rx * vy - ry * vx   # lên = phải x dir ... đổi dấu cho hướng +y
+    ux, uy, uz = ry * vz - rz * vy, rz * vx - rx * vz, rx * vy - ry * vx   # up = right x dir ... sign flipped so it points +y
     if uy < 0:
         ux, uy, uz = -ux, -uy, -uz
     dx, dy, dz = direction

@@ -1,12 +1,12 @@
-"""Tay + súng nhìn từ mắt người chơi.
+"""Hands + gun as seen from the player's eyes.
 
-Súng nằm trong đồ thị cảnh RIÊNG, vẽ bằng camera riêng (vùng hiển thị thứ hai, xoá lại độ sâu):
-  - FOV của súng độc lập với FOV thế giới (ADS hạ FOV thế giới mà súng không bị méo, G4),
-  - súng không bao giờ xuyên vào tường/bia,
-  - độ sâu tầm 200 m của thế giới không bị mặt phẳng gần 1 cm của súng làm hỏng.
+The gun lives in its OWN scene graph, drawn by its own camera (a second display region, depth cleared):
+  - the gun's FOV is independent of the world FOV (ADS narrows the world FOV without distorting the gun, G4),
+  - the gun never clips into walls / targets,
+  - the world's 200 m depth range is not spoiled by the gun's 1 cm near plane.
 
-Chuỗi nút: root -> sway -> rig -> actor.   `sway` nhận kick súng, sway, bob, tư thế chạy và ADS (cộng lại trong `update`);
-`rig` chỉ làm nhiệm vụ căn mô hình sao cho khớp FPS_Camera trùng gốc camera.
+Node chain: root -> sway -> rig -> actor.   `sway` receives the gun kick, sway, bob, sprint pose and ADS (summed in `update`);
+`rig` only aligns the model so that FPS_Camera sits at the camera origin.
 """
 from pathlib import Path
 
@@ -21,8 +21,8 @@ from fps.game.shaders import load_glsl
 from fps.weapon_data import GunData, LookData
 
 MATERIALS = ('Hand_D', 'Glove_D', 'M4_D', 'Bullet5_56x45mm_D')
-# nhân vào độ bóng / độ tập trung / phản chiếu của ViewLightData theo vật liệu. Asset gán specular 0 cho thân súng nên số của súng là số chỉnh tay
-# (bóng, tập trung, phản chiếu, nhân màu); găng tay trong file sáng màu quá, găng chiến thuật thường tối
+# multiplied into the gloss / focus / reflection of ViewLightData per material. The asset gives the gun body specular 0, so the gun's numbers are set by hand
+# (gloss, focus, reflection, colour multiplier); the glove in the file is too light-coloured, a tactical glove is usually darker
 MATERIAL_SCALE = {'M4_D': (1.0, 1.0, 1.0, 1.0), 'Glove_D': (0.22, 0.4, 0.35, 0.42), 'Hand_D': (0.08, 0.3, 0.15, 1.0), 'Bullet5_56x45mm_D': (1.5, 1.6, 1.4, 1.0)}
 
 
@@ -31,31 +31,31 @@ class Viewmodel:
         self.gun = gun
         self.light = light or FrameLight(LookData(), gun)
         self.project_root = project_root
-        self.ads = 0.0                                # 0 hông .. 1 ngắm hẳn (đặt trong `animate`)
-        self.barrel_pose = (0.0,) * 6                 # tư thế súng thật (không gồm rung hình ảnh): hướng đạn đọc từ đây
+        self.ads = 0.0                                # 0 hip .. 1 fully aimed (set in `animate`)
+        self.barrel_pose = (0.0,) * 6                 # actual gun pose (without image shake): the bullet direction is read from here
         base = application.base
 
-        self.root = NodePath('viewmodel_root')      # không gắn vào render: camera chính không thấy
+        self.root = NodePath('viewmodel_root')      # not attached to render: the main camera does not see it
         self.sway = self.root.attach_new_node('viewmodel_sway')
         self.rig = self.sway.attach_new_node('viewmodel_rig')
 
         self.actor = Actor(Filename.from_os_specific(str(project_root / gun.glb)))
         self.actor.reparent_to(self.rig)
         self._bundle = self.actor.getPartBundle('modelRoot')
-        self.actor.setBlend(frameBlend=True)         # clip 30 fps mà màn hình 60+ Hz: nội suy giữa hai khung cho mượt
+        self.actor.setBlend(frameBlend=True)         # clip is 30 fps but the screen is 60+ Hz: interpolate between two frames for smoothness
 
-        self.clip_key = None                          # clip đang phát (khoá của GunData.clips) hoặc None
-        self._fade = None                             # đang trượt từ tư thế đứng yên của clip bị huỷ về tư thế sẵn sàng
-        self._empty = 0.0                             # 0 bolt đóng .. 1 bolt khoá sau (băng cạn)
-        self._view = 0.0                              # 0 .. 1 góc nhìn riêng cho clip nạp (FOV rộng, súng nhích lên)
+        self.clip_key = None                          # clip currently playing (key of GunData.clips) or None
+        self._fade = None                             # fading from the still pose of the cancelled clip back to the ready pose
+        self._empty = 0.0                             # 0 bolt closed .. 1 bolt locked back (empty magazine)
+        self._view = 0.0                              # 0 .. 1 separate view for the reload clip (wide FOV, gun raised)
         self._fov = None
 
-        # file tính bằng cm và quay mặt về -z: đổi sang mét và quay 180 độ cho nhìn về +z
+        # the file is in cm and faces -z: convert to metres and turn 180 degrees so it looks toward +z
         self.rig.set_scale(gun.model_scale)
         self.rig.set_h(180)
         self.hold_ready_pose()
 
-        # tịnh tiến sao cho khớp FPS_Camera nằm đúng gốc (= vị trí camera vẽ súng)
+        # translate so that FPS_Camera sits exactly at the origin (= the camera position used to draw the gun)
         eye_joint = self.actor.exposeJoint(None, 'modelRoot', gun.eye_joint)
         eye = self.sway.get_relative_point(eye_joint, Point3(0, 0, 0))
         self.rig.set_pos(-eye + Vec3(*gun.hip_offset))
@@ -64,18 +64,18 @@ class Viewmodel:
         self._set_up_camera(base)
         self._hide_reload_props()
 
-    # --- dựng ---
+    # --- build ---
     def _set_up_shading(self):
-        """Shader riêng cho súng + tay, skin bộ xương trên GPU, ánh sáng lấy từ FrameLight (chung với thế giới).
+        """Own shader for the gun + hands, skeleton skinning on the GPU, light taken from FrameLight (shared with the world).
 
-        Skin trên CPU (mặc định của Panda) tính lại 2 875 đỉnh bàn tay mỗi khung ~1,3 ms; vì clip 30 fps được nội suy để mượt ở
-        màn 60+ Hz nên bộ xương đổi MỌI khung hình và FPS tụt rõ lúc nạp đạn. Mesh có skin (cột transform_blend) dùng biến thể
-        ENABLE_SKINNING + cờ F_hardware_skinning; mesh cứng (thân súng, băng đạn gắn vào khớp) dùng biến thể không skin."""
+        CPU skinning (Panda's default) recomputes the 2 875 hand vertices every frame, ~1.3 ms; because the 30 fps clip is interpolated for smoothness on a 60+ Hz screen,
+        the skeleton changes EVERY frame and FPS drops clearly while reloading. Meshes with skinning (a transform_blend column) use the ENABLE_SKINNING variant
+        + the F_hardware_skinning flag; rigid meshes (gun body, magazine attached to a joint) use the non-skinned variant."""
         static = ShaderAttrib.make(load_glsl('viewmodel'))
         skinned = ShaderAttrib.make(load_glsl('viewmodel', ('ENABLE_SKINNING',))).set_flag(ShaderAttrib.F_hardware_skinning, True)
         self.root.set_attrib(static)
         self.skinned_vertices = 0
-        self.material_nodes = {}                     # tên vật liệu -> [GeomNode]
+        self.material_nodes = {}                     # material name -> [GeomNode]
         for geom_np in self.actor.find_all_matches('**/+GeomNode'):
             node = geom_np.node()
             for i in range(node.get_num_geoms()):
@@ -96,7 +96,7 @@ class Viewmodel:
         r.set_shader_input('vm_flash_falloff', float(self.gun.flash.light_attenuation[2]))
         flat = Texture('flat_normal')
         flat.setup_2d_texture(1, 1, Texture.T_unsigned_byte, Texture.F_rgb)
-        flat.set_ram_image(bytes((255, 128, 128)))                # BGR: pháp tuyến phẳng
+        flat.set_ram_image(bytes((255, 128, 128)))                # BGR order: flat normal
         r.set_shader_input('vm_normal_tex', flat)
         self.normal_maps = read_normal_maps(self.project_root / self.gun.glb)
         for name, nodes in self.material_nodes.items():
@@ -107,7 +107,7 @@ class Viewmodel:
         self.apply_light()
 
     def apply_light(self):
-        """Đẩy vật liệu `GunData.view_light` vào shader của súng (lúc dựng, và mỗi khi bảng debug đổi số; chỉ đổi vài uniform)."""
+        """Push the `GunData.view_light` material into the gun shader (at build time, and every time the debug panel changes a value; only a few uniforms change)."""
         light = self.gun.view_light
         self.root.set_shader_input('vm_mat', Vec4(light.specular, light.gloss, light.env, light.normal_strength))
         self.root.set_shader_input('vm_sleeve', Vec4(*light.sleeve_color, 0.0))
@@ -120,7 +120,7 @@ class Viewmodel:
                 np_.set_shader_input('vm_sleeve', Vec4(*light.sleeve_color, 1.0 if name == 'Hand_D' else 0.0))
 
     def set_flash_light(self, view_pos, color, falloff: float = None):
-        """Đèn tia lửa đầu nòng. `view_pos` trong hệ của cảnh súng (x phải, y lên, z ra trước); `color` đen = tắt. Chiếu lên cả súng và thế giới (FrameLight)."""
+        """Muzzle flash light. `view_pos` in the gun-scene frame (x right, y up, z forward); `color` black = off. Lights both the gun and the world (FrameLight)."""
         self.light.set_flash(view_pos, color)
 
     def _set_up_camera(self, base):
@@ -137,7 +137,7 @@ class Viewmodel:
 
     def _make_region(self, output):
         region = output.make_display_region()
-        region.set_sort(5)                           # sau thế giới (0), trước giao diện (20)
+        region.set_sort(5)                           # after the world (0), before the UI (20)
         region.set_clear_depth_active(True)
         region.set_clear_depth(1.0)
         region.set_clear_color_active(False)
@@ -145,14 +145,14 @@ class Viewmodel:
         return region
 
     def move_to_output(self, output):
-        """Vẽ súng vào buffer khác (ống kính vẽ ảnh đã ghép cả thế giới + súng)."""
+        """Draw the gun into another buffer (the lens draws the composited image of the world + gun)."""
         self.output.remove_display_region(self.region)
         self.output = output
         self.region = self._make_region(output)
 
     @property
     def current_fov(self) -> float:
-        """FOV ngang đang dùng của camera súng (đổi khi nạp đạn)."""
+        """Horizontal FOV the gun camera currently uses (changes when reloading)."""
         return self._fov
 
     def _sync_lens(self):
@@ -166,14 +166,14 @@ class Viewmodel:
             self.lens.set_fov(fov)                   # FOV ngang
 
     def _hide_reload_props(self):
-        """Mag2 và viên đạn của nó chỉ có trong clip reload; ngoài reload chúng lơ lửng bên dưới súng."""
+        """Mag2 and its bullet exist only in the reload clip; outside reloading they hover below the gun."""
         self.reload_props = []
         mag2 = self.actor.find('**/Mag2_M4_D_0-parent')
         if mag2.is_empty():
             return
         center = self._center(mag2)
         bullets = list(self.actor.find_all_matches('**/Bullet5_56x45mm_Bullet5_56x45mm_D_0-parent'))
-        # hai viên đạn trùng tên: viên đi theo Mag2 là viên ở gần Mag2 nhất
+        # two bullets share a name: the one that follows Mag2 is the one nearest to Mag2
         bullets.sort(key=lambda b: (self._center(b) - center).length())
         self.reload_props = [mag2] + bullets[:1]
         self.set_reload_props_visible(False)
@@ -182,19 +182,19 @@ class Viewmodel:
         lo, hi = node.get_tight_bounds(self.actor)
         return (lo + hi) / 2
 
-    # --- animation: tư thế đứng yên, phát clip, huỷ ---
+    # --- animation: still pose, playing a clip, cancelling ---
     def _ready_frame(self) -> tuple:
-        """(anim, khung) của tư thế sẵn sàng = khung cuối của Draw (bolt đóng)."""
+        """(anim, frame) of the ready pose = last frame of Draw (bolt closed)."""
         clip = self.gun.clips['draw']
         return clip.anim, clip.end
 
     def _locked_frame(self) -> tuple:
-        """(anim, khung) của tư thế băng cạn: khung đầu Reload_Empty có bolt khoá sau (các khớp khác trùng tư thế sẵn sàng)."""
+        """(anim, frame) of the empty-magazine pose: the first frame of Reload_Empty, where the rear bolt is locked (the other joints match the ready pose)."""
         clip = self.gun.clips['reload_empty']
         return clip.anim, clip.start
 
     def hold_ready_pose(self):
-        """Đứng yên ở tư thế sẵn sàng, bolt đóng. Tắt trộn: mỗi tư thế đặt vào là tư thế duy nhất."""
+        """Stand still in the ready pose, bolt closed. Blending off: each pose that is set is the only pose."""
         self.clip_key, self._fade, self._empty = None, None, 0.0
         self.actor.disableBlend()
         self.actor.pose(*self._ready_frame())
@@ -205,7 +205,7 @@ class Viewmodel:
             node.show() if visible else node.hide()
 
     def on_event(self, event: tuple):
-        """Sự kiện của core.handling.Handling: ('start', key, speed) / ('swap', key) / ('done', key) / ('cancel', key, frame)."""
+        """Event from core.handling.Handling: ('start', key, speed) / ('swap', key) / ('done', key) / ('cancel', key, frame)."""
         name = event[0]
         if name == 'start':
             self._play(event[1], event[2])
@@ -216,13 +216,13 @@ class Viewmodel:
 
     def _play(self, key: str, speed: float):
         clip = self.gun.clips[key]
-        self.hold_ready_pose()                            # xoá mọi trộn / trượt còn dở trước khi phát (phát là tư thế duy nhất)
+        self.hold_ready_pose()                            # clear any blend / fade still running before playing (a play is the only pose)
         self.actor.play(clip.anim, fromFrame=clip.start, toFrame=clip.end)
         self.actor.setPlayRate(speed, clip.anim)
         self.clip_key = key
 
     def _begin_fade(self, key: str):
-        """Huỷ clip: đứng yên tại khung hiện tại, trượt về tư thế sẵn sàng trong `reload.cancel_blend` giây."""
+        """Cancel the clip: freeze at the current frame, then slide back to the ready pose over `reload.cancel_blend` seconds."""
         anim = self.gun.clips[key].anim
         self.actor.stop(anim)
         self.actor.enableBlend()
@@ -234,8 +234,8 @@ class Viewmodel:
         self.clip_key = None
 
     def _reload_view_wanted(self) -> bool:
-        """Đang nạp và chưa tới `Clip.settle` trừ thời gian trộn: góc nhìn nạp (FOV rộng, súng nhích lên) phải tắt XONG khi súng về chỗ,
-        không đợi hết clip (đoạn cuối chỉ là ngón tay xếp lại, súng nhích lên mà không có gì xảy ra trông như bị đặt sai chỗ)."""
+        """Reloading and not yet at `Clip.settle` minus the blend time: the reload view (wide FOV, gun raised) must be switched OFF by the time the gun is back in place,
+        not wait for the clip to end (the last part is only the fingers folding back; if the gun stays raised with nothing happening, it looks misplaced)."""
         if self.clip_key not in ('reload', 'reload_empty'):
             return False
         clip = self.gun.clips[self.clip_key]
@@ -244,7 +244,7 @@ class Viewmodel:
         return left > self.gun.reload.view_blend
 
     def animate(self, dt: float, magazine_empty: bool, ads: float = 0.0):
-        """Mỗi khung (trước `update`): tiến trình trượt khi huỷ, và bolt khoá sau / nhả khi băng cạn / có đạn."""
+        """Every frame (before `update`): progress of the cancel slide, and the rear bolt locking / releasing with an empty / loaded magazine."""
         r = self.gun.reload
         self.ads = ads
         self._view = step_toward(self._view, 1.0 if self._reload_view_wanted() else 0.0, 1.0 / max(r.view_blend, 1e-3), dt)
@@ -259,7 +259,7 @@ class Viewmodel:
                 self.hold_ready_pose()
             return
         if self.clip_key:
-            return                                        # clip tự chạy theo đồng hồ Panda
+            return                                        # the clip runs on the Panda clock by itself
         target = 1.0 if magazine_empty else 0.0
         if self._empty == target:
             return
@@ -277,12 +277,12 @@ class Viewmodel:
         self._bundle.force_update()
 
     def update(self, *poses: tuple, visual: tuple = ()):
-        """Mỗi tư thế = (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải), mét và độ: kick súng
-        (GunKick.pose), sway/ADS/chạy (Sway.update), trôi tự do (FreeAim.pose). Cộng lại rồi đặt lên nút `sway`; tổng này là `barrel_pose`, nguồn của hướng đạn.
-        `visual`: các tư thế CHỈ HÌNH ẢNH (rung camera, súng đi theo đầu), không vào `barrel_pose` nên không đổi hướng đạn.
+        """Each pose = (x right, y up, z forward, pitch up, yaw right, roll right), metres and degrees: gun kick
+        (GunKick.pose), sway/ADS/sprint (Sway.update), free drift (FreeAim.pose). They are summed and set on the `sway` node; this sum is `barrel_pose`, the source of the bullet direction.
+        `visual`: image-ONLY poses (camera shake, gun following the head); they do not enter `barrel_pose`, so they never change the bullet direction.
 
-        BẪY dấu (đã đo bằng tools/selftests/g3_selftest.py): `set_hpr` THÔ của nút trong đồ thị súng này khác `Entity.rotation`
-        của Ursina ở thế giới: h dương quay súng sang TRÁI, p dương ngóc nòng LÊN, r dương nghiêng PHẢI."""
+        SIGN TRAP (measured with tools/selftests/g3_selftest.py): the raw `set_hpr` of a node in this gun graph differs from Ursina's `Entity.rotation`
+        in the world: positive h turns the gun to the LEFT, positive p tilts the barrel UP, positive r leans it RIGHT."""
         self._sync_lens()
         k = smoothstep(self._view)
         if k > 0.0:

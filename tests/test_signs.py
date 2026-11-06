@@ -22,9 +22,9 @@ def test_signs_grow_with_distance_and_stop_under_the_ceiling():
 def test_sign_fits_inside_the_room_and_above_targets(d, side):
     r = sign_rect(L, d, side)
     assert r['lo'][1] == L.bottom
-    assert ROOM.half_width - ROOM.pillar_depth > max(abs(r['lo'][0]), abs(r['hi'][0]))          # không đụng cột/tường
-    assert r['lo'][1] > 2.86 + 0.1          # cao hơn bia lớn nhất (200 m: 2,86 m) nên bia chạy đi lọt dưới biển
-    assert r['cz'] < d                      # trước mốc, không chạm bia ở đúng mốc
+    assert ROOM.half_width - ROOM.pillar_depth > max(abs(r['lo'][0]), abs(r['hi'][0]))          # does not hit a pillar or wall
+    assert r['lo'][1] > 2.86 + 0.1          # higher than the largest target (200 m: 2.86 m), so moving targets pass under the sign
+    assert r['cz'] < d                      # in front of the mark, not touching the target at the mark
 
 
 @pytest.mark.parametrize('d', MARKS)
@@ -50,7 +50,7 @@ def test_rods_stay_on_the_board():
 
 
 def test_signs_do_not_hide_each_other_from_the_firing_line():
-    """Nhìn từ vạch bắn (mắt 1,62 m), biển gần che tối đa 10% diện tích một biển xa."""
+    """Seen from the firing line (eye at 1.62 m), a near sign hides at most 10% of the area of a far sign."""
     worst = 0.0
     for near, far in itertools.combinations(MARKS, 2):
         for side in (-1, 1):

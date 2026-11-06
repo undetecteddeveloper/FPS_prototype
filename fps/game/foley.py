@@ -1,11 +1,11 @@
-"""Foley: tiếng kim loại khi nạp / rút súng (theo khung animation) và bước chân, nhảy, chạm đất trên gạch.
+"""Foley: metal sounds when reloading / drawing the gun (following the animation frames), and footsteps, jumps and landings on tiles.
 
-Toán nằm ở core: `core.cues.CueSchedule` (khi nào tới mốc nào, huỷ thì bỏ mốc chưa tới) và `core.footsteps.Footsteps` (nhịp bước theo quãng đường).
-Ở đây chỉ ghép với Panda: nạp file `assets/sounds/foley/<tên>_<số>.wav` (dựng bằng tools/build/prep_foley.py), phát từ vòng luân phiên (mỗi file `AudioData.pool` bản,
-tiếng sau không cắt đuôi tiếng trước), đổi cao độ / âm lượng / lệch kênh theo sự kiện. Không có thiết bị âm thanh thì Panda phát âm câm, không lỗi.
+The maths lives in core: `core.cues.CueSchedule` (when each cue fires; cancelling drops cues not yet reached) and `core.footsteps.Footsteps` (step timing by distance walked).
+Here it is only wired to Panda: loads `assets/sounds/foley/<name>_<n>.wav` files (built by tools/build/prep_foley.py), plays them from a round-robin pool (`AudioData.pool` copies each,
+so a later sound does not cut off the previous one), and changes pitch / volume / stereo pan per event. With no audio device, Panda plays silence, with no error.
 
-Móc vào `Game.update` (không có update riêng): `on_handling_event(event)` cho từng sự kiện của Handling, rồi `update(dt)` một lần mỗi khung.
-Tắt tiếng (`--mute`, `create_game(sound=False)`) thì Game không tạo đối tượng này.
+Hooked into `Game.update` (no separate update): `on_handling_event(event)` for each Handling event, then `update(dt)` once per frame.
+Muted (`--mute`, `create_game(sound=False)`) means Game does not create this object.
 """
 import math
 import random
@@ -21,11 +21,11 @@ from fps.core.footsteps import FootEvent, Footsteps, pick_variant
 from fps.weapon_data import AudioData, GunData
 
 STEP_NAMES = ('step_walk', 'step_run', 'land', 'jump')
-TELEPORT_DISTANCE = 3.0       # m: bước nhảy vị trí trong một khung lớn hơn mức này là dịch chuyển, không tính là đi
+TELEPORT_DISTANCE = 3.0       # m: a position jump larger than this within one frame is a teleport, not walking
 
 
 class _Bank:
-    """Mọi biến thể của một nhóm tiếng; mỗi biến thể có `pool` bản phát luân phiên."""
+    """Every variant of one sound group; each variant has `pool` copies that play in rotation."""
 
     def __init__(self, voices: list):
         self.voices = voices                       # [[AudioSound, ...], ...]
@@ -58,31 +58,31 @@ class Foley:
         names.discard(None)
         self.banks = {name: self._load_bank(name, project_root) for name in sorted(names)}
 
-        self.clock = 0.0                           # giây đã chạy (cộng dt), để kiểm thời điểm phát
-        self.counts = Counter()                    # số lần phát theo tên nhóm (cho kiểm tra)
-        self.log = deque(maxlen=512)               # (clock, tên, âm lượng, biến thể) các tiếng gần nhất
+        self.clock = 0.0                           # seconds elapsed (dt added), to check when sounds play
+        self.counts = Counter()                    # number of plays per group name (for checks)
+        self.log = deque(maxlen=512)               # (clock, name, volume, variant) of the most recent sounds
         self.last_sound = None
-        self.pending = []                          # (đồng hồ lúc phát, tên, âm lượng, cao độ): tiếng đạn trúng đang trên đường về tai người bắn
+        self.pending = []                          # (clock at play, name, volume, pitch): hit sound still travelling to the shooter's ear
 
     def _load_bank(self, name: str, project_root: Path) -> _Bank:
         folder = project_root / self.audio.folder
-        group = self.audio.sound_files.get(name, name)             # tên logic -> nhóm file (tiếng người dùng cung cấp hoặc tổng hợp)
+        group = self.audio.sound_files.get(name, name)             # logical name -> file group (user-supplied or synthesized sounds)
         files = sorted(folder.glob(f'{group}_*.wav'))
         if not files:
             raise FileNotFoundError(f'thiếu {folder}\\{group}_*.wav: chạy tools\\build\\prep_foley.py (tiếng user_*: tools\\build\\prep_user_audio.py; el_*: tools\\build\\prep_elevenlabs.py)')
         loader = application.base.loader
         return _Bank([[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(max(1, self.audio.pool))] for f in files])
 
-    # --- phát ---
+    # --- playback ---
     def play(self, name: str, volume: float, pitch: float = 1.0, pan: float = 0.0, fit_hz: float = 0.0):
-        """`fit_hz` > 0: kéo giãn tiếng cho vừa một chu kỳ 1 / fit_hz giây (chỉ trong khoảng 0,85-1,2 lần)."""
+        """`fit_hz` > 0: stretch the sound to fit one period of 1 / fit_hz seconds (only within 0.85-1.2x)."""
         variant, sound = self.banks[name].next_sound(self.rng)
         if fit_hz > 0.0 and sound.length() > 0.0:
             pitch *= min(max(sound.length() * fit_hz, 0.85), 1.2)
         sound.set_volume(min(max(volume, 0.0), 1.0))
         sound.set_play_rate(pitch * self.audio.pitch_scale.get(name, 1.0))
         sound.set_balance(min(max(pan, -1.0), 1.0))
-        sound.play()                               # phát lại từ đầu nếu bản này còn đang vang (chỉ khi cả vòng đã quay hết)
+        sound.play()                               # restarts from the beginning if this copy is still ringing (only when the whole ring has gone round)
         self.counts[name] += 1
         self.log.append((self.clock, name, volume, variant))
         self.last_sound = sound
@@ -97,19 +97,19 @@ class Foley:
         self.play(name, ev.gain, ev.pitch, pan)
 
     def on_impact(self, on_target: bool, distance: float):
-        """Đạn vừa trúng: tiếng va tới tai sau `distance / tốc độ âm thanh` giây."""
+        """A bullet just hit: the impact sound reaches the ear after `distance / speed of sound` seconds."""
         a = self.audio
         delay, volume = impact_sound(a, distance, on_target)
         pitch = 1.0 + self.rng.uniform(-a.hit_pitch_variation, a.hit_pitch_variation)
         self.pending.append((self.clock + delay, 'hit_target' if on_target else 'hit_hard', volume, pitch))
 
     def on_dry_fire(self):
-        """Bóp cò khi đã hết sạch đạn: game không có HUD nên đây là cách duy nhất biết hết đạn, cùng với khoá nòng."""
+        """Trigger pulled with the magazine empty: the game has no HUD, so this, together with the bolt lock, is the only way to know the gun is out of ammo."""
         self.play('dry', self.audio.dry_volume)
 
-    # --- móc vào Game.update ---
+    # --- hooked into Game.update ---
     def on_handling_event(self, event: tuple):
-        """Sự kiện của core.handling.Handling: ('start', key, speed) / ('swap', key) / ('done', key) / ('cancel', key, frame)."""
+        """Event from core.handling.Handling: ('start', key, speed) / ('swap', key) / ('done', key) / ('cancel', key, frame)."""
         kind = event[0]
         if kind == 'start':
             key, speed = event[1], event[2]
@@ -120,8 +120,8 @@ class Foley:
             self.schedule.cancel(self.audio)
 
     def update(self, dt: float, bob_phase: float = None, sway=None, ads: float = 0.0):
-        """Mỗi khung, SAU khi đã xử lý các sự kiện của Handling (cùng `dt` thật với Handling.update) và SAU `Sway.update` (để pha bob là của khung này).
-        `bob_phase` = Sway.phase: bước chân phát đúng lúc súng chạm điểm thấp nhất của bob. `sway` = Sway (đồng hồ thở + bob), `ads` = player.ads_amount: tiếng thở."""
+        """Every frame, AFTER the Handling events are processed (same real `dt` as Handling.update) and AFTER `Sway.update` (so the bob phase is this frame's).
+        `bob_phase` = Sway.phase: footsteps play exactly when the gun reaches the lowest point of the bob. `sway` = Sway (breathing clock + bob), `ads` = player.ads_amount: breathing sound."""
         self.clock += dt
         self._play_cues(self.schedule.update(dt))
         if self.pending:

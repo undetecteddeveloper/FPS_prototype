@@ -20,7 +20,7 @@ def test_walks_at_the_given_speed():
 
 
 def test_turns_back_at_the_limit_with_the_leftover_time():
-    p = make(x=6.0)                      # còn 1 m tới biên phải, tốc độ 3: 0,333 s tới nơi, còn 0,667 s đi ngược lại 2 m
+    p = make(x=6.0)                      # 1 m left to the right limit, speed 3: 0.333 s to get there, leaving 0.667 s to go back 2 m
     p.advance(1.0)
     assert p.x == pytest.approx(5.0)
     assert p.direction == -1.0
@@ -28,11 +28,11 @@ def test_turns_back_at_the_limit_with_the_leftover_time():
 
 def test_pause_at_each_end_then_resumes():
     p = make(x=6.9, pause=0.5, speed=1.0)
-    p.advance(0.1)                       # tới biên phải, quay đầu, bắt đầu nghỉ
+    p.advance(0.1)                       # reaches the right limit, turns around, starts the pause
     assert p.x == pytest.approx(7.0) and p.velocity == 0.0
     p.advance(0.4)
     assert p.x == pytest.approx(7.0) and p.velocity == 0.0
-    p.advance(0.2)                       # hết 0,5 s nghỉ rồi đi 0,1 s theo chiều âm
+    p.advance(0.2)                       # the 0.5 s pause ends, then it moves 0.1 s in the negative direction
     assert p.x == pytest.approx(6.9) and p.velocity == -1.0
 
 
@@ -66,7 +66,7 @@ def test_irregular_steps_equal_one_big_step():
 
 def test_period_matches_a_full_round_trip():
     p = make(lo=0.0, hi=6.0, speed=2.0, pause=0.5, x=0.0)
-    assert p.period == pytest.approx(7.0)            # 3 s đi + 0,5 nghỉ, 3 s về + 0,5 nghỉ
+    assert p.period == pytest.approx(7.0)            # 3 s out + 0.5 pause, 3 s back + 0.5 pause
     p.advance(p.period)
     assert p.x == pytest.approx(0.0) and p.direction == 1.0 and p.wait == 0.0
 

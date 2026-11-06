@@ -1,11 +1,11 @@
-"""Lò xo giảm chấn nhiều thành phần (toán thuần, không import ursina).
+"""Multi-component damped spring (pure math, no ursina import).
 
-Dùng nghiệm CHÍNH XÁC của dao động tắt dần cho mỗi bước dt, nên ổn định ở mọi FPS và mọi dt
-(không cần chia bước nhỏ như Euler). Kick súng (recoil.py) dùng nó; sway chuột ở G4 cũng sẽ dùng.
+Uses the EXACT solution of the damped oscillation for each step dt, so it is stable at any FPS and any dt
+(no need for small sub-steps as with Euler). The gun kick (recoil.py) uses it; the G4 mouse sway will use it too.
 """
 import math
 
-ZETA_MAX = 0.999   # <1: công thức dưới là dao động tắt dần; lò xo giảm chấn quá mức không có ích cho cảm giác súng
+ZETA_MAX = 0.999   # < 1: the formula below is underdamped oscillation; an overdamped spring is no use for gun feel
 
 
 def clamp_zeta(zeta: float) -> float:
@@ -13,7 +13,7 @@ def clamp_zeta(zeta: float) -> float:
 
 
 class Spring:
-    """n thành phần độc lập, cùng tần số riêng `omega` (rad/s) và tỉ số giảm chấn `zeta`. Về 0 khi yên."""
+    """n independent components, same natural frequency `omega` (rad/s) and damping ratio `zeta`. Return to 0 at rest."""
 
     def __init__(self, n: int, omega: float, zeta: float):
         self.omega = omega
@@ -22,7 +22,7 @@ class Spring:
         self.v = [0.0] * n
 
     def kick(self, impulses):
-        """Cộng thẳng vào vận tốc (xung)."""
+        """Add directly to the velocity (impulse)."""
         for i, dv in enumerate(impulses):
             self.v[i] += dv
 
@@ -40,7 +40,7 @@ class Spring:
 
 
 def impulse_gain(omega: float, zeta: float) -> float:
-    """Xung vận tốc cần cho độ lệch đỉnh bằng 1 (khi lò xo đang yên). Nhân với độ lệch đỉnh mong muốn."""
+    """Velocity impulse needed for a peak deviation of 1 (when the spring is at rest). Multiply by the desired peak deviation."""
     zeta = clamp_zeta(zeta)
     a = zeta * omega
     wd = omega * math.sqrt(1.0 - zeta * zeta)
@@ -49,10 +49,10 @@ def impulse_gain(omega: float, zeta: float) -> float:
 
 
 def burst_peak_ratio(omega: float, zeta: float, shots: int, interval: float) -> float:
-    """Đỉnh của `shots` xung GIỐNG NHAU cách nhau `interval` giây, chia cho đỉnh của MỘT xung (hệ tuyến tính nên không phụ thuộc độ lớn xung).
+    """Peak of `shots` IDENTICAL impulses spaced `interval` seconds apart, divided by the peak of ONE impulse (linear system, so independent of impulse size).
 
-    Công thức đóng, độc lập với `Spring.step`: đáp ứng một xung h(t) = e^(-a t) sin(wd t) chuẩn hoá cho đỉnh = 1, cộng chồng các bản dịch
-    thời gian. Dùng để test và selftest suy ra "cả băng lùi bao nhiêu lần một phát" từ lò xo thay vì chép số cứng."""
+    Closed form, independent of `Spring.step`: the response to one impulse h(t) = e^(-a t) sin(wd t), normalised to peak = 1, superposed with time-shifted copies.
+    Used by tests and selftests to derive 'the whole burst pushes back how many times one shot' from the spring, instead of a hard-coded number."""
     zeta = clamp_zeta(zeta)
     a = zeta * omega
     wd = omega * math.sqrt(1.0 - zeta * zeta)

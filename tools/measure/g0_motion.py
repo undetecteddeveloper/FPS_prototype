@@ -1,5 +1,5 @@
-"""G0 bước 2: các phần súng không skin (Bolt, Mag1, Trigger...) có chuyển động theo animation không?
-Đặt tư thế bằng pose(clip, khung) rồi đọc vị trí của nút trong hệ toạ độ actor. Không mở cửa sổ."""
+"""G0 step 2: do the non-skinned gun parts (Bolt, Mag1, Trigger...) move with the animation?
+Sets the pose with pose(clip, frame), then reads each node's position in the actor's coordinate system. Opens no window."""
 import sys
 from pathlib import Path
 
@@ -23,7 +23,7 @@ actor = Actor(Filename.from_os_specific(str((Path(__file__).resolve().parents[2]
 PARTS = ['Bolt', 'BoltCatch', 'Trigger', 'Mag1', 'Mag2', 'Main', 'FPS_Camera_j_01']
 nodes = {}
 for p in PARTS:
-    # phần súng không skin: nút trung gian '<mesh>-parent' được khớp cập nhật mỗi khung
+    # non-skinned gun parts: the intermediate '<mesh>-parent' node is updated by the joint every frame
     np_ = actor.find(f'**/{p}_M4_D_0-parent')
     if np_.isEmpty():
         np_ = actor.exposeJoint(None, 'modelRoot', p)
@@ -36,12 +36,12 @@ bundle = actor.getPartBundle('modelRoot')
 
 def snapshot(clip, frame):
     actor.pose(clip, frame)
-    bundle.force_update()  # actor.update() không đủ: bỏ qua nếu khung đổi trong cùng một clip
+    bundle.force_update()  # actor.update() is not enough: skip it if the frame changes within the same clip
     return {p: tuple(round(v, 2) for v in n.getPos(actor)) for p, n in nodes.items()}
 
 
-# khoảng khung thật (mốc giây * 30). Ghi bằng chứng: vị trí từng phần ở đầu / giữa / cuối clip.
-CLIPS = {  # khoảng khung HỢP LỆ: khung N của clip N khung bị bao về 0
+# real frame ranges (cue seconds * 30). Records the evidence: each part's position at the start, middle and end of the clip.
+CLIPS = {  # VALID frame ranges: frame N of a clip with N frames is clamped to 0, so use the last frame N-1
     'Reload':       (1, 110),
     'Reload_Empty': (111, 224),
     'Fire':         (226, 249),
@@ -54,7 +54,7 @@ for clip, (a, b) in CLIPS.items():
         snap = snapshot(clip, f)
         print(f'  f{f}:', {k: snap[k] for k in ('Bolt', 'Mag1', 'Trigger')})
 
-# tổng quãng đường dịch chuyển của mỗi phần trong mỗi clip
+# total distance travelled by each part in each clip
 print('\nTổng quãng đường (đơn vị model) trong từng clip:')
 for clip, (a, b) in CLIPS.items():
     prev = None

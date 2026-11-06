@@ -51,8 +51,8 @@ def test_feet_alternate_and_variation_stays_in_range():
         assert A.step_volume * (1 - vv) - 1e-9 <= e.gain <= A.step_volume * (1 + vv) + 1e-9
     left = [e.pitch for e in steps if e.foot == 0]
     right = [e.pitch for e in steps if e.foot == 1]
-    assert sum(right) / len(right) > sum(left) / len(left)             # chân phải cao hơn chân trái
-    assert len({round(e.gain, 4) for e in steps}) > len(steps) // 2    # âm lượng thật sự ngẫu nhiên
+    assert sum(right) / len(right) > sum(left) / len(left)             # right foot is higher than left foot
+    assert len({round(e.gain, 4) for e in steps}) > len(steps) // 2    # volume really is random
 
 
 def test_crouch_is_quiet_and_sprint_is_louder():
@@ -75,7 +75,7 @@ def test_silent_when_standing_still_and_after_stopping():
     for _ in range(120):
         quiet += fs.update(1 / 60, 0.0, True, 0.0, 0.0, False, False)
     assert quiet == []
-    for _ in range(120):                                               # trượt nốt rất chậm sau khi thả phím cũng không tính là đi
+    for _ in range(120):                                               # still sliding very slowly after the keys are released does not count as walking
         quiet += fs.update(1 / 60, 0.3 / 60, True, 0.0, 0.0, False, False)
     assert quiet == []
 
@@ -93,14 +93,14 @@ def test_first_step_after_standing_comes_early():
 def test_airborne_is_silent_and_jump_and_land_play_once():
     fs = Footsteps(A, random.Random(4))
     events = []
-    events += fs.update(1 / 60, 0.0, False, 6.4, 0.0, False, False)     # khung rời đất, đang đi lên
+    events += fs.update(1 / 60, 0.0, False, 6.4, 0.0, False, False)     # the frame leaves the ground, moving up
     assert [e.kind for e in events] == ['jump']
-    for _ in range(40):                                                 # trên không, vẫn đang đi ngang
+    for _ in range(40):                                                 # in the air, still moving sideways
         events += fs.update(1 / 60, 4.5 / 60, False, 1.0, 0.0, False, False)
     assert [e.kind for e in events] == ['jump']
-    events += fs.update(1 / 60, 4.5 / 60, True, 0.0, 6.4, False, False)   # chạm đất
+    events += fs.update(1 / 60, 4.5 / 60, True, 0.0, 6.4, False, False)   # touches down
     assert [e.kind for e in events] == ['jump', 'land']
-    assert events[-1].gain > A.step_volume * 1.2                        # to hơn bước chân
+    assert events[-1].gain > A.step_volume * 1.2                        # louder than a footstep
 
 
 def test_land_volume_grows_with_fall_speed_and_small_falls_are_ignored():
@@ -112,7 +112,7 @@ def test_land_volume_grows_with_fall_speed_and_small_falls_are_ignored():
     assert land(1.0) == []
     gains = [land(v)[0].gain for v in (2.5, 4.0, 6.4, 9.0)]
     assert gains == sorted(gains) and gains[0] < gains[2]
-    assert gains[-1] < A.land_volume * A.land_gain_range[1] * 1.11     # kẹp ở mức tối đa (+ ngẫu nhiên)
+    assert gains[-1] < A.land_volume * A.land_gain_range[1] * 1.11     # clamped at the maximum (+ randomness)
 
 
 def test_pick_variant_never_repeats_and_covers_all():
@@ -127,7 +127,7 @@ def test_pick_variant_never_repeats_and_covers_all():
     assert pick_variant(rng, 1, 0) == 0
 
 
-# --- nhịp bước KHỚP pha bob của Sway ---
+# --- footstep rhythm MATCHES the bob phase of Sway ---
 import dataclasses  # noqa: E402
 import math  # noqa: E402
 
@@ -137,7 +137,7 @@ from fps.weapon_data import SwayData  # noqa: E402
 
 
 def bob_walk(meters, state=S.WALK, speed=4.5, fps=60.0, seed=1, sway_data=None, hitch=None):
-    """Đi `meters` mét với Sway thật; trả về [(giây, sự kiện bước, pha bob, bước pha mỗi khung)]."""
+    """Walks `meters` metres with a real Sway; returns [(seconds, step event, bob phase, phase step per frame)]."""
     sd = sway_data or SwayData()
     sway, fs = Sway(sd), Footsteps(A, random.Random(seed))
     dt, t, moved, out = 1.0 / fps, 0.0, 0.0, []
@@ -158,7 +158,7 @@ def bob_walk(meters, state=S.WALK, speed=4.5, fps=60.0, seed=1, sway_data=None, 
 def test_bob_steps_follow_the_bob_cadence(state, speed, rate_name):
     sd = SwayData()
     out, _ = bob_walk(30.0, state, speed)
-    expect = 2 * 30.0 * getattr(sd, rate_name) / sd.bob_stride        # hai bước mỗi chu kỳ bob
+    expect = 2 * 30.0 * getattr(sd, rate_name) / sd.bob_stride        # two steps per bob cycle
     assert abs(len(out) - expect) <= 1.0
 
 
@@ -173,7 +173,7 @@ def test_step_lands_on_the_lowest_point_of_the_bob():
     out, _ = bob_walk(30.0)
     for _, ev, phase, dphase in out:
         off = (phase - A.step_bob_phase) % math.pi
-        assert off <= dphase + 1e-6 or math.pi - off <= 1e-6, (phase, dphase)       # vừa đi qua mốc, cùng lắm một khung trước
+        assert off <= dphase + 1e-6 or math.pi - off <= 1e-6, (phase, dphase)       # just passed the mark, at most one frame earlier
 
 
 def test_bob_feet_alternate():
@@ -183,11 +183,11 @@ def test_bob_feet_alternate():
 
 
 def test_bob_steps_never_pile_up_into_continuous_noise():
-    """Lỗi đã gặp: bước theo quãng đường 0,75 m ở 4,5 m/s = 6 tiếng/s, mỗi tiếng dài 0,31 s nên kêu liên tục. Theo bob thì thưa hơn nhiều."""
+    """Old bug: stepping by distance at 0.75 m per step and 4.5 m/s gave 6 sounds/s, each 0.31 s long, so it buzzed continuously. Stepping by bob is much sparser."""
     for state, speed in ((S.WALK, 4.5), (S.SPRINT, 6.8), (S.CROUCH_WALK, 2.2)):
         out, _ = bob_walk(30.0, state, speed)
         gaps = [b[0] - a[0] for a, b in zip(out, out[1:])]
-        assert min(gaps) > 0.33, (state, min(gaps))       # tiếng bước dài tối đa 0,32 s (MAX_SECONDS) nên không chồng lên nhau
+        assert min(gaps) > 0.33, (state, min(gaps))       # a footstep sound lasts at most 0.32 s (MAX_SECONDS), so they never overlap
 
 
 def test_bob_steps_scale_with_bob_rate():
@@ -200,10 +200,10 @@ def test_bob_silent_when_standing_and_airborne():
     out, sway = bob_walk(5.0)
     fs = Footsteps(A, random.Random(2))
     fs.update(1 / 60, 0.0, True, 0.0, 0.0, False, False, sway.phase)
-    for _ in range(180):                                              # đứng yên 3 s: pha bob đứng yên, không có bước
+    for _ in range(180):                                              # standing still for 3 s: bob phase is still, no steps
         sway.update(1 / 60, SwayInput(S.IDLE, 0.0, 0.0, 0.0))
         assert fs.update(1 / 60, 0.0, True, 0.0, 0.0, False, False, sway.phase) == []
-    for _ in range(60):                                               # trên không: im dù có di chuyển ngang
+    for _ in range(60):                                               # airborne: silent even while moving sideways
         assert [e for e in fs.update(1 / 60, 0.08, False, -1.0, 0.0, False, False, (sway.phase + 1.0) % (2 * math.pi)) if e.kind == 'step'] == []
 
 

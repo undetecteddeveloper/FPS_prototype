@@ -1,14 +1,14 @@
-"""G6: camera shake (bắn + nạp) bằng game thật.
+"""G6: camera shake (firing + reload) with the real game.
 
-Đo:
-  - dấu của camera thế giới và súng trên màn hình (phép chiếu thật)
-  - rung khi bắn liên thanh một băng 30 viên: độ nghiêng (roll), độ lệch hướng nhìn (pitch/yaw), dịch chuyển, độ dịch theo điểm ảnh; trần; tắt đúng hạn
-  - rung khi nạp (còn đạn / băng cạn): mốc nổ đúng khung của clip (băng vào chỗ trùng lúc đạn đổi), nhẹ, không rung suốt clip, huỷ nạp bỏ mốc chưa tới
-  - rung CHỈ LÀ HÌNH ẢNH: chạy cùng một kịch bản bắn (cùng seed, bước dt cố định) với rung bật và tắt, tia ngắm / hướng đạn / điểm trúng phải GIỐNG HỆT
-  - ngắm (ADS) giảm rung còn đúng tỉ lệ cấu hình
-Ảnh vào shots\\shake_*.png.
+Measures:
+  - sign of the world camera and the gun on screen (real projection)
+  - shake during a full-auto 30-round magazine: tilt (roll), view offset (pitch/yaw), displacement, pixel shift; cap; turns off on time
+  - shake during reload (rounds left / empty mag): cues fire on the right clip frame (magazine seats at the moment rounds change), light, no shaking through the whole clip, cancelling drops the cues not yet reached
+  - shake is IMAGE ONLY: the same firing script (same seed, fixed dt) runs with shake on and off; aim ray / bullet direction / hit points must be IDENTICAL
+  - aiming (ADS) reduces the shake to exactly the configured ratio
+Screenshots go to shots\\shake_*.png.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g6_shake_selftest.py        (thoát mã 1 nếu có mục trượt)
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g6_shake_selftest.py        (exits with code 1 if any item fails)
 """
 import math
 import sys
@@ -27,12 +27,12 @@ from fps.core.movement import aim_direction  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, hud=True, free_aim=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
+game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, hud=True, free_aim=False)     # G6: moving targets change the measurement over time; measure on still targets
 player, combat, viewmodel = game.player, game.combat, game.viewmodel
 shake = game.shake
 gun = game.params.gun
 D = gun.shake
-# bài này đo riêng lớp rung: tắt chuyển động đầu và phần súng trôi (kiểm ở tools/selftests/g7_selftest.py)
+# this test measures the shake layer on its own: turns off head motion and gun drift (checked in tools/selftests/g7_selftest.py)
 game.shake_view.head = None
 _fa = gun.free_aim
 _fa.rest_yaw = _fa.rest_pitch = _fa.rest_roll = _fa.rest_pos = 0.0
@@ -59,14 +59,14 @@ def shot(name):
 
 
 def screen_px(p):
-    """Điểm thế giới -> pixel so với tâm màn hình (x phải, y lên), theo camera thế giới hiện tại."""
+    """World point -> pixels relative to screen centre (x right, y up), using the current world camera."""
     out = Point2()
     camera.lens.project(camera.getRelativePoint(application.base.render, Point3(*p)), out)
     return out.x * window.size[0] / 2, out.y * window.size[1] / 2
 
 
 def probe_point():
-    """Điểm cách mắt 50 m, lệch 30 độ phải / 15 độ lên so với tia ngắm: gần góc màn hình nên thấy cả roll lẫn pitch/yaw."""
+    """Point 50 m from the eye, 30 degrees right / 15 degrees up from the aim ray: near a screen corner, so both roll and pitch/yaw are visible."""
     origin, view = player.aim_ray()
     yaw, pitch = player.yaw + 30.0, player.pitch - 15.0
     d = aim_direction(yaw, pitch)
@@ -74,7 +74,7 @@ def probe_point():
 
 
 def shake_metrics():
-    """Độ lệch của camera thế giới do rung (so với tia ngắm của người chơi): (roll độ, lệch hướng nhìn độ, dịch mm, lệch điểm ảnh)."""
+    """Offset of the world camera caused by shake (relative to the player's aim ray): (roll in degrees, view offset in degrees, displacement in mm, pixel offset)."""
     rot, pos = tuple(camera.rotation), tuple(camera.position)
     p = probe_point()
     with_shake = screen_px(p)
@@ -129,14 +129,14 @@ class Script(Entity):
         combat.weapon.cooldown = 0.0
         combat.pressed = False
         shake.reset()
-        shake.t = 0.0                  # cùng đồng hồ nhiễu cho mọi lượt đo: so sánh bật/tắt, hông/ngắm công bằng
-        shake.shot_count = 0           # cùng chuỗi độ mạnh / hướng từng phát (băm theo số thứ tự phát)
+        shake.t = 0.0                  # same noise clock for every run: fair comparison of on/off and hip/ADS
+        shake.shot_count = 0           # same strength / direction sequence per shot (hashed by shot index)
         shake.enabled = True
         shake.beat_log.clear()
 
-    # --- bài đo bằng khung hình thật ---
+    # --- measurement with real frames ---
     def real_spray(self, ads=0.0):
-        """Bắn hết băng 30 viên bằng khung thật rồi chờ rung tắt; trả về danh sách số đo mỗi khung."""
+        """Fire the full 30-round magazine with real frames, then wait for the shake to stop; returns the list of measurements per frame."""
         self.reset_state(ads=ads)
         combat.rng.seed(S_SEED)
         yield from self.wait(0.05)
@@ -147,17 +147,17 @@ class Script(Entity):
             samples.append((combat.weapon.mag, shake.heat) + shake_metrics())
         held_keys['left mouse'] = 0
         after, t = [], 0.0
-        while t < 1.0:                            # 1 s (đồng hồ game) sau loạt cuối: tính theo giây chứ không theo số khung, vì rung tắt theo THỜI GIAN
+        while t < 1.0:                            # 1 s (game clock) after the last burst: counted in seconds, not frames, because the shake fades by TIME
             yield
             t += min(time.dt, 0.05)
             after.append((t, (0, shake.heat) + shake_metrics()))
         samples.extend(x for _, x in after)
-        settle = D.heat_hold + 1.0 / D.heat_cool + 0.1       # độ nóng (run tay) về 0 sau hold + 1 / cool giây kể từ phát cuối; lò xo giật tắt trước đó (+ chút dư)
+        settle = D.heat_hold + 1.0 / D.heat_cool + 0.1       # heat (hand tremor) returns to 0 after hold + 1 / cool seconds from the last shot; the kick spring has died out before that (+ a little margin)
         self.spray_tail = [x for tt, x in after if tt >= settle]
         self.spray_samples = samples
 
     def reload_run(self, mag, label, cancel_after_frame=None):
-        """Nạp bằng khung thật; ghi số đo mỗi khung. Trả về (mẫu, thời gian bắt đầu)."""
+        """Reload with real frames; record the measurements per frame. Returns (samples, start time)."""
         self.reset_state(mag=mag)
         yield from self.wait(0.3)
         shake.beat_log.clear()
@@ -182,7 +182,7 @@ class Script(Entity):
         yield from self.wait(0.5)
         return samples, mags
 
-    # --- kịch bản xác định (bước dt cố định, không qua cửa sổ) để so rung bật / tắt ---
+    # --- deterministic script (fixed dt step, no window) to compare shake on / off ---
     def deterministic_pass(self, shake_on, ads=0.0):
         self.reset_state(ads=ads)
         shake.enabled = shake_on
@@ -209,7 +209,7 @@ class Script(Entity):
         dt = 1.0 / 120.0
         try:
             held_keys['left mouse'] = 1
-            for i in range(240):                             # 2 s: băng 30 viên (2,4 s ở 750 phát/phút) bắn khoảng 25 viên
+            for i in range(240):                             # 2 s: a 30-round magazine (2.4 s at 750 rpm) fires about 25 rounds
                 combat.update(dt, dt)
                 pose = game.shake_view.apply(player.ads_amount)
                 rays.append(player.aim_ray())
@@ -219,7 +219,7 @@ class Script(Entity):
                 if i % 6 == 0:
                     gun_off.append(gun_center())
             held_keys['left mouse'] = 0
-            for i in range(400):                             # chờ đạn bay hết
+            for i in range(400):                             # wait for bullets to finish flying
                 combat.update(dt, dt)
                 if not combat.bullets:
                     break
@@ -232,13 +232,13 @@ class Script(Entity):
     def run(self):
         yield from self.wait(0.6)
 
-        # --- A. dấu: camera thế giới và súng trên màn hình ---
+        # --- A. sign: world camera and gun on screen ---
         self.reset_state()
         yield from self.wait(0.1)
-        far = (4.0, player.camera_pivot.y + 0.0, 12.0)           # phía phải, ngang tầm mắt
+        far = (4.0, player.camera_pivot.y + 0.0, 12.0)           # to the right, level with the eyes
         base = screen_px(far)
         base_center = screen_px((0.0, player.camera_pivot.y, 12.0))
-        viewmodel.update((0.0,) * 6)           # tư thế súng trần (không sway), làm gốc so sánh
+        viewmodel.update((0.0,) * 6)           # bare gun pose (no sway), used as the comparison base
         gun0 = gun_center()
 
         def set_pose(i, v):
@@ -272,7 +272,7 @@ class Script(Entity):
         check('hết rung: súng về chỗ cũ (mm)', round(max(abs(a - b) for a, b in zip(g, gun0)) * 1000, 3), '< 0.01',
               max(abs(a - b) for a, b in zip(g, gun0)) < 1e-5)
 
-        # --- B. bắn một băng ---
+        # --- B. fire one magazine ---
         yield from self.real_spray()
         s = self.spray_samples
         firing = [x for x in s if x[0] > 0]
@@ -284,7 +284,7 @@ class Script(Entity):
         print(f'BẮN (một băng 30 viên, hông): roll tối đa {roll_max:.3f} độ, lệch hướng nhìn tối đa {dev_max:.3f} độ, dịch tối đa {mm_max:.2f} mm, '
               f'điểm ảnh lệch tối đa {px_max:.1f} px (điểm gần góc màn hình), độ nóng tối đa {tr_max:.2f}')
         check('bắn: cả băng làm nóng hẳn (độ nóng = 1)', round(tr_max, 3), '1.0', tr_max >= 1.0 - 1e-9)
-        # giới hạn của mô hình: mỗi trục <= (bias + spread) x độ mạnh tối đa x (1 + heat_boost) x fire_scale x hệ số dồn (~1,6) + run tay
+        # model limit: each axis <= (bias + spread) x max strength x (1 + heat_boost) x fire_scale x stacking factor (~1.6) + hand tremor
         k_max = (1 + D.strength_var) * (1 + D.heat_boost) * D.fire_scale * 1.6
 
         def axis_cap(i):
@@ -306,7 +306,7 @@ class Script(Entity):
         check('bắn: camera về đúng 0 (độ)', tuple(round(c, 6) for c in camera.rotation), '(0,0,0)', not any(camera.rotation))
         yield from self.wait(0.3)
 
-        # ảnh giữa loạt
+        # mid-burst screenshot
         self.reset_state()
         combat.rng.seed(S_SEED)
         yield from self.wait(0.1)
@@ -319,7 +319,7 @@ class Script(Entity):
         held_keys['left mouse'] = 0
         yield from self.wait(1.0)
 
-        # ảnh phóng đại (x3) để kiểm bằng mắt rằng cả thế giới và súng cùng rung đúng hướng
+        # enlarged screenshot (x3) to check by eye that both the world and the gun shake in the right direction
         saved_amp = D.fire_scale
         D.fire_scale = saved_amp * 3
         self.reset_state()
@@ -335,13 +335,13 @@ class Script(Entity):
         D.fire_scale = saved_amp
         yield from self.wait(1.0)
 
-        # --- C. ngắm (ADS) ---
+        # --- C. aim (ADS) ---
         res_hip = self.deterministic_pass(True, ads=0.0)
         res_ads = self.deterministic_pass(True, ads=1.0)
         roll_hip, roll_ads = max(res_hip['rolls']), max(res_ads['rolls'])
         check('ADS: rung còn đúng tỉ lệ cấu hình', round(roll_ads / roll_hip, 3), D.ads_multiplier, abs(roll_ads / roll_hip - D.ads_multiplier) < 0.02)
 
-        # --- C2. hệ số rung bắn: cùng kịch bản (cùng seed, dt cố định) với fire_scale hiện hành và x1,5 -> mọi biên độ lớn đúng tỉ lệ ---
+        # --- C2. fire shake factor: same script (same seed, fixed dt) with the current fire_scale and x1.5 -> every amplitude scales exactly ---
         base_scale = D.fire_scale
         test_scale = 1.5
         D.fire_scale = base_scale * test_scale
@@ -355,7 +355,7 @@ class Script(Entity):
         check('rung bắn hông: biên độ roll tăng đúng fire_scale (tỉ lệ)', round(ratio_hip, 3), f'{test_scale} +-0.01', abs(ratio_hip - test_scale) < 0.01)
         check('rung bắn ngắm: cũng tăng đúng fire_scale (và vẫn ADS x ads_multiplier)', round(ratio_ads, 3), f'{test_scale} +-0.01',
               abs(ratio_ads - test_scale) < 0.01)
-        # phần súng đi theo cũng nhân: độ lệch thân súng giữa rung bật / tắt, fire_scale hiện hành so với x1,5
+        # the part of the gun that follows also multiplies: gun-body offset between shake on / off, current fire_scale vs x1.5
         saved_scale = test_scale
         off_pass = self.deterministic_pass(False)
         on_base = self.deterministic_pass(True)
@@ -370,7 +370,7 @@ class Script(Entity):
         yield from self.wait(0.3)
         yield from self.wait(0.5)
 
-        # --- D. nạp đạn ---
+        # --- D. reload ---
         for key, mag, label in (('reload', 20, 'reload'), ('reload_empty', 0, 'reload_empty')):
             samples, mags = yield from self.reload_run(mag, label)
             clip = gun.clips[key]
@@ -389,7 +389,7 @@ class Script(Entity):
             check(f'nạp {key}: rung nhẹ (độ)', round(max(roll, dev), 3), '0.05 .. 0.35', 0.05 <= max(roll, dev) <= 0.35)
             check(f'nạp {key}: dịch nhẹ (mm)', round(mm, 2), '<= 2.5', mm <= 2.5)
             check(f'nạp {key}: không rung suốt clip (khung có rung > 0,02 độ)', f'{noisy * 100:.0f}%', '<= 35%', noisy <= 0.35)
-            # mốc 'seat' trùng lúc băng đổi đạn: thời điểm đạn đổi (mags) so với đồng hồ của mốc
+            # the 'seat' cue coincides with the magazine swap: the time rounds change (mags) compared with the cue's clock
             seat_t = next(t for t, k in beats if k == 'seat')
             swapped_at = next((t for t, m in mags if m != mag), None)
             gap = None if swapped_at is None else swapped_at - seat_t
@@ -399,7 +399,7 @@ class Script(Entity):
                 check('  băng đầy sau nạp', combat.weapon.mag, gun.magazine, combat.weapon.mag == gun.magazine)
             yield from self.wait(0.4)
 
-        # ảnh đúng lúc băng vào chỗ (nạp băng cạn, mốc 'seat' = khung 172)
+        # screenshot exactly when the magazine seats (empty-mag reload, 'seat' cue = frame 172)
         self.reset_state(mag=0)
         yield from self.wait(0.3)
         combat.request_reload()
@@ -412,13 +412,13 @@ class Script(Entity):
         combat.handling.cancel()
         yield from self.wait(0.3)
 
-        # huỷ nạp bỏ mốc chưa tới: huỷ ngay sau 'seat' (khung 172) và trước 'bolt' (190)
+        # cancelling the reload drops cues not yet reached: cancel right after 'seat' (frame 172) and before 'bolt' (190)
         samples, mags = yield from self.reload_run(0, 'cancel', cancel_after_frame=176.0)
         kinds = [k for _, k in shake.beat_log]
         check('huỷ nạp sau mốc băng vào chỗ: bolt không nổ', kinds, "['mag_out', 'seat']", kinds == ['mag_out', 'seat'])
         yield from self.wait(0.3)
 
-        # --- E. rung chỉ là hình ảnh: cùng kịch bản, rung bật / tắt ---
+        # --- E. shake is image only: same script, shake on / off ---
         on = self.deterministic_pass(True)
         off = self.deterministic_pass(False)
         n_shots = len(on['shots'])
@@ -434,9 +434,9 @@ class Script(Entity):
         gun_dev = max(max(abs(a - b) for a, b in zip(g1, g0)) for g1, g0 in zip(on['gun'], off['gun']))
         print(f'SÚNG trên màn hình: lệch tối đa do rung {gun_dev * 1000:.2f} mm (thân súng, hệ camera vẽ súng)')
         check('súng có rung theo (mm)', round(gun_dev * 1000, 2), '> 0.2', gun_dev * 1000 > 0.2)
-        check('  nhưng không văng khỏi tay (mm)', round(gun_dev * 1000, 2), '<= 30', gun_dev * 1000 <= 30)    # G7: giật từng phát mạnh (bản trauma cũ <= 6 mm)
+        check('  nhưng không văng khỏi tay (mm)', round(gun_dev * 1000, 2), '<= 30', gun_dev * 1000 <= 30)    # G7: each shot kicks hard (old trauma version <= 6 mm)
 
-        # --- F. tia ngắm đọc từ Player không phụ thuộc camera đang rung ---
+        # --- F. aim ray read from Player does not depend on the shaking camera ---
         self.reset_state()
         player.yaw, player.pitch = 33.0, -12.0
         player._apply_view()

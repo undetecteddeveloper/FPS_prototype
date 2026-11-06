@@ -1,24 +1,24 @@
-"""Camera shake: lớp rung THUẦN HÌNH ẢNH đặt lên trên recoil camera (toán thuần, không import ursina).
+"""Camera shake: an IMAGE-ONLY shake layered on top of the recoil camera (pure math, no ursina import).
 
-KHÔNG đổi hướng đạn: kết quả chỉ là một tư thế (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải; mét và độ)
-mà game áp lên camera thế giới (nút con riêng của `camera`, không đụng `player.yaw/pitch`) và, đảo dấu, lên súng.
+It does NOT change the bullet direction: the result is only a pose (x right, y up, z forward, pitch up, yaw right, roll right; metres and degrees)
+that the game applies to the world camera (the camera's own child node, not `player.yaw/pitch`) and, sign-flipped, to the gun.
 
-Ba nguồn cộng lại:
-- BẮN, CÚ GIẬT TỪNG PHÁT (kiểu Bodycam, người dùng chọn "giật cục từng phát, sấy mạnh gấp đôi"): mỗi phát là MỘT xung vào lò xo
-  giảm chấn 6 trục `fire_omega` / `fire_zeta` (nghiệm chính xác của `core/spring.py`, độ lệch đỉnh tính bằng `impulse_gain`).
-  Độ lệch đỉnh của phát = độ mạnh ngẫu nhiên x (`fire_bias` + `fire_spread` x số ngẫu nhiên có dấu từng trục): pitch luôn ngóc lên,
-  yaw / roll dấu ngẫu nhiên, z lùi về sau, x / y rung nhẹ. Độ mạnh = 1 ± `strength_var` (số mũ `strength_shape` < 1 đẩy về hai đầu nên
-  có phát mạnh hẳn, phát nhẹ hẳn). Lò xo tắt sau ~0,1 s nên từng phát tách bạch; nhịp 0,08 s chưa tắt hẳn nên loạt dài dồn lên vừa phải.
-  Bản cũ (trauma^2,3 nhân nhiễu mượt) làm phát lẻ chỉ còn ~6% biên độ và mọi phát trông giống nhau: đã bỏ.
-- BẮN, ĐỘ NÓNG CỦA LOẠT (`heat` 0..1): mỗi phát cộng 1 / `heat_shots`; ngừng quá `heat_hold` giây thì nguội `heat_cool` /s (giữ lại
-  khi đang sấy vì nhịp 0,08 s < `heat_hold`; bắn từng phát chậm thì không bao giờ nóng). Cú giật của phát nhân 1 + `heat_boost` x heat
-  (đọc TRƯỚC khi phát cộng nhiệt, nên phát lẻ đúng 1 lần). Thêm run tay nền = heat x `tremor_amp` x nhiễu mượt nhanh `tremor_freq`.
-  Cả băng 30 viên: đỉnh ~2 lần phát lẻ (pytest đo). Ngừng bắn: lò xo về ~0 sau ~0,3 s, run tay tắt khi heat về 0 (hold + 1 / cool ~0,45 s).
-- NẠP: xung lò xo ngắn tại các mốc khung của clip (băng rút ra, băng vào chỗ, nhả bolt), không rung suốt clip. Lò xo riêng `spring`.
+Three sources add together:
+- FIRING, KICK PER SHOT (Bodycam-style; the user chose 'punchy kick per shot, twice as strong when sustained'): each shot is ONE impulse into the
+  6-axis damped spring `fire_omega` / `fire_zeta` (exact solution of `core/spring.py`, peak deviation via `impulse_gain`).
+  Peak deviation of a shot = random strength x (`fire_bias` + `fire_spread` x a signed random number per axis): pitch always up,
+  yaw / roll signs random, z kicks back, x / y jitter slightly. Strength = 1 ± `strength_var` (exponent `strength_shape` < 1 pushes values to the extremes, so
+  there are clearly strong shots and clearly weak ones). The spring dies out in ~0.1 s, so each shot stays distinct; the 0.08 s interval has not fully died, so long bursts pile up moderately.
+  The old model (trauma^2.3 times smooth noise) left single shots at only ~6% amplitude and every shot looked alike: removed.
+- FIRING, BURST HEAT (`heat` 0..1): each shot adds 1 / `heat_shots`; after more than `heat_hold` seconds without firing it cools at `heat_cool` /s (held
+  while firing, because the 0.08 s interval < `heat_hold`; firing one shot at a time never gets hot). A shot's kick is multiplied by 1 + `heat_boost` x heat
+  (read BEFORE the shot adds heat, so a lone shot is exactly 1x). Plus a base hand tremor = heat x `tremor_amp` x fast smooth noise `tremor_freq`.
+  Whole 30-round magazine: peak ~2x a lone shot (pytest measures this). After firing stops: spring back to ~0 after ~0.3 s; tremor ends when heat reaches 0 (hold + 1 / cool ~0.45 s).
+- RELOADING: short spring impulses at the clip's frame marks (magazine out, magazine seated, bolt released), not shaking through the whole clip. Its own spring `spring`.
 
-Súng đi theo thế giới (đảo dấu, `gun_follow`) và TRỄ `gun_delay`: phần giật của súng là một lò xo thứ hai nhận đúng các xung đó muộn
-`gun_delay` giây (không phải lấy mẫu lại lịch sử). Mọi số ngẫu nhiên băm theo (seed, trục, số thứ tự phát) nên chỉ phụ thuộc thứ tự
-phát và thời gian: cùng seed cho cùng đường cong ở mọi FPS, không dùng chung `combat.rng` (không đổi chuỗi ngẫu nhiên của đạn).
+The gun follows the world (sign-flipped, `gun_follow`) and LAGS by `gun_delay`: the gun's kick is a second spring that receives the same impulses late, by
+`gun_delay` seconds (not by resampling history). All random numbers are hashed from (seed, axis, shot number), so they depend only on the order of
+shots and on time: the same seed gives the same curve at any FPS; it does not share `combat.rng` (so the bullet random sequence does not change).
 """
 import math
 from collections import deque
@@ -28,11 +28,11 @@ from fps.core.spring import Spring, impulse_gain
 from fps.weapon_data import ShakeData
 
 _MASK = (1 << 64) - 1
-_EPS_X, _EPS_V = 1e-6, 1e-4      # lò xo dưới mức này (mét / độ) thì coi như yên, đặt đúng 0 (tắt hẳn chứ không lơ lửng 1e-9 mãi)
+_EPS_X, _EPS_V = 1e-6, 1e-4      # springs below this level (metres / degrees) count as at rest and are set to exactly 0 (fully off, not hovering at 1e-9 forever)
 
 
 def hash_unit(seed: int, axis: int, i: int) -> float:
-    """Số giả ngẫu nhiên xác định trong [-1, 1] từ (seed, trục, chỉ số ô) (splitmix64)."""
+    """Deterministic pseudo-random number in [-1, 1] from (seed, axis, cell index) (splitmix64)."""
     x = (i * 0x9E3779B97F4A7C15 + axis * 0xBF58476D1CE4E5B9 + seed * 0x94D049BB133111EB + 0x2545F4914F6CDD1D) & _MASK
     x ^= x >> 30
     x = (x * 0xBF58476D1CE4E5B9) & _MASK
@@ -43,7 +43,7 @@ def hash_unit(seed: int, axis: int, i: int) -> float:
 
 
 def smooth_noise(seed: int, axis: int, u: float) -> float:
-    """Nhiễu giá trị 1D mượt (nội suy bậc 5 giữa hai giá trị ô), luôn trong [-1, 1], liên tục cả đạo hàm bậc 1 và 2."""
+    """Smooth 1D value noise (5th-order interpolation between two cell values), always in [-1, 1], continuous in the 1st and 2nd derivatives."""
     i = math.floor(u)
     f = u - i
     s = f * f * f * (f * (f * 6.0 - 15.0) + 10.0)
@@ -52,14 +52,14 @@ def smooth_noise(seed: int, axis: int, u: float) -> float:
 
 
 def signed_pow(u: float, shape: float) -> float:
-    """Giữ dấu, độ lớn |u|^shape: shape < 1 đẩy số đều trong [-1, 1] ra hai đầu (ít giá trị gần 0), shape > 1 dồn vào giữa."""
+    """Keeps the sign, magnitude |u|^shape: shape < 1 pushes numbers evenly spread in [-1, 1] out to the extremes (few near 0); shape > 1 bunches them toward the middle."""
     return math.copysign(abs(u) ** shape, u) if u else 0.0
 
 
-_AX_STRENGTH = 10                # trục băm: độ mạnh của phát
-_AX_DIR = 20                     # 20..25: hướng từng trục của phát
-_AX_TREMOR = 40                  # 40..45: nhiễu run tay
-_AX_BEAT = 99                    # dấu của mốc nạp
+_AX_STRENGTH = 10                # hash axis: shot strength
+_AX_DIR = 20                     # 20..25: direction of each axis of the shot
+_AX_TREMOR = 40                  # 40..45: hand tremor noise
+_AX_BEAT = 99                    # sign of a reload mark
 
 
 def _settle(spring: Spring):
@@ -77,28 +77,28 @@ class Shake:
         self.d = data
         self.seed = data.seed if seed is None else seed
         self.enabled = True
-        self.t = 0.0                         # đồng hồ của lớp rung (giây), tiến theo dt thật
-        self.heat = 0.0                      # độ nóng của loạt, 0..1
-        self.since_shot = 1e9                # giây từ phát gần nhất (cho heat_hold)
-        self.shot_count = 0                  # số thứ tự phát: chỉ số băm của số ngẫu nhiên
-        self.spring = Spring(6, data.beat_omega, data.beat_zeta)     # xung NẠP (giữ tên `spring`: selftest đặt thẳng spring.x)
-        self.fire = Spring(6, data.fire_omega, data.fire_zeta)       # cú giật từng phát của camera
-        self.gun_fire = Spring(6, data.fire_omega, data.fire_zeta)   # cùng các xung, muộn gun_delay, cho súng
-        self._gun_kicks = []                 # (đồng hồ đến hạn, xung) chờ đưa vào gun_fire
-        self.shot_log = deque(maxlen=64)     # (đồng hồ, độ mạnh, hệ số nóng, độ lệch đỉnh 6 trục) các phát đã nổ, cho kiểm tra
-        self.beat_log = deque(maxlen=64)     # (đồng hồ, loại mốc) các xung nạp đã nổ, cho kiểm tra
+        self.t = 0.0                         # clock of the shake layer (seconds), advances by the real dt
+        self.heat = 0.0                      # burst heat, 0..1
+        self.since_shot = 1e9                # seconds since the last shot (for heat_hold)
+        self.shot_count = 0                  # shot number: the hash index for random numbers
+        self.spring = Spring(6, data.beat_omega, data.beat_zeta)     # RELOAD impulses (name kept as `spring`: selftests set spring.x directly)
+        self.fire = Spring(6, data.fire_omega, data.fire_zeta)       # per-shot kick of the camera
+        self.gun_fire = Spring(6, data.fire_omega, data.fire_zeta)   # the same impulses, delayed by gun_delay, for the gun
+        self._gun_kicks = []                 # (due clock, impulse) waiting to be fed into gun_fire
+        self.shot_log = deque(maxlen=64)     # (clock, strength, heat factor, peak deviation of the 6 axes) of shots fired, for tests
+        self.beat_log = deque(maxlen=64)     # (clock, mark type) of reload impulses that fired, for tests
         self.beat_count = 0
-        self._events = []                    # (tuổi trong khung, None = phát bắn | loại mốc nạp, hệ số)
+        self._events = []                    # (age in the frame, None = shot | reload mark type, factor)
         self._reload_key = None
-        self._reload_prev = None             # khung đã xét lần trước của clip nạp đang chạy
+        self._reload_prev = None             # frame last checked of the running reload clip
 
     @property
     def trauma(self) -> float:
-        """Tên cũ (mô hình trauma đã bỏ), giữ cho selftest / bảng đọc: nay là độ nóng của loạt."""
+        """Old name (trauma model removed), kept for selftests / readouts: now the burst heat."""
         return self.heat
 
     def reset(self):
-        """Về trạng thái yên (đồng hồ và số thứ tự phát giữ nguyên, nên nhiễu / độ mạnh không lặp lại từ đầu)."""
+        """Back to rest (clock and shot count are kept, so the noise and strength do not restart from the beginning)."""
         self.heat = 0.0
         self.since_shot = 1e9
         for s in (self.spring, self.fire, self.gun_fire):
@@ -108,21 +108,21 @@ class Shake:
         self._events.clear()
         self._reload_key = self._reload_prev = None
 
-    # --- sự kiện (xếp hàng, xử lý theo đúng thứ tự thời gian trong `update`) ---
+    # --- events (queued, handled in time order within `update`) ---
     def on_shot(self, age: float = 0.0, scale: float = 1.0):
-        """Một phát bắn. `age` = phát này nổ cách cuối khung bao lâu (như `Weapon.update` trả về). `scale` nhân riêng cú giật
-        của phát này (ví dụ theo tư thế); không đổi độ nóng."""
+        """One shot. `age` = how long before the end of the frame this shot fired (as `Weapon.update` returns it). `scale` multiplies this shot's kick only
+        (e.g. by posture); does not change the heat."""
         if self.enabled:
             self._events.append((age, None, scale))
 
     def on_beat(self, kind: str, age: float = 0.0):
-        """Một mốc của clip nạp ('mag_out' / 'seat' / 'bolt'): xung lò xo ngắn."""
+        """One mark of the reload clip ('mag_out' / 'seat' / 'bolt'): short spring impulse."""
         if self.enabled:
             self._events.append((age, kind, 1.0))
 
     def watch_reload(self, key, frame, frames_per_second: float = 30.0):
-        """Gọi mỗi khung với (`Handling.key`, `Handling.frame`, 30 * tốc độ nạp); key None khi không nạp.
-        Xếp các mốc vừa đi qua (kèm tuổi trong khung); huỷ nạp (key về None) thì các mốc chưa tới bị bỏ."""
+        """Called every frame with (`Handling.key`, `Handling.frame`, 30 * reload speed); key None when not reloading.
+        Queues the marks passed in this frame (with their age in the frame); cancelling the reload (key back to None) drops the marks not yet reached."""
         if key is None or frame is None:
             self._reload_key = self._reload_prev = None
             return
@@ -140,12 +140,12 @@ class Shake:
         sign = 1.0 if hash_unit(self.seed, _AX_BEAT, self.beat_count) >= 0 else -1.0
         self.beat_count += 1
         gain = impulse_gain(d.beat_omega, d.beat_zeta)
-        flip = (1.0, 1.0, 1.0, 1.0, sign, sign)       # đổi dấu yaw và roll cho đỡ lặp
+        flip = (1.0, 1.0, 1.0, 1.0, sign, sign)       # flip the yaw and roll signs so it is not repetitive
         self.spring.kick([p * g * gain for p, g in zip(peak, flip)])
         self.beat_log.append((self.t, kind))
 
     def shot_peak(self, n: int, heat: float = 0.0, scale: float = 1.0) -> tuple:
-        """Độ lệch đỉnh (6 trục, mét và độ) của phát thứ `n` nếu nổ khi lò xo đang yên với độ nóng `heat`; kèm (độ mạnh, hệ số nóng)."""
+        """Peak deviation (6 axes, metres and degrees) of the n-th shot if it fires while the spring is at rest with burst heat `heat`; with (strength, heat factor)."""
         d = self.d
         strength = max(0.0, 1.0 + d.strength_var * signed_pow(hash_unit(self.seed, _AX_STRENGTH, n), d.strength_shape))
         boost = 1.0 + d.heat_boost * heat
@@ -168,9 +168,9 @@ class Shake:
         self.since_shot = 0.0
         self.shot_log.append((self.t, strength, boost, peak))
 
-    # --- mỗi khung ---
+    # --- every frame ---
     def _step(self, h: float):
-        """Tiến h giây không có sự kiện: nguội (chỉ phần thời gian quá heat_hold), ba lò xo theo nghiệm chính xác."""
+        """Advance h seconds with no events: cooling (only the time beyond heat_hold), three springs by exact solution."""
         if h <= 0.0:
             return
         d = self.d
@@ -188,7 +188,7 @@ class Shake:
                 _settle(s)
 
     def _advance(self, h: float):
-        """Tiến h giây; các xung trễ của súng đến hạn trong khoảng này được đưa vào đúng thời điểm."""
+        """Advance h seconds; the delayed gun impulses due within this span are fed in at the right moment."""
         end = self.t + max(h, 0.0)
         while self._gun_kicks and self._gun_kicks[0][0] <= end:
             due, impulse = self._gun_kicks.pop(0)
@@ -197,8 +197,8 @@ class Shake:
         self._step(end - self.t)
 
     def update(self, dt: float):
-        """Tiến `dt` giây, xử lý các sự kiện đã xếp theo đúng thời điểm của chúng trong khung (cũ nhất trước): kết quả chỉ phụ thuộc
-        thời gian, không phụ thuộc cách chia khung. Gọi SAU các sự kiện của khung."""
+        """Advance `dt` seconds, handling queued events at their own times within the frame (oldest first): the result depends only on time,
+        not on how the frames are split. Call AFTER the frame's events."""
         events = sorted(self._events, key=lambda e: -e[0])
         self._events.clear()
         left = dt
@@ -212,11 +212,11 @@ class Shake:
                 self._apply_beat(kind)
         self._advance(left)
 
-    # --- đọc ---
+    # --- read ---
     @property
     def amplitude(self) -> float:
-        """Mức rung bắn chuẩn hoá: độ lệch lớn nhất hiện tại của camera so với độ lệch đỉnh danh định của một phát lẻ
-        (bias + spread của trục đó; ~1 ở đỉnh phát lẻ mạnh, ~2 lúc sấy cả băng). Không tính run tay."""
+        """Normalised shot-shake level: the camera's current largest deviation vs. the nominal peak deviation of a lone shot
+        (bias + spread for that axis; ~1 at the peak of a strong lone shot, ~2 when the whole magazine is sustained). Excludes the hand tremor."""
         d = self.d
         ref = [abs(b) + abs(s) for b, s in zip(d.fire_bias, d.fire_spread)]
         return max((abs(x) / r for x, r in zip(self.fire.x, ref) if r > 0), default=0.0)
@@ -238,15 +238,15 @@ class Shake:
         return 1.0 + (self.d.ads_multiplier - 1.0) * smoothstep(min(max(ads, 0.0), 1.0))
 
     def camera_pose(self, ads: float = 0.0) -> tuple:
-        """Tư thế rung của camera thế giới: (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải), mét và độ.
-        `ads` 0 hông .. 1 ngắm hẳn (giảm còn `ads_multiplier`)."""
+        """Shake pose of the world camera: (x right, y up, z forward, pitch up, yaw right, roll right), metres and degrees.
+        `ads` 0 hip .. 1 fully aimed (reduced to `ads_multiplier`)."""
         k = self._ads_scale(ads)
         tremor = self._tremor(0.0)
         return tuple(k * (f + r + s) for f, r, s in zip(self.fire.x, tremor, self.spring.x))
 
     def gun_pose(self, ads: float = 0.0) -> tuple:
-        """Tư thế cộng thêm cho SÚNG trên màn hình. Camera lệch +p thì thế giới lệch -p trên màn hình; súng đi theo `gun_follow`
-        phần của chuyển động thế giới đó (đảo dấu), và trễ `gun_delay` giây nên không dính chặt với thế giới."""
+        """Extra pose for the GUN on screen. A camera offset of +p moves the world -p on screen; the gun follows
+        that world motion (sign-flipped), and lags `gun_delay` seconds so it does not stick to the world."""
         d = self.d
         k = self._ads_scale(ads) * d.gun_follow
         tremor = self._tremor(d.gun_delay)

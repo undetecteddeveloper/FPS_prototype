@@ -1,9 +1,9 @@
-"""Đạn dò va chạm với hộp (bia) đang chuyển động trong lúc đạn đi: chính xác với chuyển động đều, không lệch tốc độ x dt."""
+"""Bullet hit test against a box (target) moving while the bullet flies: exact for uniform motion, with no error of speed x dt."""
 import pytest
 
 from fps.core.ballistics import advance, moving_hit, segment_vs_aabb, segment_vs_moving_aabb
 
-LO, HI = (-0.5, 0.0, 9.97), (0.5, 2.0, 10.03)          # bia rộng 1 m, mỏng, ở z = 10, đầu bước ở x = 0
+LO, HI = (-0.5, 0.0, 9.97), (0.5, 2.0, 10.03)          # target 1 m wide and thin, at z = 10, step start at x = 0
 V = 500.0
 
 
@@ -17,29 +17,29 @@ def test_zero_displacement_is_the_static_test():
 
 
 def test_box_moving_into_the_line_of_fire_is_hit_at_the_right_time():
-    # bia đi sang phải 4 m/s; bước 0,03 s: bia dịch 0,12 m. Đạn nhắm x = 0,56: lệch ra ngoài mép (0,5) lúc đầu bước,
-    # nhưng lúc đạn tới z = 10 (t = 0,02 s) bia đã ở x = 0,08 nên mép phải ở 0,58 -> TRÚNG
+    # target moves right at 4 m/s; step 0.03 s: target shifts 0.12 m. Bullet aims at x = 0.56: outside the edge (0.5) at the start of the step,
+    # but when the bullet reaches z = 10 (t = 0.02 s) the target is at x = 0.08, so its right edge is at 0.58 -> HIT
     dt, v = 0.03, 4.0
     p0, p1 = bullet_segment(dt, 0.56)
-    assert segment_vs_aabb(p0, p1, LO, HI) is None                       # nếu bia đứng yên ở vị trí đầu bước thì trượt
+    assert segment_vs_aabb(p0, p1, LO, HI) is None                       # if the target stood still at the start-of-step position it would miss
     h = moving_hit(p0, p1, LO, HI, (v * dt, 0, 0), 'bia')
     assert h is not None and h.owner == 'bia'
-    assert h.t == pytest.approx(9.97 / (V * dt), abs=1e-6)               # mặt trước bia ở z = 9,97
-    assert h.point[2] == pytest.approx(9.97, abs=1e-3)                    # điểm trúng là chỗ viên đạn đang ở
+    assert h.t == pytest.approx(9.97 / (V * dt), abs=1e-6)               # target front face at z = 9.97
+    assert h.point[2] == pytest.approx(9.97, abs=1e-3)                    # the hit point is where the bullet currently is
 
 
 def test_box_moving_away_misses():
     dt, v = 0.03, 4.0
-    p0, p1 = bullet_segment(dt, 0.45)                                    # đứng yên thì trúng (0,45 < 0,5)
+    p0, p1 = bullet_segment(dt, 0.45)                                    # standing still it would hit (0.45 < 0.5)
     assert segment_vs_aabb(p0, p1, LO, HI) is not None
-    # bia đi sang trái: lúc đạn tới, mép phải ở 0,5 - 0,08 = 0,42 < 0,45 -> trượt
+    # target moves left: when the bullet arrives, its right edge is at 0.5 - 0.08 = 0.42 < 0.45 -> miss
     assert moving_hit(p0, p1, LO, HI, (-v * dt, 0, 0), 'bia') is None
 
 
 @pytest.mark.parametrize('dt', [1 / 240, 1 / 120, 1 / 60, 1 / 30, 1 / 20])
 def test_edge_decision_is_the_same_at_any_step_length(dt):
-    """Bia 4 m/s, đạn bay thẳng tới z = 10 (0,02 s). Mép phải của bia lúc đạn tới là 0,5 + 4 * 0,02 = 0,58 m:
-    nhắm 0,57 phải trúng, nhắm 0,59 phải trượt, dù bước (khung) dài bao nhiêu. (Lấy vị trí cuối bước sẽ sai tới 4 * dt.)"""
+    """Target at 4 m/s, bullet flies straight to z = 10 (0.02 s). The target's right edge when the bullet arrives is 0.5 + 4 * 0.02 = 0.58 m:
+    aim 0.57 must hit, aim 0.59 must miss, whatever the step (frame) length. (Using the end-of-step position would be off by up to 4 * dt.)"""
     v = 4.0
     t_fly = 10.0 / V
     for aim, expect_hit in ((0.57, True), (0.59, False)):

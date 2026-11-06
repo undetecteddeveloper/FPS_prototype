@@ -1,7 +1,7 @@
-"""G1: mở game thật, điều khiển người chơi bằng đúng đường phím của game (held_keys), đo và chụp ảnh.
+"""G1: open the real game, drive the player through the game's own key path (held_keys), measure and take screenshots.
 
-Chạy:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g1_selftest.py
-Ảnh ra thư mục shots\\g1_*.png. Kết thúc in bảng KIỂM TRA; thoát mã 1 nếu có mục trượt.
+Run:  .venv\\Scripts\\python.exe -X utf8 tools\\selftests\\g1_selftest.py
+Screenshots go to the folder shots\\g1_*.png. At the end prints the CHECK table; exits with code 1 if any item fails.
 """
 import sys
 import time as pytime
@@ -17,14 +17,14 @@ from ursina import Entity, application, held_keys, mouse, time  # noqa: E402
 
 from fps.core.movement import MoveState  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, free_aim=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
+game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, free_aim=False)     # G6: moving targets change the measurement over time; measure on still targets
 player = game.player
 p = game.params.player
-mouse.locked = False   # không giữ con trỏ của người dùng; hướng nhìn điều khiển bằng player.look()
+mouse.locked = False   # do not grab the user's cursor; the view direction is driven by player.look()
 
-results = []   # (tên, đo được, mong đợi, đạt)
+results = []   # (name, measured, expected, passed)
 frame_dts = []
-skip = {'next': False}   # khung ngay sau khi lưu ảnh chứa thời gian ghi PNG, không tính vào FPS
+skip = {'next': False}   # the frame right after a screenshot contains the PNG write time, so do not count it in FPS
 
 
 def check(name, got, expected, ok):
@@ -57,7 +57,7 @@ class Script(Entity):
             report()
             sys.exit(0 if all(r[3] for r in results) else 1)
 
-    # --- tiện ích dạng generator: mỗi yield = một khung hình ---
+    # --- generator helper: each yield = one frame ---
     def wait(self, seconds):
         t = 0.0
         while t < seconds:
@@ -72,7 +72,7 @@ class Script(Entity):
         yield from self.wait(0.6)
         frame_dts.clear()
 
-        # --- đứng yên ở vạch bắn, nhìn thẳng làn ---
+        # --- stand still at the firing line, look straight down the lane ---
         yield from self.wait(0.3)
         shot('start')
         check('vị trí đầu', (round(player.x, 2), round(player.y, 2), round(player.z, 2)), (0, 0, 0),
@@ -80,7 +80,7 @@ class Script(Entity):
         check('trạng thái đầu', player.state.value, 'idle', player.state is MoveState.IDLE)
         check('chiều cao mắt đứng', round(player.eye_height, 3), p.eye_height_stand, player.eye_height == p.eye_height_stand)
 
-        # --- đi bộ 1 s ---
+        # --- walk 1 s ---
         z0 = player.z
         held_keys['w'] = 1
         yield from self.wait(1.0)
@@ -91,14 +91,14 @@ class Script(Entity):
         check('trạng thái đi', walk_state.value, 'walk', walk_state is MoveState.WALK)
         check('đi tiến về +z', round(player.z - z0, 2), '> 3', player.z - z0 > 3)
 
-        # --- chạy nước rút ---
+        # --- sprint ---
         held_keys['shift'] = 1
         yield from self.wait(1.0)
         check('tốc độ chạy', round(player.speed, 2), p.sprint_speed, abs(player.speed - p.sprint_speed) < 0.05)
         check('trạng thái chạy', player.state.value, 'sprint', player.state is MoveState.SPRINT)
         held_keys['shift'] = 0
 
-        # --- dừng, rồi ngồi ---
+        # --- stop, then crouch ---
         held_keys['w'] = 0
         yield from self.wait(0.6)
         check('đứng yên sau khi thả phím', round(player.speed, 3), 0, player.speed == 0)
@@ -116,7 +116,7 @@ class Script(Entity):
         yield from self.wait(0.6)
         check('đứng lên lại', round(player.eye_height, 3), p.eye_height_stand, abs(player.eye_height - p.eye_height_stand) < 1e-6)
 
-        # --- nhảy ---
+        # --- jump ---
         apex = 0.0
         saw_air = False
         held_keys['space'] = 1
@@ -136,7 +136,7 @@ class Script(Entity):
         check('có trạng thái AIR khi nhảy', saw_air, True, saw_air)
         check('hạ cánh xuống đất', round(player.y, 3), 0, player.on_ground and player.y == 0)
 
-        # --- nhìn quanh ---
+        # --- look around ---
         player.look(0.1, 0.0)
         check('chuột phải 0.1 chiều cao => yaw (độ)', round(player.yaw, 2), p.mouse_sensitivity * 0.1,
               abs(player.yaw - p.mouse_sensitivity * 0.1) < 1e-6)
@@ -149,7 +149,7 @@ class Script(Entity):
         player.look(0.0, -0.0)
         player.pitch = 0.0
         player.camera_pivot.rotation_x = 0.0
-        # quay sang phải 90 độ rồi đi tiến phải đi về +x
+        # turn right 90 degrees, then walk forward: moving right goes toward +x
         player.yaw = 90.0
         player.rotation_y = 90.0
         x0 = player.x
@@ -161,7 +161,7 @@ class Script(Entity):
         player.rotation_y = 0.0
         yield from self.wait(0.4)
 
-        # --- giới hạn làn ---
+        # --- lane limits ---
         held_keys['s'] = 1
         yield from self.wait(9.0)
         held_keys['s'] = 0
@@ -176,7 +176,7 @@ class Script(Entity):
         held_keys['a'] = 0
         check('chặn ở mép làn trái (x)', round(player.x, 2), player.walk_bounds[0], abs(player.x - player.walk_bounds[0]) < 1e-6)
 
-        # --- ảnh: nhìn dọc làn từ đầu làn, rồi nhìn xéo ---
+        # --- screenshots: look down the lane from its start, then look diagonally ---
         player.position = (0, 0, 0)
         player.vx = player.vz = 0.0
         player.yaw = 0.0

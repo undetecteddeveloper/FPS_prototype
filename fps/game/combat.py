@@ -1,8 +1,8 @@
-"""Ghép việc bắn lại: cò súng -> phát bắn -> viên đạn bay -> dò va chạm -> phản hồi (hit marker, nháy bia, lỗ đạn).
+"""Combat loop: trigger -> shot -> bullet flight -> hit test -> feedback (hit marker, target flash, bullet hole).
 
-Đạn xuất phát từ vị trí mắt, theo hướng NÒNG SÚNG đang chỉ (`aim_source`, xem core/freeaim.py) cộng độ tản cơ khí rất nhỏ.
-Mỗi phát bắn: lấy độ tản HIỆN TẠI -> bắn -> cú giật sinh ngẫu nhiên (một phần vào camera, phần còn lại làm súng trôi), kick súng.
-Mỗi khung hình mỗi viên đạn đi một đoạn rồi dò va chạm trên cả đoạn (swept), không phụ thuộc FPS.
+Bullets start at the eye position, along the direction the BARREL points (`aim_source`, see core/freeaim.py), plus a very small mechanical spread.
+Each shot: take the CURRENT spread -> fire -> random recoil kick (part into the camera, the rest makes the gun drift), gun kick.
+Each frame every bullet advances a segment and is hit-tested over the whole segment (swept), independent of FPS.
 """
 import math
 import random
@@ -22,7 +22,7 @@ from fps.core.weapon import Weapon
 from fps.weapon_data import GameParams
 
 DUST_TINT = color.rgba(1.0, 0.92, 0.8, 0.85)
-MAX_BULLET_STEP = 1.0 / 120.0      # s: bước dò va chạm lớn nhất của đạn (sai số dây cung g*dt^2/8 = 0,15 mm)
+MAX_BULLET_STEP = 1.0 / 120.0      # s: largest hit-test step of a bullet (chord error g*dt^2/8 = 0.15 mm)
 
 
 class Bullet:
@@ -33,26 +33,26 @@ class Bullet:
         self.pos = origin
         self.vel = vel
         self.age = 0.0
-        self.alive = True                # False khi trúng hoặc quá hạn; `end_pos` là điểm cuối (cho tracer)
+        self.alive = True                # False when it hit something or expired; `end_pos` is the end point (for the tracer)
         self.end_pos = origin
 
 
 @dataclass
 class Impact:
-    """Lần va chạm gần nhất (để HUD và kiểm tra đọc)."""
+    """Most recent impact (for the HUD and read-back checks)."""
     point: tuple
     normal: tuple
-    distance: float         # độ dài đường đạn từ mắt tới điểm trúng
-    owner: object           # Target, GROUND, hoặc Entity của bờ đất
+    distance: float         # bullet path length from the eye to the hit point
+    owner: object           # Target, GROUND, or the Entity of the terrain
     origin: tuple
 
 
 @dataclass
 class ShotInfo:
-    """Phát bắn gần nhất (để HUD và kiểm tra đọc)."""
-    view_dir: tuple         # hướng nhìn lúc bắn (tâm hình nón)
-    direction: tuple        # hướng viên đạn thật sự đi
-    spread: float           # nửa góc hình nón (độ) đã dùng
+    """Most recent shot (for the HUD and read-back checks)."""
+    view_dir: tuple         # view direction at the shot (cone centre)
+    direction: tuple        # direction the bullet actually travels
+    spread: float           # cone half-angle (degrees) used
     state: MoveState
 
 
@@ -65,77 +65,77 @@ class Combat:
         self.targets = targets
         self.static_boxes = static_boxes           # [(lo, hi, owner)]
         self.rng = rng or random.Random()
-        self.audio = audio                         # GunAudio hoặc None (tắt tiếng)
-        self.fx = fx                               # Effects (tia lửa đầu nòng, tracer) hoặc None
-        self.foley = None                          # Foley (tiếng đạn trúng, cò rỗng) hoặc None; Game gán sau khi dựng
-        self.shake = shake                         # core.shake.Shake (rung thuần hình ảnh, không đổi hướng đạn) hoặc None
+        self.audio = audio                         # GunAudio or None (muted)
+        self.fx = fx                               # Effects (muzzle flash, tracer) or None
+        self.foley = None                          # Foley (impact and dry-fire sounds) or None; Game assigns it after building
+        self.shake = shake                         # core.shake.Shake (image-only shake, does not change bullet direction) or None
         self.weapon = Weapon(self.gun)
-        self.handling = Handling(self.gun, self.weapon)     # rút súng / nạp đạn
-        self.reload_requested = False                       # vừa bấm R
+        self.handling = Handling(self.gun, self.weapon)     # draw / reload
+        self.reload_requested = False                       # just pressed R
         self.accuracy = Accuracy(self.gun.accuracy)
         self.recoil = CameraRecoil(self.gun.recoil, self.rng)
         self.gun_kick = GunKick(self.gun.kick, self.rng)
         self.free_aim = FreeAim(self.gun.free_aim)
-        self.aim_source = None                     # hàm trả về hướng nòng (thế giới); None = ra giữa màn hình
-        self.spread_now = self.accuracy.angle(player.state, player.ads_amount)   # cho tâm ngắm động
+        self.aim_source = None                     # function returning the barrel direction (world); None = centre of screen
+        self.spread_now = self.accuracy.angle(player.state, player.ads_amount)   # for the dynamic crosshair
         self.last_shot = None
         self.decals = HoleDecals(self.fb, hole_texture())
         for t in targets:
             if t.patrol is not None:
                 self.decals.prepare_owner(t.root)
         self.bullets = []
-        self.pressed = False                       # vừa bóp cò (sự kiện nhấn chuột, dùng cho bắn đơn)
-        self.require_locked_mouse = True           # không bắn khi người chơi đã nhả chuột bằng Esc
+        self.pressed = False                       # just pulled the trigger (mouse-press event, used for semi-auto)
+        self.require_locked_mouse = True           # do not fire once the player released the mouse with Esc
         self.hit_marker_left = 0.0
         self.last_hit_distance = None
         self.last_hit_left = 0.0
         self.last_impact = None
         self.shots_fired = 0
         self.target_hits = 0
-        self.frame_dt = 1.0 / 60.0                 # độ dài khung đang xử lý (bia chạy nội suy vị trí theo khung này)
-        self._hit_frac = 1.0                       # phần của khung mà viên đạn vừa trúng nằm ở (cho lỗ đạn trên bia chạy)
+        self.frame_dt = 1.0 / 60.0                 # length of the frame being processed (moving targets interpolate their position with this frame)
+        self._hit_frac = 1.0                       # fraction of the frame where the bullet just hit (for the hole on a moving target)
 
     def request_reload(self):
-        """Phím R. Có hiệu lực ở khung kế tiếp nếu nạp được (xem `_update_handling`)."""
+        """R key. Takes effect on the next frame if reloading is possible (see `_update_handling`)."""
         self.reload_requested = True
 
     def _update_handling(self, trigger: bool, mouse_ok: bool, real_dt: float):
-        """Nạp đạn: tiến clip, chạy nước rút cắt reload, bắt đầu nạp (phím R, hoặc bóp cò khi băng cạn)."""
+        """Reload: advance the clip, sprint cancels the reload, start reloading (R key, or pull the trigger when the mag is empty)."""
         h, r = self.handling, self.gun.reload
         h.update(real_dt)
         if self.shake:
-            self.shake.watch_reload(h.key, h.frame, 30.0 * h.speed)    # mốc rung của clip nạp (băng vào chỗ, bolt); huỷ nạp thì các mốc chưa tới bị bỏ
+            self.shake.watch_reload(h.key, h.frame, 30.0 * h.speed)    # shake beats of the reload clip (mag seated, bolt); if the reload is cancelled, beats not reached yet are dropped
         sprinting = r.sprint_cancels and self.player.sprint_amount > 0
         if h.phase is Phase.RELOAD and sprinting:
             h.cancel()
         wants = self.reload_requested or (mouse_ok and (trigger or self.pressed) and self.weapon.mag == 0)
         self.reload_requested = False
-        if wants and not sprinting:                    # đang chạy thì chưa nạp: tư thế chạy chưa hạ hẳn là chưa dứt
+        if wants and not sprinting:                    # no reload while sprinting: a sprint pose not yet fully lowered still counts as sprinting
             h.start_reload()
         self.player.ads_blocked = h.busy
 
-    # --- mỗi khung hình ---
+    # --- per frame ---
     def update(self, dt: float, real_dt: float = None):
-        """`dt` đã cắt ở 50 ms cho vật lý; `real_dt` là thời gian thật của khung (cho clip nạp đạn chạy theo đồng hồ Panda)."""
+        """`dt` is clamped to 50 ms for physics; `real_dt` is the true frame time (the reload clip runs on the Panda clock)."""
         self.frame_dt = dt
-        for t in self.targets:             # bia chạy đi trước hết: đạn trong khung này dò va chạm theo vị trí bia từng bước nhỏ
+        for t in self.targets:             # moving targets go first: bullets this frame hit-test against target positions step by step
             t.update(dt)
         self.hit_marker_left = max(0.0, self.hit_marker_left - dt)
         self.last_hit_left = max(0.0, self.last_hit_left - dt)
 
-        self._step_bullets(dt)           # đạn cũ đi trước, đạn mới sinh ra sau (đã tự đẩy tới cuối khung)
+        self._step_bullets(dt)           # old bullets advance first, new ones are spawned after (they already advanced to the end of the frame)
 
-        mouse_ok = (mouse.locked or not self.require_locked_mouse) and not self.player.ui_open       # bảng debug (F1) mở: chuột là của bảng
+        mouse_ok = (mouse.locked or not self.require_locked_mouse) and not self.player.ui_open       # debug panel (F1) open: the mouse belongs to the panel
         trigger = bool(held_keys['left mouse']) and mouse_ok
         self._update_handling(trigger, mouse_ok, dt if real_dt is None else real_dt)
-        # đang hạ súng sau khi chạy (sprint-to-fire) hoặc đang nạp / rút súng thì chưa bắn được
+        # lowering the gun after a sprint (sprint-to-fire), or reloading / drawing, cannot fire yet
         ready = mouse_ok and self.player.can_fire and self.handling.can_fire
         held = trigger and ready
         pressed = self.pressed and ready
         if pressed and self.foley and self.weapon.out_of_ammo:
             self.foley.on_dry_fire()
         if ready or not trigger or self.handling.busy:
-            self.pressed = False                       # còn giữ cò mà súng chưa sẵn sàng vì chạy: nhớ cú bóp để bắn khi sẵn sàng (nạp thì bỏ)
+            self.pressed = False                       # still holding the trigger while the gun is not ready because of sprinting: remember the press to fire when ready (dropped when reloading)
         self.accuracy.update(dt)
         ages = self.weapon.update(dt, held, pressed)
         if ages:
@@ -158,17 +158,17 @@ class Combat:
                     self.audio.play_shot()
         up, right = self.recoil.step(dt)
         if up or right:
-            self.player.kick_view(up, right)       # sau khi bắn: phát này đã đi theo hướng nhìn trước cú giật
+            self.player.kick_view(up, right)       # after shooting: this shot already followed the view direction before the kick
         self.gun_kick.update(dt)
         self.free_aim.update(dt, self.player.turn_rate(dt))
         if self.shake:
-            self.shake.update(dt)          # sau mọi sự kiện rung của khung (phát bắn có tuổi, mốc nạp): xử lý theo đúng thời điểm
+            self.shake.update(dt)          # after all shake events of the frame (shots with an age, reload beats): handled at the right moment
         if self.fx:
             self.fx.update(dt)
         self.spread_now = self.accuracy.angle(self.player.state, self.player.ads_amount)
 
     def _boxes(self) -> list:
-        """Hộp đứng yên của khung này: bia đứng yên + tường/cột/đất. Bia đang chạy xử lý riêng theo từng bước (`_advance`)."""
+        """Static boxes for this frame: still targets + walls/columns/ground. Moving targets are handled separately, step by step (`_advance`)."""
         return [(*t.aabb(), t) for t in self.targets if not t.moving] + self.static_boxes
 
     def _fire(self, origin, direction, age: float):
@@ -177,7 +177,7 @@ class Combat:
         self.shots_fired += 1
         if self.fx:
             self.fx.on_shot(bullet, self.player.ads_amount)
-        # đạn sinh ra ở thời điểm (cuối khung - age) rồi tự đẩy tiếp tới cuối khung
+        # the bullet is spawned at time (end of frame - age) and then advances itself to the end of the frame
         if self._advance(bullet, age, self._boxes(), self.frame_dt - age):
             self.bullets.append(bullet)
 
@@ -188,14 +188,14 @@ class Combat:
         self.bullets = [b for b in self.bullets if self._advance(b, dt, boxes, 0.0)]
 
     def _advance(self, bullet: Bullet, dt: float, boxes: list, t_begin: float = 0.0) -> bool:
-        """Đẩy đạn đi dt giây. Trả về False nếu đạn hết (trúng gì đó hoặc quá hạn).
+        """Advance the bullet by dt seconds. Returns False if the bullet is gone (it hit something or expired).
 
-        Chia nhỏ khung dài thành các bước <= MAX_BULLET_STEP: điểm trúng dò trên dây cung của từng bước nên lệch tối đa g*dt^2/8 so với
-        cung thật; khung treo 40 ms (vd. khung đầu tiên hiện tia lửa) cho lệch 2-3 mm ở 10 m nếu không chia.
+        A long frame is split into steps <= MAX_BULLET_STEP: the hit point of each step is found on the chord, so the error is at most g*dt^2/8 versus
+        the true arc; a 40 ms hitch (e.g. the first frame that shows the muzzle flash) gives 2-3 mm error at 10 m without splitting.
 
-        `t_begin` (s kể từ đầu khung) là lúc đạn bắt đầu đoạn này. Bia chạy dịch từ `x_start` tới `x_end` trong khung, nên mỗi bước nhỏ
-        dò đạn với hộp bia ở ĐÚNG vị trí đầu bước và để hộp tịnh tiến theo trong bước (`moving_hit`: chính xác với chuyển động đều,
-        không lệch `tốc độ bia x dt` như khi lấy vị trí cuối khung)."""
+        `t_begin` (s from the start of the frame) is when the bullet starts this segment. A moving target moves from `x_start` to `x_end` during the frame, so each small step
+        tests the bullet against the target box at the EXACT position at the start of the step, and the box moves along within the step (`moving_hit`: exact for uniform motion,
+        without the error `target speed x dt` that comes from using the end-of-frame position)."""
         steps = max(1, math.ceil(dt / MAX_BULLET_STEP - 1e-9))
         step = dt / steps
         movers = [t for t in self.targets if t.moving]
@@ -224,7 +224,7 @@ class Combat:
             return False
         return True
 
-    # --- phản hồi ---
+    # --- feedback ---
     def _on_hit(self, bullet: Bullet, hit):
         distance = distance_between(bullet.origin, hit.point)
         self.last_impact = Impact(hit.point, hit.normal, distance, hit.owner, bullet.origin)
@@ -236,7 +236,7 @@ class Combat:
             self.hit_marker_left = self.fb.hit_marker_duration
             self.last_hit_distance = distance
             self.last_hit_left = self.fb.last_hit_display_time
-            # Lỗ nằm ở chỗ đạn trúng TRÊN bia lúc trúng; bia đã đi tiếp tới cuối khung nên dời lỗ theo, để nó đứng đúng chỗ trên mặt bia
+            # The hole sits where the bullet hit ON the target at impact; the target has moved on to the end of the frame, so shift the hole along to keep it in place on the target surface
             point = hit.point
             if hit.owner.patrol is not None:
                 shift = hit.owner.x_end - hit.owner.x_at(self._hit_frac)
@@ -245,7 +245,7 @@ class Combat:
         else:
             self.decals.add(hit.point, hit.normal, distance, tint=DUST_TINT)
 
-    # --- trạng thái cho HUD ---
+    # --- state for the HUD ---
     @property
     def hit_marker_alpha(self) -> float:
         return self.hit_marker_left / self.fb.hit_marker_duration if self.fb.hit_marker_duration else 0.0

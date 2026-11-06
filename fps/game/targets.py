@@ -1,10 +1,10 @@
-"""Bia và lỗ đạn. Bia có hộp va chạm AABB tính từ vị trí hiện tại.
+"""Targets and bullet holes. A target has an AABB hit box computed from its current position.
 
-Bia chạy (G6) đi ngang làn (trục x) giữa hai biên (`MOVERS`, toán ở core/patrol.py). `Target.update(dt)` do `Combat.update` gọi ở ĐẦU
-khung, trước khi đạn đi; bia ghi lại x đầu khung và x cuối khung (`x_start`, `x_end`) để đạn dò va chạm với hộp ở đúng thời điểm
-của từng bước nhỏ (`Combat._advance`), không phải ở cuối khung.
+Moving targets (G6) travel sideways across the lane (x axis) between two edges (`MOVERS`, maths in core/patrol.py). `Target.update(dt)` is called by `Combat.update` at the START
+of the frame, before the bullets fly; the target records the x at the start and at the end of the frame (`x_start`, `x_end`) so bullets hit-test against the box at the right time
+of each small step (`Combat._advance`), not at the end of the frame.
 
-Lỗ đạn ở game/decals.py.
+Bullet holes are in game/decals.py.
 """
 from dataclasses import dataclass
 
@@ -16,25 +16,25 @@ from fps.weapon_data import FeedbackParams
 
 TARGET_THICKNESS = 0.06
 TARGET_BASE_WIDTH = 0.6
-TARGET_WIDTH_PER_M = 0.008      # bia xa to dần để còn nhìn thấy
-TARGET_MIN_HEIGHT = 1.9         # cao cỡ một người, luôn phủ tầm mắt (1,62 m)
-TARGET_ASPECT = 1.3             # cao = rộng * 1.3 khi bia đủ to
-# (khoảng cách m: lệch ngang m). Xen kẽ hai bên để bia gần không che bia xa.
-LAYOUT = {10: -3.0, 25: 3.0, 50: -3.0, 100: 3.0, 150: 0.0, 200: -4.0}   # 200 m lệch trái: bia 150 m ở x=0 sẽ che
+TARGET_WIDTH_PER_M = 0.008      # farther targets grow wider so they stay visible
+TARGET_MIN_HEIGHT = 1.9         # about the height of a person, always covers eye level (1.62 m)
+TARGET_ASPECT = 1.3             # height = width * 1.3 once the target is big enough
+# (distance m: horizontal offset m). Alternate sides so a near target does not hide a far one.
+LAYOUT = {10: -3.0, 25: 3.0, 50: -3.0, 100: 3.0, 150: 0.0, 200: -4.0}   # 200 m is offset to the left: the 150 m target at x=0 would block it
 
 
 @dataclass(frozen=True)
 class MoverSpec:
-    """Bia ở khoảng cách này chạy ngang làn (thay vì đứng yên ở x của LAYOUT)."""
+    """A target at this distance travels sideways across the lane (instead of standing still at the x of LAYOUT)."""
     speed: float            # m/s
-    pause: float = 0.35     # s nghỉ ở mỗi đầu trước khi quay lại
-    phase: float = 0.0      # 0..1: điểm xuất phát trong vòng đi-về (để các bia chạy không đi cùng nhịp)
+    pause: float = 0.35     # s pause at each end before turning back
+    phase: float = 0.0      # 0..1: starting point in the back-and-forth cycle (so the moving targets do not move in step)
 
 
-# Gần chậm, xa nhanh (xa thì góc quay của bia nhỏ nên dễ ngắm đón hơn). 10/50/150 m đứng yên: 150 m là bia đo độ rơi (đề bài ~0,45 m).
-# Bia 25 m chạy ở z = 25 giống cột mốc và biển, nên biên x chặn theo PATROL_EDGE_X (cột mốc ở |x| = 8,35).
+# Near ones slow, far ones fast (far away the target's angular speed is small, so it is easier to lead). 10/50/150 m stand still: 150 m is the drop-measurement target (brief: ~0.45 m).
+# The 25 m target runs at z = 25 like the markers and signs, so its x limit is set by PATROL_EDGE_X (markers at |x| = 8.35).
 MOVERS = {25: MoverSpec(1.5, phase=0.15), 100: MoverSpec(3.0, phase=0.60), 200: MoverSpec(4.0, phase=0.35)}
-PATROL_EDGE_X = 8.0     # mép ngoài của bia chạy không vượt quá |x| này (vạch sơn của làn; cột mốc ở 8,35 và tường ở 12)
+PATROL_EDGE_X = 8.0     # outer edge of a moving target never goes beyond this |x| (the lane paint; markers at 8.35 and walls at 12)
 
 FLASH_COLOR = color.rgb(1.0, 0.28, 0.22)
 
@@ -63,7 +63,7 @@ def hole_texture() -> Texture:
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     c = size / 2
-    d.ellipse([c - 30, c - 30, c + 30, c + 30], fill=(25, 20, 15, 90))     # quầng khói mờ
+    d.ellipse([c - 30, c - 30, c + 30, c + 30], fill=(25, 20, 15, 90))     # faint smoke halo
     d.ellipse([c - 17, c - 17, c + 17, c + 17], fill=(15, 12, 10, 190))
     d.ellipse([c - 9, c - 9, c + 9, c + 9], fill=(5, 5, 5, 255))
     return Texture(img, filtering='mipmap')
@@ -75,12 +75,12 @@ class Target:
         self.width, self.height = target_size(distance)
         self.flash_duration = flash_duration
         self.flash_left = 0.0
-        self.patrol = patrol                # None: bia đứng yên
-        self.motion_enabled = True          # False: bia chạy đứng im tại chỗ (để đo / chụp ảnh)
+        self.patrol = patrol                # None: still target
+        self.motion_enabled = True          # False: the moving target stands still in place (for measurement / screenshots)
         if patrol is not None:
             x = patrol.x
-        self.x_start = self.x_end = x       # x của tâm bia ở đầu / cuối khung vừa qua (đứng yên thì bằng nhau)
-        # root không scale để lỗ đạn gắn vào đó không bị méo
+        self.x_start = self.x_end = x       # x of the target centre at the start / end of the last frame (equal if still)
+        # root has no scale, so bullet holes stuck to it are not distorted
         self.root = Entity(position=(x, 0, distance))
         self.plate = Entity(parent=self.root, model='cube', texture=texture, y=self.height / 2,
                             scale=(self.width, self.height, TARGET_THICKNESS))
@@ -90,11 +90,11 @@ class Target:
         return self.patrol is not None and self.motion_enabled
 
     def x_at(self, f: float) -> float:
-        """x của tâm bia ở phần f (0..1) của khung vừa qua: nội suy giữa đầu và cuối khung."""
+        """x of the target centre at fraction f (0..1) of the last frame: interpolated between the start and end of the frame."""
         return self.x_start + (self.x_end - self.x_start) * f
 
     def aabb(self) -> tuple:
-        """Hộp va chạm ở vị trí HIỆN TẠI (cuối khung)."""
+        """Hit box at the CURRENT position (end of frame)."""
         return self.aabb_at_x(self.root.x)
 
     def aabb_at_x(self, x: float) -> tuple:
@@ -103,7 +103,7 @@ class Target:
                 (x + self.width / 2, y + self.height, z + TARGET_THICKNESS / 2))
 
     def sweep_aabb(self) -> tuple:
-        """Hộp bao toàn bộ khoảng bia chạy đi qua (bia đứng yên: giống `aabb`)."""
+        """Box enclosing the whole span a moving target travels through (still target: same as `aabb`)."""
         if self.patrol is None:
             return self.aabb()
         lo, _ = self.aabb_at_x(self.patrol.lo)
@@ -124,7 +124,7 @@ class Target:
 
 
 def make_patrol(distance: float, spec: MoverSpec) -> Patrol:
-    """Bia chạy giữa hai biên sao cho mép ngoài của bia dừng ở PATROL_EDGE_X; xuất phát theo `spec.phase`."""
+    """Moving target between two edges, so that its outer edge stops at PATROL_EDGE_X; starts according to `spec.phase`."""
     half = target_size(distance)[0] / 2
     lo, hi = -(PATROL_EDGE_X - half), PATROL_EDGE_X - half
     x, direction = phase_start(lo, hi, spec.phase)
@@ -132,7 +132,7 @@ def make_patrol(distance: float, spec: MoverSpec) -> Patrol:
 
 
 def build_targets(params: FeedbackParams, moving: bool = True) -> list:
-    """Thứ tự theo LAYOUT. `moving=False`: mọi bia đứng yên ở x của LAYOUT (các selftest đo độ rơi cần vậy)."""
+    """In LAYOUT order. `moving=False`: every target stands still at the x of LAYOUT (the drop-measurement selftests need this)."""
     texture = _target_texture()
     out = []
     for d, x in LAYOUT.items():

@@ -68,17 +68,17 @@ def test_cue_times_divide_by_clip_speed(speed):
 
 def test_cancel_drops_pending_cues_and_adds_one_settle_sound():
     sch = start('reload')
-    fired = [n for n, _ in run_schedule(sch, 1.0)]                   # t = 1,0 s: mới chốt băng (0,83 s); băng mới chưa vào
+    fired = [n for n, _ in run_schedule(sch, 1.0)]                   # t = 1.0 s: the magazine release was just cued (0.83 s); the new magazine has not gone in yet
     assert fired == ['mag_release']
     sch.cancel(AUDIO)
     assert sch.pending_names == [AUDIO.cancel_sound]
     later = [n for n, _ in run_schedule(sch, 3.0)]
-    assert later == [AUDIO.cancel_sound]                             # không có mag_in / mag_seat / bolt_tick sau huỷ
+    assert later == [AUDIO.cancel_sound]                             # no mag_in / mag_seat / bolt_tick after the cancel
 
 
 def test_cancel_before_the_first_cue_is_silent():
     sch = start('reload')
-    run_schedule(sch, 0.2)                                           # cue đầu ở 0,83 s
+    run_schedule(sch, 0.2)                                           # first cue at 0.83 s
     sch.cancel(AUDIO)
     assert sch.pending_names == []
     assert run_schedule(sch, 3.0) == []
@@ -86,14 +86,14 @@ def test_cancel_before_the_first_cue_is_silent():
 
 def test_flush_plays_the_rest_when_the_clip_finishes():
     sch = start('reload_empty')
-    first = run_schedule(sch, 1.0)                                   # t = 1,0 s: mới chốt băng
+    first = run_schedule(sch, 1.0)                                   # t = 1.0 s: the magazine release was just cued
     rest = [n for n, _ in sch.flush()]
     assert rest == [c.sound for c in AUDIO.cues['reload_empty']][len(first):]
     assert sch.flush() == []
 
 
 def drive(h, sch, seconds, fps=60.0):
-    """Mô phỏng Game.update: Handling.update(dt) -> các sự kiện vào lịch -> lịch.update(dt). Trả về [(giây, tên)] và giây của sự kiện swap."""
+    """Simulates Game.update: Handling.update(dt) -> events go into the schedule -> schedule.update(dt). Returns [(seconds, name)] and the seconds of the swap event."""
     heard, swap_t, t = [], None, 0.0
     dt = 1.0 / fps
     for _ in range(round(seconds * fps)):
@@ -122,9 +122,9 @@ def test_schedule_stays_in_step_with_handling(mag, key, speed):
     sch = CueSchedule()
     h.start_reload()
     heard, swap_t = drive(h, sch, 6.0)
-    assert [n for _, n in heard] == [c.sound for c in AUDIO.cues[key]]            # đủ số tiếng, đúng thứ tự
+    assert [n for _, n in heard] == [c.sound for c in AUDIO.cues[key]]            # right number of sounds, in the right order
     seat_t = next(t for t, n in heard if n == 'mag_seat')
-    assert abs(seat_t - swap_t) < 0.04                                            # tiếng băng vào chỗ trùng lúc đạn được cập nhật (<= 2 khung)
+    assert abs(seat_t - swap_t) < 0.04                                            # the magazine-seat sound coincides with the ammo update (<= 2 frames)
 
 
 def test_cancelling_a_real_reload_stops_the_remaining_sounds():
@@ -141,14 +141,14 @@ def test_cancelling_a_real_reload_stops_the_remaining_sounds():
 
 
 def test_normal_reload_has_only_the_first_two_hits_and_empty_reload_has_all_three():
-    # file của người dùng có 3 cú va: chốt băng, băng vào chỗ (kèm tiếng trượt rất nhỏ trước đó), bolt. Nạp thường chỉ chạy hai cú đầu; nạp cạn mới chạy hết.
+    # the user's file has 3 impacts: magazine release, magazine seat (preceded by a very quiet slide sound), bolt. A normal reload plays only the first two; an empty reload plays all three.
     assert [c.sound for c in AUDIO.cues['reload']] == ['mag_release', 'mag_in', 'mag_seat']
     assert [c.sound for c in AUDIO.cues['reload_empty']] == ['mag_release', 'mag_in', 'mag_seat', 'bolt_release']
     assert 'bolt_release' not in [c.sound for c in AUDIO.cues['reload']] and 'bolt_tick' not in [c.sound for c in AUDIO.cues['reload']]
 
 
 def test_reload_uses_only_the_users_recording():
-    # không còn tiếng tổng hợp cũ (mag_out, mag_tap...) lẫn vào cú va đầu tiên
+    # no old synthesized sounds (mag_out, mag_tap...) are mixed into the first impact any more
     for key in ('reload', 'reload_empty'):
         for c in AUDIO.cues[key]:
             assert AUDIO.sound_files.get(c.sound, '').startswith('el_'), (key, c.sound)

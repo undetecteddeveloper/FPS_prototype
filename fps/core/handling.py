@@ -1,14 +1,14 @@
-"""Rút súng và nạp đạn thuần (không import ursina, nên test được không cần cửa sổ).
+"""Pure draw and reload handling (no ursina import, so it can be tested without a window).
 
-Máy trạng thái ba pha: READY (bắn được) -> DRAW (rút súng lúc vào game) / RELOAD (đang nạp) -> READY.
-Thời gian chạy theo clip của file glb (khung 30 fps) nhân `speed`. Số đạn chỉ đổi đúng khung `Clip.swap`
-(băng mới vào chỗ), không phải đầu clip: huỷ trước mốc đó thì đạn y nguyên, huỷ sau thì băng đã nạp rồi.
+Three-phase state machine: READY (can fire) -> DRAW (drawing the gun when entering the game) / RELOAD (reloading) -> READY.
+Timing follows the glb clip (30 fps frames) times `speed`. The round count changes exactly at the `Clip.swap` frame
+(new magazine seated), not at the start of the clip: cancelling before that point keeps the rounds; cancelling after it means the magazine is already loaded.
 
-Phần hình ảnh (phát clip, trộn tư thế khi huỷ) nằm ở `game/viewmodel.py`, nhận các sự kiện qua `drain()`:
-  ('start', key, speed)   bắt đầu phát clip `key` (khoá của GunData.clips)
-  ('swap', key)           băng mới vào chỗ (đạn đã cập nhật)
-  ('done', key)           clip chạy hết
-  ('cancel', key, frame)  bị huỷ giữa chừng ở khung `frame` của clip
+The visual part (playing the clip, blending the pose on cancel) is in `game/viewmodel.py`, which receives the events through `drain()`:
+  ('start', key, speed)   start playing clip `key` (key of GunData.clips)
+  ('swap', key)           new magazine seated (rounds updated)
+  ('done', key)           clip finished
+  ('cancel', key, frame)  cancelled mid-way at frame `frame` of the clip
 """
 from enum import Enum
 
@@ -29,13 +29,13 @@ class Handling:
         self.gun = gun
         self.weapon = weapon
         self.phase = Phase.READY
-        self.key = None             # khoá clip đang chạy ('draw', 'reload', 'reload_empty')
-        self.t = 0.0                # giây CỦA CLIP (đã nhân speed) kể từ đầu clip
+        self.key = None             # key of the running clip ('draw', 'reload', 'reload_empty')
+        self.t = 0.0                # seconds OF THE CLIP (multiplied by speed) since the clip started
         self.swapped = False
-        self.loaded = 0             # số viên nạp ở lần thay băng gần nhất
+        self.loaded = 0             # rounds loaded at the most recent magazine change
         self.events = []
 
-    # --- đọc ---
+    # --- read ---
     @property
     def clip(self):
         return self.gun.clips[self.key] if self.key else None
@@ -55,26 +55,26 @@ class Handling:
 
     @property
     def progress(self) -> float:
-        """0..1 tiến độ clip đang chạy (0 khi rảnh)."""
+        """0..1 progress of the running clip (0 when idle)."""
         if not self.busy:
             return 0.0
         return min(self.t / self.clip.duration, 1.0)
 
     @property
     def frame(self) -> float:
-        """Khung hiện tại (số thực) trên dòng thời gian chung của file; None khi rảnh."""
+        """Current frame (real number) on the file's shared timeline; None when idle."""
         if not self.busy:
             return None
         return min(self.clip.start + self.t * FPS, float(self.clip.end))
 
     @property
     def remaining(self) -> float:
-        """Còn bao nhiêu giây thật nữa thì xong."""
+        """Real seconds remaining until done."""
         if not self.busy:
             return 0.0
         return max(self.clip.duration - self.t, 0.0) / self.speed
 
-    # --- lệnh ---
+    # --- commands ---
     def start_draw(self) -> bool:
         if self.busy:
             return False
@@ -82,14 +82,14 @@ class Handling:
         return True
 
     def start_reload(self) -> bool:
-        """Bắt đầu nạp nếu được: đang rảnh, băng chưa đầy, còn dự trữ. Băng cạn dùng clip Reload_Empty."""
+        """Start reloading if allowed: idle, magazine not full, reserve left. An empty magazine uses the Reload_Empty clip."""
         if self.busy or not self.weapon.can_reload:
             return False
         self._start(Phase.RELOAD, 'reload_empty' if self.weapon.mag == 0 else 'reload')
         return True
 
     def cancel(self) -> bool:
-        """Huỷ reload đang chạy (không huỷ được Draw). Đạn đã nạp ở mốc thay băng thì giữ nguyên."""
+        """Cancel the running reload (cannot cancel Draw). Rounds already loaded at the magazine-change point are kept."""
         if self.phase is not Phase.RELOAD:
             return False
         self.events.append(('cancel', self.key, self.frame))
@@ -103,9 +103,9 @@ class Handling:
     def _finish(self):
         self.phase, self.key, self.t = Phase.READY, None, 0.0
 
-    # --- mỗi khung ---
+    # --- every frame ---
     def update(self, dt: float):
-        """`dt` là thời gian thật của khung (không cắt ở 50 ms): hình ảnh chạy theo đồng hồ Panda nên logic cũng theo đó."""
+        """`dt` is the real frame time (not capped at 50 ms): visuals run on the Panda clock, so the logic follows it too."""
         if not self.busy:
             return
         self.t += dt * self.speed

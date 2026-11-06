@@ -1,24 +1,24 @@
-"""Toán thuần của đạn: bay có độ rơi, va chạm đoạn thẳng với hộp và mặt đất. Không import ursina.
+"""Pure bullet math: flight with drop, segment collision with boxes and the ground. No ursina import.
 
-Hệ trục như Ursina (y lên). Mỗi khung hình đạn đi một đoạn; ta dò va chạm trên CẢ ĐOẠN vừa bay
-(swept) chứ không chỉ tại điểm cuối, nên đạn 500 m/s (8 m mỗi khung ở 60 FPS) không xuyên qua bia mỏng.
+Axes as in Ursina (y up). Each frame the bullet travels one segment; collision is tested over the WHOLE swept segment
+(not just the end point), so a 500 m/s bullet (8 m per frame at 60 FPS) does not pass through a thin target.
 """
 import math
 from dataclasses import dataclass
 
-GROUND = 'ground'   # owner của va chạm với mặt đất
+GROUND = 'ground'   # owner of the ground collision
 
 
 @dataclass(frozen=True)
 class Hit:
-    t: float          # 0..1: vị trí trên đoạn p0 -> p1
+    t: float          # 0..1: position along the segment p0 -> p1
     point: tuple
     normal: tuple
-    owner: object     # đối tượng của hộp bị trúng, hoặc GROUND
+    owner: object     # object of the box that was hit, or GROUND
 
 
 def advance(pos, vel, gravity, dt):
-    """Đi tiếp dt giây. Công thức chính xác cho trọng lực không đổi nên không phụ thuộc FPS."""
+    """Advance dt seconds. Exact formula for constant gravity, so it does not depend on FPS."""
     x, y, z = pos
     vx, vy, vz = vel
     return ((x + vx * dt, y + vy * dt - 0.5 * gravity * dt * dt, z + vz * dt),
@@ -26,14 +26,14 @@ def advance(pos, vel, gravity, dt):
 
 
 def drop_at_distance(distance, speed, gravity):
-    """Độ rơi (m) sau khi bay ngang `distance` mét với tốc độ ngang `speed`."""
+    """Drop (m) after flying `distance` metres horizontally at horizontal speed `speed`."""
     t = distance / speed
     return 0.5 * gravity * t * t
 
 
 def segment_vs_aabb(p0, p1, lo, hi):
-    """Điểm vào đầu tiên của đoạn p0 -> p1 vào hộp [lo, hi]: (t, pháp tuyến) hoặc None.
-    Điểm xuất phát nằm trong hộp thì coi là không trúng (đạn đã ở trong, vụ trúng đã được tính trước đó)."""
+    """First entry point of segment p0 -> p1 into box [lo, hi]: (t, normal) or None.
+    A start point inside the box counts as no hit (the bullet is already inside; the hit was computed earlier)."""
     tmin, tmax = 0.0, 1.0
     normal = None
     for axis in range(3):
@@ -44,7 +44,7 @@ def segment_vs_aabb(p0, p1, lo, hi):
             continue
         t1 = (lo[axis] - p0[axis]) / d
         t2 = (hi[axis] - p0[axis]) / d
-        sign = -1.0 if d > 0 else 1.0       # đi vào qua mặt "lo" khi d > 0: pháp tuyến hướng ngược trục
+        sign = -1.0 if d > 0 else 1.0       # entering through the 'lo' face when d > 0: the normal points against the axis
         if t1 > t2:
             t1, t2 = t2, t1
         if t1 >= tmin:
@@ -59,23 +59,23 @@ def segment_vs_aabb(p0, p1, lo, hi):
 
 
 def segment_vs_moving_aabb(p0, p1, lo, hi, displacement):
-    """Như `segment_vs_aabb` nhưng hộp [lo, hi] (vị trí LÚC ĐẦU đoạn) tịnh tiến đều `displacement` trong lúc đạn đi p0 -> p1.
-    Chính xác (không xấp xỉ): trong hệ của hộp, đạn đi từ p0 tới p1 - displacement, cùng tham số t; hai bên cùng tới điểm đó đúng một lúc.
-    Điểm trúng thật (toạ độ thế giới) vẫn là nội suy p0 -> p1 tại t."""
+    """Like `segment_vs_aabb`, but the box [lo, hi] (position at the START of the segment) moves uniformly by `displacement` while the bullet travels p0 -> p1.
+    Exact (no approximation): in the box frame the bullet goes from p0 to p1 - displacement, with the same parameter t; both reach that point at the same moment.
+    The real hit point (world coordinates) is still the interpolation p0 -> p1 at t."""
     rel_end = (p1[0] - displacement[0], p1[1] - displacement[1], p1[2] - displacement[2])
     return segment_vs_aabb(p0, rel_end, lo, hi)
 
 
 def segment_vs_ground(p0, p1, ground_y=0.0):
-    """Đoạn đi từ trên mặt đất xuống tới hoặc dưới mặt đất: t hoặc None."""
+    """Segment going from above the ground to at or below it: t, or None."""
     if p0[1] > ground_y >= p1[1]:
         return (p0[1] - ground_y) / (p0[1] - p1[1])
     return None
 
 
 class BoxGroup:
-    """Nhiều hộp gom dưới một hộp bao (vd. một dãy cột dọc tường): `first_hit` chỉ dò từng hộp con khi đoạn bay chạm
-    hộp bao, nên hàng chục cột không làm chậm mọi bước của mọi viên đạn. Đưa vào danh sách hộp dạng `group.entry()`."""
+    """Several boxes grouped under one bounding box (e.g. a row of columns along a wall): `first_hit` tests each sub-box only when the segment touches
+    the bounding box, so dozens of columns do not slow every step of every bullet. Pass as a list of boxes made with `group.entry()`."""
 
     def __init__(self, boxes):
         self.boxes = list(boxes)                       # [(lo, hi, owner)]
@@ -87,7 +87,7 @@ class BoxGroup:
 
 
 def segment_touches_aabb(p0, p1, lo, hi):
-    """Đoạn p0 -> p1 có điểm nào nằm trong hộp không (kể cả khi xuất phát bên trong)."""
+    """Whether any point of segment p0 -> p1 lies inside the box (including when it starts inside)."""
     tmin, tmax = 0.0, 1.0
     for axis in range(3):
         d = p1[axis] - p0[axis]
@@ -106,8 +106,8 @@ def segment_touches_aabb(p0, p1, lo, hi):
 
 
 def first_hit(p0, p1, boxes, ground_y=0.0):
-    """Va chạm sớm nhất của đoạn p0 -> p1 với danh sách boxes [(lo, hi, owner)] và mặt đất; hoặc None.
-    owner là `BoxGroup` thì (lo, hi) là hộp bao của nhóm, chỉ dò các hộp con khi đoạn chạm hộp bao."""
+    """Earliest collision of segment p0 -> p1 with the list of boxes [(lo, hi, owner)] and the ground; or None.
+    owner being a `BoxGroup` means (lo, hi) is the group's bounding box; sub-boxes are tested only when the segment touches the bounding box."""
     best = None
     for lo, hi, owner in boxes:
         if isinstance(owner, BoxGroup):
@@ -127,7 +127,7 @@ def first_hit(p0, p1, boxes, ground_y=0.0):
 
 
 def moving_hit(p0, p1, lo, hi, displacement, owner):
-    """`Hit` với một hộp đang chuyển động (xem `segment_vs_moving_aabb`), hoặc None. `point` là chỗ viên đạn đang ở lúc trúng."""
+    """`Hit` with a moving box (see `segment_vs_moving_aabb`), or None. `point` is where the bullet is when it hits."""
     r = segment_vs_moving_aabb(p0, p1, lo, hi, displacement)
     return Hit(r[0], _lerp(p0, p1, r[0]), r[1], owner) if r else None
 
@@ -137,7 +137,7 @@ def distance_between(a, b):
 
 
 def hole_size(distance, base, per_meter):
-    """Cỡ lỗ đạn vẽ ra (m): lỗ thật quá nhỏ để thấy từ xa, nên to dần theo khoảng cách."""
+    """Bullet hole size drawn (m): a real hole is too small to see from afar, so it grows with distance."""
     return base + per_meter * distance
 
 
@@ -146,8 +146,8 @@ def _lerp(a, b, t):
 
 
 def decal_rotation(normal):
-    """Góc xoay (rx, ry, rz) độ của Ursina để một `quad` (mặt trước nhìn về -z) quay mặt ra theo pháp tuyến
-    song song với trục. Mặt phẳng nằm ngang quay quanh x; mặt đứng quay quanh y."""
+    """Rotation (rx, ry, rz) in degrees for Ursina so that a `quad` (front face looking toward -z) turns its face out along the normal
+    parallel to the axis. A horizontal plane rotates about x; a vertical plane rotates about y."""
     nx, ny, nz = normal
     if ny > 0.5:
         return (90.0, 0.0, 0.0)

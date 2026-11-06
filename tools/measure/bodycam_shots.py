@@ -1,6 +1,6 @@
-"""Chụp ảnh các tư thế / vị trí tiêu biểu vào shots\\bc_*.png để so với ảnh chụp Bodycam. Không kiểm gì, chỉ để nhìn.
+"""Takes screenshots of representative poses and positions into shots\\bc_*.png to compare with Bodycam footage. Checks nothing, just for viewing.
 
-Chạy: .venv\\Scripts\\python.exe -X utf8 tools\\measure\\bodycam_shots.py [--size 1366x768]
+Run: .venv\\Scripts\\python.exe -X utf8 tools\\measure\\bodycam_shots.py [--size 1366x768]
 """
 import argparse
 import sys
@@ -57,16 +57,16 @@ class Script(Entity):
         yield from self.wait(30)
         place((0, 0, 0))
         yield from self.wait(90)
-        snap('hip')                                     # đứng dưới vạch bắn, nhìn dọc làn
+        snap('hip')                                     # standing behind the firing line, looking down the lane
         place((-5, 0, 15), 30, 0)
         yield from self.wait(90)
-        snap('under_lamp')                              # dưới đèn, nhìn chéo
+        snap('under_lamp')                              # under a lamp, looking diagonally
         place((9, 0, 30), -60, 5)
         yield from self.wait(120)
-        snap('dark_gap')                                # sát tường, giữa hai đèn
+        snap('dark_gap')                                # close to the wall, between two lamps
         place((0, 0, 20), 0, -30)
         yield from self.wait(90)
-        snap('look_lamp')                               # ngước nhìn đèn
+        snap('look_lamp')                               # looking up at a lamp
         place((0, 0, 0))
         held_keys['right mouse'] = 1
         yield from self.wait(60)
@@ -97,7 +97,7 @@ class Script(Entity):
         snap('sprint')
         held_keys['w'], held_keys['shift'] = 0, 0
         place((0, 0, 40))
-        for i in range(14):                             # cú xoay nhanh sang phải
+        for i in range(14):                             # quick turn to the right
             player.look(0.05, 0.0)
             yield
         snap('turn')
@@ -105,7 +105,7 @@ class Script(Entity):
         player.free_look.reset()
         yield from self.wait(20)
         sens = game.params.player.mouse_sensitivity
-        for i in range(30):                             # chuột sang trái, chậm: súng sang trái, màn hình đứng yên
+        for i in range(30):                             # mouse slowly to the left: the rifle moves left, the screen stays still
             player.look(-11.0 / 30 / sens, 2.0 / 30 / sens)
             yield
         yield from self.wait(20)

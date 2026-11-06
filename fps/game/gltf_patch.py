@@ -1,21 +1,21 @@
-"""Vá panda3d-gltf 1.3.0 để nạp được file M4 (Sketchfab, đơn vị cm, bộ xương có skin).
+"""Patches panda3d-gltf 1.3.0 so that the M4 file (Sketchfab, units in cm, skinned skeleton) can be loaded.
 
-Gọi `apply()` một lần, TRƯỚC khi tạo Ursina()/ShowBase và trước khi nạp bất kỳ glb nào.
-Sáu lỗi, mỗi lỗi một hàm bên dưới (chỉ bản 1.3.0; đổi phiên bản thì chạy lại tests/test_gltf_load.py):
+Call `apply()` once, BEFORE creating Ursina()/ShowBase and before loading any glb.
+Six bugs, one function each below (1.3.0 only; after changing the version, re-run tests/test_gltf_load.py):
 
-1. get_buffer_from_accessor: cắt `memoryview[start:end:stride]` theo BYTE nên ném BufferError
-   khi nạp animation (file có byteStride bằng đúng kích thước phần tử).
-2. load_material: bỏ qua `diffuseTexture` của KHR_materials_pbrSpecularGlossiness nên mọi mesh
-   chỉ còn normal map (màu xanh phẳng). Đổi sang baseColor, bỏ normal map (đường vẽ cố định
-   của Panda không dùng được nó).
-3. build_animation_skeleton: khớp thiếu kênh animation (vd. Spine_02) bị đặt theo tư thế bind
-   (ở gốc toạ độ). Chuẩn glTF: đứng ở TRS của nút. Cả cánh tay rơi xuống sàn nếu không vá.
-4. update: file có ma trận tỷ lệ 0,01 ở các nút TỔ TIÊN bộ xương; thư viện nhân đỉnh mesh có skin
-   với nghịch đảo của nó rồi Actor vứt các nút đó đi, nên tay to gấp 100 lần xương.
-5. build_character_joints: khớp phụ (như `Main`) vẫn sinh thêm nút cảnh mang cùng độ lệch,
-   nút cập nhật theo khớp nằm bên trong nó, độ lệch bị cộng hai lần, thân súng bay đi chỗ khác.
-6. Tắt cache model trên đĩa của Panda (sửa bản vá mà cache cũ vẫn được dùng lại) và tắt sRGB
-   cho texture (Ursina không bật framebuffer-srgb nên súng đen kịt).
+1. get_buffer_from_accessor: slices `memoryview[start:end:stride]` by BYTE, so it raises BufferError
+   when loading animation (the file has a byteStride equal to the element size).
+2. load_material: ignores the `diffuseTexture` of KHR_materials_pbrSpecularGlossiness, so every mesh
+   keeps only the normal map (flat blue colour). Switch to baseColor and drop the normal map (Panda's
+   fixed-function path cannot use it).
+3. build_animation_skeleton: a joint missing an animation channel (e.g. Spine_02) is placed at the
+   bind pose (at the origin). glTF standard: stand at the node's TRS. Without this patch the whole arm falls to the floor.
+4. update: the file has a 0.01 scale matrix on the skeleton's ANCESTOR nodes; the library multiplies
+   the skinned mesh vertices by its inverse, then Actor discards those nodes, so the hands are 100x the size of the bones.
+5. build_character_joints: auxiliary joints (like `Main`) still create an extra scene node carrying the
+   same offset, and the node updated by the joint sits inside it, so the offset is applied twice and the gun body flies off elsewhere.
+6. Turns off Panda's on-disk model cache (so a fixed patch is not masked by old cached data) and turns off
+   sRGB for textures (Ursina does not enable framebuffer-srgb, so the gun would be pitch black).
 """
 import inspect
 import struct
@@ -67,10 +67,10 @@ _original_load_material = _converter.Converter.load_material
 
 
 def _load_material(self, matid, gltf_mat):
-    """KHR_materials_pbrSpecularGlossiness -> pbrMetallicRoughness (chỉ lấy màu), bỏ normal map.
+    """KHR_materials_pbrSpecularGlossiness -> pbrMetallicRoughness (colour only), normal map dropped.
 
-    Thư viện 1.3.0 bỏ qua `diffuseTexture` của chuẩn spec-gloss nên mesh chỉ còn normal map,
-    vẽ ra một màu xanh phẳng. Đường vẽ cố định của Panda cũng không dùng được normal map.
+    Library 1.3.0 ignores the `diffuseTexture` of the spec-gloss standard, so the mesh keeps only the
+    normal map and renders as one flat blue colour. Panda's fixed-function path cannot use normal maps either.
     """
     sg = gltf_mat.get('extensions', {}).get('KHR_materials_pbrSpecularGlossiness')
     if sg is not None:
@@ -111,11 +111,11 @@ _NEW_DEFAULTS = """        if 'matrix' in bone:
 
 
 def _make_build_animation_skeleton():
-    """Khớp thiếu kênh animation phải đứng ở tư thế nghỉ của nút glTF, không phải tư thế bind.
+    """A joint missing an animation channel must stand at the glTF node's rest pose, not at the bind pose.
 
-    Thư viện lấy giá trị mặc định từ tư thế bind (IBM), nên khớp tĩnh như `Spine_02` bị đặt ở gốc
-    toạ độ và cả cánh tay treo dưới nó rơi xuống sàn. Chuẩn glTF: tư thế hiện tại của khớp không có
-    kênh = TRS của nút; IBM chỉ dùng để biết tư thế gốc của da.
+    The library takes its defaults from the bind pose (IBM), so a static joint like `Spine_02` is placed
+    at the origin and the whole arm hanging below it falls to the floor. glTF standard: the current pose
+    of a joint with no channel = the node's TRS; IBM is only used to know the skin's rest pose.
     """
     src = textwrap.dedent(inspect.getsource(_converter.Converter.build_animation_skeleton))
     old = textwrap.indent(textwrap.dedent(_OLD_DEFAULTS), '    ')
@@ -132,11 +132,11 @@ _original_update = _converter.Converter.update
 
 
 def _update(self, gltf_data):
-    """Xoá phép biến đổi của các nút TỔ TIÊN của bộ xương (file M4 có ma trận tỷ lệ 0,01 ở gốc).
+    """Remove the transforms of the skeleton's ANCESTOR nodes (the M4 file has a 0.01 scale matrix at the root).
 
-    Thư viện nhân đỉnh của mesh có skin với nghịch đảo tỷ lệ đó (đỉnh lớn gấp 100 lần), rồi
-    `Actor` chỉ giữ nhánh bộ xương và bỏ các nút gốc, nên tay to gấp 100 lần so với xương.
-    Sau bản vá, cả mô hình ở đơn vị cm; code game tự scale 0,01 để ra mét.
+    The library multiplies the vertices of the skinned mesh by the inverse of that scale (vertices 100x too large), then
+    `Actor` keeps only the skeleton branch and drops the root nodes, so the hands end up 100x the size of the bones.
+    After the patch the whole model is in cm; the game code applies the 0.01 scale to get metres.
     """
     nodes = gltf_data.get('nodes', [])
     parent = {c: i for i, n in enumerate(nodes) for c in n.get('children', [])}
@@ -154,11 +154,11 @@ _original_build_character_joints = _converter.Converter.build_character_joints
 
 
 def _build_character_joints(self, char, root_nodeids, affected_nodeids, skinid, gltf_data):
-    """Mọi nút đã thành khớp thì không được thêm một nút cảnh trùng lặp.
+    """When every node has become a joint, do not add a duplicate scene node.
 
-    Thư viện chỉ bỏ nút cảnh cho khớp nằm trong skin. Khớp phụ như `Main` (cha của mesh súng) vẫn
-    sinh thêm nút cảnh mang cùng độ lệch, và nút cập nhật theo khớp lại nằm BÊN TRONG nó, nên độ
-    lệch bị cộng hai lần: thân súng bay đi chỗ khác.
+    The library drops the scene node only for joints inside the skin. Auxiliary joints like `Main` (the parent
+    of the gun mesh) still create an extra scene node carrying the same offset, and the node updated by the
+    joint sits INSIDE it, so the offset is applied twice: the gun body flies off elsewhere.
     """
     jvtmap = _original_build_character_joints(self, char, root_nodeids, affected_nodeids, skinid, gltf_data)
     self._joint_nodes.update(affected_nodeids)
@@ -168,9 +168,9 @@ def _build_character_joints(self, char, root_nodeids, affected_nodeids, skinid, 
 def apply():
     global _applied
     if not _applied:
-        # Panda cache model đã chuyển đổi trên đĩa, nên sửa bản vá mà cache cũ vẫn được dùng lại.
+        # Panda caches the converted model on disk, so after editing this patch the old cache would still be reused.
         p3d.loadPrcFileData('', 'model-cache-dir\nmodel-cache-models 0\nmodel-cache-textures 0')
-        # Ursina không bật framebuffer-srgb: texture đánh dấu sRGB sẽ bị tối đi (súng đen kịt).
+        # Ursina does not enable framebuffer-srgb: a texture marked sRGB would be darkened (gun pitch black).
         p3d.loadPrcFileData('', 'gltf-no-srgb true')
         _converter.Converter.get_buffer_from_accessor = _get_buffer_from_accessor
         _converter.Converter.update = _update

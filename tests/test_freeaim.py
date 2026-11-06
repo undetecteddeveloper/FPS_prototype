@@ -1,4 +1,4 @@
-"""Đạn theo nòng + súng trôi tự do: toán thuần."""
+"""Bullets follow the barrel + free-drifting gun: pure maths."""
 import math
 
 import pytest
@@ -23,7 +23,7 @@ def test_resting_barrel_points_almost_exactly_at_screen_centre():
 
 
 def test_ads_pose_lines_the_barrel_up_with_the_view_axis():
-    """Ngắm hẳn, súng không trôi: đạn đi đúng giữa màn hình dù hai camera khác FOV."""
+    """Fully aimed, gun not drifting: the bullet goes exactly to the middle of the screen even though the two cameras have different FOV."""
     x, y, z = barrel_view_dir(ads_target_for(M4), SIGHTS, M4.ads_view_fov, M4.ads_fov)
     assert math.degrees(math.atan2(math.hypot(x, y), z)) < 1e-6
 
@@ -49,9 +49,9 @@ def test_same_fov_means_same_angle():
 
 @pytest.mark.parametrize('view,world', [(92.0, 96.0), (66.0, 84.5), (75.0, 96.0)])
 def test_bullet_lands_where_the_barrel_points_on_screen(view, world):
-    """Điểm tụ của trục nòng trên màn hình (qua ống kính súng) phải trùng điểm chiếu của hướng đạn (qua ống kính thế giới)."""
+    """The barrel-axis convergence point on screen (through the gun lens) must coincide with the projected bullet direction (through the world lens)."""
     p = pose(pitch=2.5, yaw=-3.0)
-    x, y, z = barrel_view_dir(p, SIGHTS, world, world)                   # hướng thật của nòng, không đổi ống kính
+    x, y, z = barrel_view_dir(p, SIGHTS, world, world)                   # the true barrel direction, lens unchanged
     sx, sy = x / z / math.tan(math.radians(view) / 2), y / z / math.tan(math.radians(view) / 2)
     bx, by, bz = barrel_view_dir(p, SIGHTS, view, world)
     wx, wy = bx / bz / math.tan(math.radians(world) / 2), by / bz / math.tan(math.radians(world) / 2)
@@ -64,10 +64,10 @@ def test_view_to_world_matches_aim_direction(yaw, pitch):
 
 
 def test_view_to_world_axes_are_right_handed_for_the_player():
-    """Nhìn +z: phải là +x, lên là +y (hệ của Ursina)."""
+    """Looking along +z: right is +x, up is +y (Ursina's frame)."""
     assert view_to_world(0, 0, (1.0, 0.0, 0.0)) == pytest.approx((1.0, 0.0, 0.0))
     assert view_to_world(0, 0, (0.0, 1.0, 0.0)) == pytest.approx((0.0, 1.0, 0.0))
-    # ngẩng lên 30 độ (pitch âm): hướng "lên" của camera ngả về phía sau
+    # looking up 30 degrees (negative pitch): the camera's "up" tilts backward
     up = view_to_world(0, -30, (0.0, 1.0, 0.0))
     assert up[2] < 0 and up[1] > 0
 
@@ -93,10 +93,10 @@ def test_recoil_drift_builds_up_during_a_burst_then_returns():
     assert single == pytest.approx(0.5, rel=0.02)
     fa = FreeAim(d)
     peak = spray(fa)
-    assert peak > 3 * single                                              # các phát dồn lên: súng trôi hẳn khỏi tâm
+    assert peak > 3 * single                                              # the shots build up: the gun drifts well away from the centre
     for _ in range(240):
         fa.update(1 / 120)
-    assert abs(fa.drift[0]) < 0.05 and abs(fa.drift[1]) < 0.05            # ngừng bắn thì về
+    assert abs(fa.drift[0]) < 0.05 and abs(fa.drift[1]) < 0.05            # after firing stops, it returns
 
 
 def test_drift_is_soft_limited():
@@ -114,8 +114,8 @@ def test_rest_pose_changes_after_a_fast_turn_but_not_while_still():
         fa.update(1 / 120, 0.0)
     assert fa.rest_changes == 0
     for _ in range(30):
-        fa.update(1 / 120, 200.0)                                         # xoay nhanh
-    assert fa.rest_changes == 0                                           # chưa dừng thì chưa đổi
+        fa.update(1 / 120, 200.0)                                         # fast turn
+    assert fa.rest_changes == 0                                           # no change until it stops
     fa.update(1 / 120, 0.0)
     assert fa.rest_changes == 1
     before = list(fa.rest)
@@ -152,8 +152,8 @@ def test_idle_drift_is_slow_and_small():
         fa.update(1 / 120)
         trace.append(fa.pose()[4])
     assert max(abs(v) for v in trace) <= d.idle_yaw + 1e-9
-    assert max(trace) - min(trace) > 0.1                                  # có trôi thật
-    assert max(abs(b - a) for a, b in zip(trace, trace[1:])) < 0.02       # không giật cục
+    assert max(trace) - min(trace) > 0.1                                  # really drifts
+    assert max(abs(b - a) for a, b in zip(trace, trace[1:])) < 0.02       # no jerky motion
 
 
 def test_ads_calms_the_rest_pose_but_not_the_recoil():
@@ -166,7 +166,7 @@ def test_ads_calms_the_rest_pose_but_not_the_recoil():
     fa.spring.x = [2.0, 0.0]
     fa.rest = [0.0] * 6
     fa.stress = 0.0
-    assert abs(fa.pose(1.0)[3] - fa.drift[0]) < d.idle_pitch * d.ads_scale + 1e-6      # phần giật giữ nguyên khi ngắm
+    assert abs(fa.pose(1.0)[3] - fa.drift[0]) < d.idle_pitch * d.ads_scale + 1e-6      # the kick part stays the same when aiming
     assert fa.drift[0] > 1.5
 
 
@@ -190,7 +190,7 @@ def test_stress_rises_with_shots_decays_and_shakes_harder_while_reloading():
 
 
 def test_free_aim_randomness_does_not_touch_other_generators():
-    """Cùng hạt thì cùng kết quả: selftest lặp lại được."""
+    """Same seed, same result: the selftest is repeatable."""
     a, b = FreeAim(FreeAimData()), FreeAim(FreeAimData())
     for fa in (a, b):
         fa.on_shot(0.5, 0.1)
@@ -205,15 +205,15 @@ def test_rest_pose_blends_out_when_aiming():
     sway = Sway(data, ads_target_for(M4))
     inp = SwayInput(MoveState.IDLE, 0.0, 0.0, 0.0)
     hip = sway.update(1 / 60, inp)
-    assert hip[1] == pytest.approx(data.rest_pose[1], abs=0.01)          # súng thấp lúc hông
+    assert hip[1] == pytest.approx(data.rest_pose[1], abs=0.01)          # gun is low at the hip
     sway2 = Sway(data, ads_target_for(M4))
     ads = sway2.update(1 / 60, SwayInput(MoveState.IDLE, 0.0, 1.0, 0.0))
     target = ads_target_for(M4)
-    assert ads[0] == pytest.approx(target[0], abs=0.002)                 # ngắm thì về đúng tư thế ngắm
+    assert ads[0] == pytest.approx(target[0], abs=0.002)                 # aiming returns to exactly the aim pose
     assert ads[1] == pytest.approx(target[1], abs=0.002)
 
 
-# --- chuột điều khiển súng trước ---
+# --- mouse drives the gun first ---
 def mouse(fl, yaw, up=0.0, steps=1):
     cam = [0.0, 0.0]
     for _ in range(steps):
@@ -231,7 +231,7 @@ def test_inside_the_zone_only_the_gun_moves():
 
 
 def test_every_mouse_degree_is_accounted_for():
-    """Tổng chuột = màn hình quay + súng lệch: không bao giờ mất hay thừa cú xoay, kể cả vẩy rất mạnh."""
+    """Total mouse = screen turn + gun offset: no turn is ever lost or added, even for very hard flicks."""
     fl = FreeLook(FreeAimData())
     for yaw, up in ((3.0, 1.0), (40.0, -7.0), (-90.0, 12.0), (1.0, 1.0)):
         before = list(fl.offset)
@@ -249,7 +249,7 @@ def test_the_gun_stays_inside_the_ellipse_and_the_screen_takes_the_rest():
     assert cam[0] == pytest.approx(100.0 - fl.offset[0])
     fl = FreeLook(d)
     mouse(fl, 0.0, 100.0, steps=100)
-    assert fl.offset[1] == pytest.approx(d.zone_pitch, abs=0.2)     # vùng dọc hẹp hơn vùng ngang
+    assert fl.offset[1] == pytest.approx(d.zone_pitch, abs=0.2)     # the vertical zone is narrower than the horizontal one
     fl = FreeLook(d)
     mouse(fl, 80.0, 80.0, steps=100)
     assert fl.radius() <= 1.0 + 1e-9
@@ -264,12 +264,12 @@ def test_screen_starts_turning_gradually_near_the_edge():
         shares.append(a / 0.1)
     assert shares[0] == 0.0
     assert shares[-1] > 0.85
-    assert all(b >= a - 1e-6 for a, b in zip(shares, shares[1:]))   # tăng dần, không nhảy
+    assert all(b >= a - 1e-6 for a, b in zip(shares, shares[1:]))   # increases gradually, no jump
     assert max(b - a for a, b in zip(shares, shares[1:])) < 0.15
 
 
 def test_moving_back_inside_is_gun_only_even_near_the_edge():
-    """Về phía giữa thì màn hình đứng yên: rà tâm chính xác ngay cả khi súng đang ở mép."""
+    """Moving back toward the centre the screen stays still: centring is precise even when the gun is at the edge."""
     fl = FreeLook(FreeAimData())
     mouse(fl, 100.0, steps=100)
     cam = mouse(fl, -3.0, steps=10)
@@ -329,7 +329,7 @@ def test_zone_shrinks_and_the_screen_compensates(kw, scale):
         turned += fl.step(1 / 60, **kw)[0]
     assert fl.scale == pytest.approx(getattr(d, scale), abs=0.01)
     assert fl.radius() <= 1.0 + 1e-9
-    assert fl.offset[0] + turned == pytest.approx(10.0)             # điểm ngắm không nhảy
+    assert fl.offset[0] + turned == pytest.approx(10.0)             # the aim point does not jump
 
 
 def test_turned_off_means_the_mouse_turns_the_screen_directly():
@@ -346,15 +346,15 @@ def test_hand_spring_makes_the_gun_follow_smoothly():
     fl.step(1 / 60)
     fl.track(before)
     first = fl.shown[0]
-    assert 0.0 <= first < 3.0                                       # chưa tới nơi ngay
+    assert 0.0 <= first < 3.0                                       # not there yet
     last = first
     for _ in range(60):
         before = tuple(fl.offset)
         fl.step(1 / 60)
         fl.track(before)
-        assert abs(fl.shown[0] - last) < 2.0                        # không nhảy
+        assert abs(fl.shown[0] - last) < 2.0                        # no jump
         last = fl.shown[0]
-    assert last == pytest.approx(fl.offset[0], abs=0.25)           # offset cũng đang trôi chậm về giữa nên súng đuổi sau một chút
+    assert last == pytest.approx(fl.offset[0], abs=0.25)           # the offset is also drifting slowly back to the centre, so the gun lags a little
 
 
 def test_pose_points_the_gun_where_the_hand_is():

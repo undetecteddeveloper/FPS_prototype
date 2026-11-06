@@ -1,11 +1,11 @@
-"""Giao diện hình ảnh của thế giới: shader (đèn trần, bóng, vân vật liệu, AO giả, bụi trong phòng), quầng đèn, bóng của bia chạy.
+"""Visual side of the world: shaders (ceiling lamps, shadows, material texture, fake AO, dust in the room), lamp halos, and shadows of moving targets.
 
-Shader thế giới nằm ở assets/shaders/world.vert|frag (khung theo unlit_with_fog_shader của Ursina); phần ánh sáng dùng chung với súng ở assets/shaders/light_common.glsl + frame_light.py. Áp lên mọi vật thể của trường bắn,
-bia và lỗ đạn bằng cách đặt `Entity.shader`; vật liệu chọn bằng đầu vào `look_material` của từng Entity. Vật thể giao diện giữ
-shader mặc định của Ursina. Số liệu ở weapon_data.LookData; kích thước phòng ở core/room.RoomLayout.
+The world shader is in assets/shaders/world.vert|frag (based on Ursina's unlit_with_fog_shader); the lighting shared with the gun is in assets/shaders/light_common.glsl + frame_light.py. Applied to every object of the range,
+targets and bullet holes by setting `Entity.shader`; the material is picked by the `look_material` input of each Entity. UI objects keep
+Ursina's default shader. Values in weapon_data.LookData; room dimensions in core/room.RoomLayout.
 
-Bóng (`LookData.shadows`): True = bóng thật của mọi đèn trần (lamp_shadows.py, vẽ một lần lúc khởi động), 'fake' = vệt tối
-mềm dưới bia và cột mốc, False = không bóng. AO giả (chân tường, quanh cột, dưới trần) có ở cả ba chế độ.
+Shadows (`LookData.shadows`): True = real shadows from every ceiling lamp (lamp_shadows.py, drawn once at startup), 'fake' = soft dark blobs
+under targets and markers, False = no shadows. Fake AO (wall bases, around columns, under the ceiling) is present in all three modes.
 """
 import math
 import random
@@ -20,11 +20,11 @@ from fps.game.shaders import load_glsl, read_source
 from fps.weapon_data import LookData
 
 MATERIALS = {'floor': 1.0, 'walls': 2.0, 'pillars': 3.0, 'ceiling': 4.0, 'lamp_glow': 5.0, 'lamp_shades': 0.0,
-             'signs': 6.0, 'sign_rods': 0.0}      # 6 = biển khoảng cách (có chữ phát sáng nhẹ)
+             'signs': 6.0, 'sign_rods': 0.0}      # 6 = distance signs (text glows faintly)
 
 
 def noise_texture(size: int = 128, cells: int = 8, seed: int = 11) -> Texture:
-    """Nhiễu giá trị liền mạch (lát gạch không thấy mép), một kênh sáng, nội suy mượt: để phủ lên mặt đất thay vì ô lưới lặp."""
+    """Seamless value noise (tiles with no visible seam), one bright channel, smoothly interpolated: laid over the ground instead of a repeating grid of tiles."""
     rng = random.Random(seed)
     lattice = [[rng.random() for _ in range(cells)] for _ in range(cells)]
 
@@ -49,7 +49,7 @@ def noise_texture(size: int = 128, cells: int = 8, seed: int = 11) -> Texture:
 
 
 def blob_texture(size: int = 64) -> Texture:
-    """Vệt tối mềm (bóng giả): alpha giảm dần từ giữa ra mép."""
+    """Soft dark blob (fake shadow): alpha falls off from the centre to the edge."""
     img = Image.new('RGBA', (size, size))
     px = []
     for y in range(size):
@@ -61,7 +61,7 @@ def blob_texture(size: int = 64) -> Texture:
 
 
 def halo_texture(size: int = 64) -> Texture:
-    """Quầng sáng mờ quanh bóng đèn: trắng, alpha giảm nhanh từ tâm (cộng sáng)."""
+    """Faint glow around a lamp bulb: white, alpha falls off quickly from the centre (additive)."""
     img = Image.new('RGBA', (size, size))
     px = []
     for y in range(size):
@@ -80,15 +80,15 @@ class WorldLook:
         self.targets = targets
         self.light = light
         self.shader = self._make_shader()
-        self.shadows = None                 # LampShadows khi bật bóng thật
+        self.shadows = None                 # LampShadows when real shadows are on
         self.blobs = []
-        self.mover_blobs = []               # (bia chạy, vệt tối giả của nó): vệt đi theo bia
+        self.mover_blobs = []               # (moving target, its fake blob): the blob follows the target
         self.movers = [t for t in targets if t.patrol is not None]
-        self._mover_next = 0                # bia chạy kế tiếp được vẽ lại bóng
+        self._mover_next = 0                # next moving target whose shadow is redrawn
         self._mover_clock = 0.0
-        self._mover_drawn_x = {}            # x của bia lúc vẽ bóng gần nhất: bia đứng im thì khỏi vẽ lại
-        self.mover_shadow_refreshes = 0     # số lần vẽ lại bóng bia chạy (để đo)
-        self._ready = False                 # False trong lúc dựng
+        self._mover_drawn_x = {}            # x of the target when its shadow was last drawn: a still target need not be redrawn
+        self.mover_shadow_refreshes = 0     # number of moving-target shadow redraws (for measurement)
+        self._ready = False                 # False while building
         render = application.base.render
         room = world['room']
 
@@ -116,11 +116,11 @@ class WorldLook:
         self.mode = None
         self.set_shadow_mode(params.shadows)
 
-        window.color = color.rgb(*params.fog_color)        # không có trời: nền (nếu lọt ra) cùng màu bụi trong phòng
-        # vẽ trước lúc dựng: dịch shader thế giới + vẽ atlas bóng không rơi vào khung đầu của game
+        window.color = color.rgb(*params.fog_color)        # no sky: the background (if it shows through) gets the same colour as the dust in the room
+        # draw before the game starts: compile the world shader and draw the shadow atlas so they do not land on the game's first frame
         if self.shadows:
             self.shadows.render_now()
-            # bia chạy vào atlas SAU lần vẽ đầu (để không để lại bóng ma ở chỗ xuất phát trên các đèn xa), rồi vẽ riêng các đèn gần chúng
+            # moving targets go into the atlas AFTER the first draw (so no ghost shadows are left at the start position on distant lamps), then the lamps near them are drawn separately
             for t in self.movers:
                 self.shadows.add_caster(t.plate)
             near = set()
@@ -155,13 +155,13 @@ class WorldLook:
             b.set_depth_offset(1)
             b.set_bin('transparent', 0)
             self.blobs.append(b)
-        for t, b in zip(targets, self.blobs):             # spots bắt đầu bằng các bia, cùng thứ tự
+        for t, b in zip(targets, self.blobs):             # the spots start with the targets, in the same order
             if t.patrol is not None:
                 self.mover_blobs.append((t, b))
 
     @staticmethod
     def _make_halos(lamps, params) -> Entity:
-        """Quầng sáng của mọi bóng đèn trong MỘT lần vẽ: mỗi thẻ có 4 đỉnh nằm ở tâm đèn, assets/shaders/halo.vert bung ra quay về camera. Trộn cộng, không ghi độ sâu."""
+        """Halos of every lamp bulb in ONE draw call: each card has 4 vertices at the lamp centre; assets/shaders/halo.vert expands them to face the camera. Additive blend, no depth write."""
         verts, uvs, tris = [], [], []
         for x, y, z in lamps:
             n = len(verts)
@@ -181,18 +181,18 @@ class WorldLook:
         return e
 
     def set_shadow_mode(self, mode):
-        """True / 'fake' / False; đổi được lúc đang chạy (bóng thật dựng lần đầu khi cần)."""
+        """True / 'fake' / False; can be changed while running (real shadows are built the first time they are needed)."""
         if mode is True and self.shadows is None:
             from fps.game.lamp_shadows import LampShadows
             self.shadows = LampShadows(self.world['lamps'], self.p.lamp_radius, self.p.shadow_face_size)
             for e in self.world['shadow_casters']:
                 LampShadows.add_caster(e)
             for t in self.targets:
-                if self._ready or t.patrol is None:          # lúc dựng: bia chạy vào atlas sau lần vẽ đầu (xem cuối __init__)
+                if self._ready or t.patrol is None:          # while building: moving targets go into the atlas after the first draw (see end of __init__)
                     LampShadows.add_caster(t.plate)
         if mode is True:
-            self._mover_drawn_x.clear()                      # atlas có thể giữ bóng cũ của bia chạy: vẽ lại ở các lượt kế tiếp
-            self.light.radius = self.shadows.radius          # bán kính đã nướng vào bản đồ bóng
+            self._mover_drawn_x.clear()                      # the atlas may keep an old shadow of a moving target: redraw it in the following passes
+            self.light.radius = self.shadows.radius          # radius baked into the shadow map
             self.light.set_shadows(mode, self.shadows.shader_inputs())
         else:
             self.light.set_shadows(mode)
@@ -201,32 +201,32 @@ class WorldLook:
         self.mode = mode
 
     def apply_params(self):
-        """Bảng debug (G6): đẩy lại các số ánh sáng của `LookData` có hiệu lực TỨC THÌ (đèn, tông màu, bụi, bóng, tối góc...) vào shader
-        với đúng tên đầu vào như lúc dựng. Không đụng vị trí / số đèn và cỡ bản đồ bóng (nướng lúc dựng: cần khởi động lại)."""
+        """Debug panel (G6): pushes the LookData light values that take effect IMMEDIATELY (lamps, colour grade, dust, shadows, corner darkening...) back into the shader
+        under the same input names as at build time. Does not touch the lamp positions / count or the shadow map size (baked at build time: needs a restart)."""
         p, render = self.p, application.base.render
         render.set_shader_input('look_fog', (*p.fog_color, p.fog_density))
         render.set_shader_input('look_detail_strength', float(p.detail_strength))
         self._push_flash(render)
-        self.set_shadow_mode(p.shadows)                      # cũng đẩy lại look_shadow (chống sọc bóng, độ chói bóng đèn)
+        self.set_shadow_mode(p.shadows)                      # also pushes look_shadow again (shadow stripe / brightness of the lamp shadows)
         self.light.apply_params()
         window.color = color.rgb(*p.fog_color)
         if self.halos is not None:
             self.halos.set_shader_input('halo_color', Vec4(*p.lamp_color, p.lamp_halo))
 
     def _lamps_near_mover(self, target) -> list:
-        """Các đèn cần vẽ lại bóng khi bia chạy đổi chỗ: đèn cách bia dọc z trong `mover_shadow_reach` x bán kính đèn."""
+        """Lamps whose shadow must be redrawn when a moving target changes position: lamps within `mover_shadow_reach` x lamp radius of the target along z."""
         z = target.root.z
         return self.shadows.lamps_near(z, z, self.p.mover_shadow_reach * self.shadows.radius)
 
     def _faces_for_mover(self, target, old_x: float) -> dict:
-        """Đèn -> các mặt cubemap có thể nhìn thấy bia (ở chỗ cũ hoặc chỗ mới): chỉ vẽ lại những mặt đó, rẻ hơn hẳn vẽ cả 5 mặt."""
+        """Lamp -> cubemap faces that can see the target (at the old or the new position): only those faces are redrawn, much cheaper than all 5."""
         half = target.width / 2.0
         x0, x1 = min(old_x, target.root.x) - half, max(old_x, target.root.x) + half
         z = target.root.z
         out = {}
         for i in self._lamps_near_mover(target):
             lx, _, lz = self.shadows.lamps[i]
-            faces = [2]                                      # -y: luôn có, bia đứng dưới đèn
+            faces = [2]                                      # -y: always, the target stands under the lamp
             if x1 > lx:
                 faces.append(0)                              # +x
             if x0 < lx:
@@ -239,8 +239,8 @@ class WorldLook:
         return out
 
     def _tick_movers(self):
-        """Bóng thật của bia chạy: đèn và tường đứng yên nên atlas chỉ vẽ một lần, còn bia chạy thì cứ 1/(hz x số bia) giây vẽ lại
-        riêng các đèn gần MỘT bia (lần lượt từng bia). Gọi từ `update` (trước khi vẽ), nên atlas vẽ ở đúng khung đó."""
+        """Real shadows of moving targets: the lamps and walls are still, so the atlas is drawn once; moving targets instead get their nearby lamps
+        redrawn every 1/(hz x number of targets) seconds, one target at a time (taking turns). Called from `update` (before drawing), so the atlas is drawn in that same frame."""
         if self.mode is not True or not self.movers or self.p.mover_shadow_hz <= 0:
             return
         self._mover_clock += time.dt
@@ -248,7 +248,7 @@ class WorldLook:
         if self._mover_clock < interval:
             return
         self._mover_clock = min(self._mover_clock - interval, interval)
-        for _ in range(len(self.movers)):                    # bia kế tiếp CÓ đổi chỗ từ lần vẽ trước
+        for _ in range(len(self.movers)):                    # next target that HAS moved since the last draw
             t = self.movers[self._mover_next % len(self.movers)]
             self._mover_next += 1
             old = self._mover_drawn_x.get(t)
@@ -259,7 +259,7 @@ class WorldLook:
                 return
 
     def update(self):
-        """Mỗi khung: tắt buffer bóng khi đã vẽ xong; bóng của bia chạy (thật: vẽ lại đèn gần; giả: vệt tối đi theo bia)."""
+        """Every frame: turn the shadow buffer off once drawing is done; shadows of moving targets (real: redraw nearby lamps; fake: a dark blob follows the target)."""
         if self.shadows:
             self.shadows.update()
             self._tick_movers()
