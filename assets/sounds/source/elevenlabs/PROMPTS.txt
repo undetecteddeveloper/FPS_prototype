@@ -27,3 +27,14 @@
 27. [3.6s, influence 0.6] Calm slow human breathing at rest, one full breath cycle: gentle inhale through the nose then relaxed exhale, close microphone, quiet and natural, about 3.5 seconds, no speech, no music.
 28. [3.6s, influence 0.6] Soldier breathing steadily while holding a rifle, one slow breath cycle: soft inhale then slightly audible exhale through the mouth, body-worn camera microphone close to the chest, slightly tense, about 3.5 seconds, no speech, no music.
 29. [3.6s, influence 0.6] Slightly out of breath person breathing, one breath cycle: deeper audible inhale then longer breathy exhale, adrenaline, close microphone, about 3.5 seconds, no speech, no music.
+30. [2s, shot] Pistol gunshot (user-approved sample 6/11/2026, see docs/credits.md): assets/review/glock/audio/pistol_shot_eleven_v3.mp3 -> pistol_shot_0.mp3
+31. [0.7s, influence 0.65] Close-up foley: Glock pistol magazine release button click, then a loaded metal magazine slides out of the grip. Dry, no reverb, no music, no voices.  (pistol_mag_release)
+32. [0.6s, influence 0.65] Close-up foley: an empty metal pistol magazine dropping onto a hard concrete floor, one clink and a small bounce. Dry, no music, no voices.  (pistol_mag_drop)
+33. [0.5s, influence 0.65] Close-up foley: a fresh pistol magazine sliding up into a Glock grip, short soft metallic scrape. Dry, no reverb, no music, no voices.  (pistol_mag_in)
+34. [0.5s, influence 0.7] Close-up foley: Glock pistol magazine firmly seated, one solid short metallic clack as it locks into place. Dry, single impact, no music, no voices.  (pistol_mag_seat)
+35. [0.6s, influence 0.7] Close-up foley: Glock pistol slide released forward, one sharp heavy metal clack with a short spring ring. Dry, single impact, no music, no voices.  (pistol_slide_release)
+36. [0.7s, influence 0.6] Soldier drawing a pistol from a holster: leather and nylon rustle with a light metallic slide of the pistol. Close microphone, dry, no music, no voices.  (pistol_draw)
+37. [0.5s, influence 0.6] Gloved hands settling around a polymer pistol grip, soft thump with a small plastic and fabric rattle as the pistol settles. Close microphone, dry, no music, no voices.  (pistol_draw_settle)
+38. [0.6s, influence 0.6] Pistol slid back into a leather holster: leather scrape and a soft click of a retention strap. Close microphone, dry, no music, no voices.  (pistol_holster)
+39. [0.5s, influence 0.75] Empty pistol dry fire: single small metallic striker click of a Glock trigger, no gunshot. Close microphone, dry, no music, no voices.  (pistol_dry)
+(30-39: model eleven_text_to_sound_v3, 6/11/2026)

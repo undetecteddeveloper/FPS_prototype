@@ -22,11 +22,12 @@ RATE = 44100
 HEAD_THRESHOLD = 0.04          # fraction of the peak: from here on counts as the start of the sound
 TAIL_THRESHOLD = 0.012         # fraction of the peak: below this level (RMS over 10 ms) the sound counts as finished
 HEAD_KEEP = 0.002              # s kept before the impact, so the start is not clipped
-# The gunshot has ONE source file (shot_0.mp3, chosen by the user); the two other variants are the same clip with the pitch changed (playback speed factor), so a burst does not sound like a loop machine
+# The gunshot has ONE source file per gun (shot_0.mp3 for the M4, pistol_shot_0.mp3 for the Glock; chosen by the user); the two other variants are the same clip with the pitch changed (playback speed factor), so a burst does not sound like a loop machine
 SHOT_PITCHES = (1.0, 0.94, 1.07)
-PEAK = {'shot': 0.95, 'breath': 0.7, 'step': 0.85, 'hit_target': 0.85, 'hit_hard': 0.85}      # the rest use DEFAULT_PEAK
+SHOT_GROUPS = ('shot', 'pistol_shot')           # gunshot groups: built from <group>_0.mp3 into el_<group>_<i>.wav next to the M4 shots, with the same shaping
+PEAK = {'shot': 0.95, 'pistol_shot': 0.95, 'breath': 0.7, 'step': 0.85, 'hit_target': 0.85, 'hit_hard': 0.85}      # the rest use DEFAULT_PEAK
 DEFAULT_PEAK = 0.8
-TAIL_FADE = {'shot': 0.10, 'breath': 0.06}     # s fade-out at the end of the file; the rest use DEFAULT_FADE
+TAIL_FADE = {'shot': 0.10, 'pistol_shot': 0.10, 'breath': 0.06}     # s fade-out at the end of the file; the rest use DEFAULT_FADE
 DEFAULT_FADE = 0.03
 # Each gunshot must stay separable at 750 rounds/min (80 ms apart): the thick reverb tail of the original clip hid the next shot (seen: 3 rounds sounded like 1, because only 1 of the 3 variants stood out above the background).
 # The blast holds for SHOT_HOLD, then decays along two paths: fast (the body of the sound) and slow (room reverb). All variants share the same strength over the first SHOT_PUNCH_WINDOW; above 1 it soft-saturates (a camera mic distorts the same way).
@@ -35,7 +36,7 @@ SHOT_FAST = (0.80, 0.030)      # (fraction, time constant in s)
 SHOT_ROOM = (0.20, 0.200)      # reverb like a metal roof (the user wants it loud and harsh); larger and the next shot is masked by the tail of the previous one (measured: 0.25 / 0.22 leaves only 8.6 dB)
 SHOT_PUNCH_WINDOW = 0.025      # s
 SHOT_PUNCH_RMS = 0.50          # RMS of the blast, -6 dB
-MAX_SECONDS = {'breath': 4.0, 'shot': 0.55, 'step': 0.32, 'hit_target': 0.40, 'hit_hard': 0.50, 'dry': 0.20}
+MAX_SECONDS = {'breath': 4.0, 'shot': 0.55, 'pistol_shot': 0.55, 'step': 0.32, 'hit_target': 0.40, 'hit_hard': 0.50, 'dry': 0.20}
 
 
 def group_of(stem: str) -> str:
@@ -54,7 +55,7 @@ def decode(path: Path, channels: int, speed: float = 1.0) -> list:
 
 
 def process(samples: list, channels: int, group: str) -> list:
-    if group == 'shot':
+    if group in SHOT_GROUPS:
         samples = shape_shot(samples, channels)
     n = len(samples) // channels
     frame_peak = [max(abs(samples[i * channels + c]) for c in range(channels)) for i in range(n)]
@@ -72,7 +73,7 @@ def process(samples: list, channels: int, group: str) -> list:
     out = samples[start * channels:end * channels]
     count = len(out) // channels
     fade = min(int(TAIL_FADE.get(group, DEFAULT_FADE) * RATE), count // 2)
-    gain = 1.0 if group == 'shot' else PEAK.get(group, DEFAULT_PEAK) / peak      # gunshots are already balanced for strength in shape_shot
+    gain = 1.0 if group in SHOT_GROUPS else PEAK.get(group, DEFAULT_PEAK) / peak      # gunshots are already balanced for strength in shape_shot
     for i in range(count):
         k = gain * (min(1.0, (count - i) / fade) if fade else 1.0)
         for c in range(channels):
@@ -133,16 +134,17 @@ def jobs() -> list:
     """[(output name, source mp3 file, speed factor)]. Gunshots: every variant is built from shot_0.mp3."""
     out = []
     for f in sorted(SOURCE.glob('*.mp3')):
-        if group_of(f.stem) == 'shot':
-            if f.stem == 'shot_0':
-                out += [(f'shot_{i}', f, k) for i, k in enumerate(SHOT_PITCHES)]
+        g = group_of(f.stem)
+        if g in SHOT_GROUPS:
+            if f.stem == f'{g}_0':
+                out += [(f'{g}_{i}', f, k) for i, k in enumerate(SHOT_PITCHES)]
         else:
             out.append((f.stem, f, 1.0))
     return out
 
 
 def target_for(stem: str) -> Path:
-    return ROOT / 'assets' / 'sounds' / f'el_{stem}.wav' if group_of(stem) == 'shot' else FOLEY / f'el_{stem}.wav'
+    return ROOT / 'assets' / 'sounds' / f'el_{stem}.wav' if group_of(stem) in SHOT_GROUPS else FOLEY / f'el_{stem}.wav'
 
 
 def main():
@@ -158,7 +160,7 @@ def main():
     print(f'{"tên":16s} {"dài (s)":>8s} {"RMS":>7s} {"cú va":>6s}')
     for stem, f, speed in files:
         group = group_of(stem)
-        channels = 2 if group == 'shot' else 1
+        channels = 2 if group in SHOT_GROUPS else 1
         out = process(decode(f, channels, speed), channels, group)
         pcm = to_pcm(out)
         rms = math.sqrt(sum(s * s for s in out) / max(len(out), 1))
