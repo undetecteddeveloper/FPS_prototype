@@ -41,6 +41,7 @@ backups/  shots/        file lưu cũ của bảng F1 / ảnh chụp của bài 
 - Commit trên nhánh `dev`. Chỉ push khi người dùng nói. `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
 - Comment và docstring trong mã viết bằng TIẾNG ANH (đã dịch toàn bộ mã hiện có 6/11/2026, xem `docs/WORKFLOW.md` 6c; mã mới phải giữ như vậy). Chữ cho người dùng (HUD, bảng F1, tên mục selftest, thông báo) và file `.md` vẫn tiếng Việt.
 - Mức hỏi người dùng theo cỡ việc (nhỏ: tối đa 1 vòng ngắn; lớn: luôn 2 vòng ý tưởng + kỹ thuật): `docs/WORKFLOW.md` 1b. Luật này thắng luật chung "tự quyết kỹ thuật" khi làm dự án này.
+- HỌC TRƯỚC KHI LÀM: chủ đề chưa có skill kiến thức trong `.claude/skills/` thì học sâu (WebSearch) và lưu skill trước, giao thức ở skill `learn-first`; Blender dùng để sửa model, rigging, animation (`docs/WORKFLOW.md` 6d, 6e).
 - Tài nguyên AI: xem/nghe xong mới được duyệt, chi tiêu theo phong bì và ghi `docs/credits.md` (`docs/WORKFLOW.md` 6, 6b).
 
 ## Nạp M4 (bẫy đã trả giá ở G0, đừng làm lại)

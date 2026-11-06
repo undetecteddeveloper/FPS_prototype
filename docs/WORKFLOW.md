@@ -21,6 +21,7 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 
 ## 2. Một phiên (Gx) đi qua 7 bước
 1. Hỏi đáp (vòng định hướng rồi vòng kỹ thuật, tối đa 4 câu mỗi vòng, đáp án ngang sức).
+1b. Học (mục 6e): chủ đề của việc chưa có skill kiến thức thì học sâu và LƯU skill trước khi làm.
 2. Bản kế hoạch một trang `docs/sessions/Gx.md`: mục tiêu đo được, làm / không làm, chia việc cho subagent (nếu có).
 3. Làm (mục 3 nếu chia việc).
 4. Cổng kiểm tra: pytest, selftest liên quan, game mở được và >= 60 FPS.
@@ -74,6 +75,22 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 - Mọi comment và docstring trong mã (`fps/`, `tests/`, `tools/`, `assets/shaders`) viết bằng TIẾNG ANH. Giữ nguyên TIẾNG VIỆT: chữ hiển thị cho người (HUD, bảng F1 và `param_meta`, tên mục của selftest, thông báo lỗi cho người dùng) và mọi file `.md` / `CREDITS.txt`.
 - Đợt dịch toàn bộ cho mã hiện có (ĐÃ LÀM 6/11/2026: 106 file .py + 8 file GLSL, kiểm đạt, còn 0 dòng comment tiếng Việt): subagent model rẻ dịch theo nhóm file không chồng nhau; kiểm bằng cách so cây AST đã bỏ docstring trước/sau (phải trùng) cộng pytest; mã GLSL chỉ đổi phần comment. Các số đo nằm trong comment phải giữ nguyên chữ số và đơn vị.
 - Truy nguyên: mỗi tài nguyên giữ prompt, công cụ, model, seed trong `assets/source/` (hoặc `sounds/source/`) để làm lại được; ghi nguồn/giấy phép vào `CREDITS.txt`.
+
+## 6d. Blender: sửa model + rigging + animation (người dùng chốt 6/11/2026: vũ khí trước, nhân vật/bot sau)
+- Kết nối: máy chủ `blender-lab` (Claude Code, stdio) + extension Blender Lab "MCP" 1.0.0 (Blender 5.1, `localhost:9876`); mã trung gian ở `C:\Users\ASUS\tools\blender_mcp`, đăng ký bằng `claude mcp add blender-lab -- uv --directory C:/Users/ASUS/tools/blender_mcp/mcp run blender-mcp`. CHƯA gọi thử công cụ nào (cần phiên mới). Chỉ cho các công cụ ĐỌC lúc đầu; công cụ chạy mã Python thực thi trong Blender không có rào chắn thật: dùng cảnh thử, từng lần hỏi người dùng.
+- Đường đi của một vũ khí: 3D AI Studio (glb thô, ~1,4 triệu tam giác) -> Blender: hạ số mặt, kiểm UV/texture, đặt đúng quy ước mô hình -> rig bộ phận động -> animation -> xuất glb -> nạp bằng `gltf_patch` và thử trong game -> người dùng duyệt.
+- Chuẩn mục tiêu (đo từ M4 6/11/2026): tổng 14.814 tam giác gồm cả tay (4.480 tam giác có skin), 56 xương, 4 vật liệu, 11,5 MB, 5 animation. Súng lục: đặt trần ~10.000 tam giác (Intel UHD 620 là máy chuẩn), điều chỉnh lại sau khi đo FPS thật.
+- Quy ước cần khớp (xem `docs/notes/tools.md` và mục "Nạp M4" của `CLAUDE.md`): mô hình tính bằng cm, quay mặt về −Z; bộ phận cứng (slide, bolt, băng, cò) đi theo nút xương cha, KHÔNG skin; chỉ phần mềm (tay) mới skin trên GPU. `panda3d-gltf` nạp sai theo 6 cách: file mới phải qua `tests/test_gltf_load.py`-kiểu kiểm.
+- Xuất hoạt ảnh: MỘT file glb chứa mọi clip (bắn, nạp, nạp cạn, rút, ...) khớp cách M4 chạy (`Clip(tên, từ khung, đến khung)` ở `weapon_data.py`, 30 fps). Cách ghi cụ thể (một timeline nối tiếp hay nhiều animation có tên) kiểm khi thử với `gltf_patch`.
+- Kiểm kết quả: ẢNH CHỤP cho người dùng xem (turntable vài góc + lưới các khung chính của từng clip, lưu ở `assets/review/<tên>/`), người dùng duyệt từng cái. Kèm các số tối thiểu để người xem biết: số tam giác, số xương, khoảng khung của từng clip.
+
+## 6e. Học trước khi làm, lưu thành skill (người dùng chốt 6/11/2026)
+- Với MỌI việc, trước khi làm agent phải kiểm xem đã có skill kiến thức cho chủ đề đó chưa (`.claude/skills/<chủ-đề>/SKILL.md`, tự nạp theo mô tả). CHƯA có hoặc thiếu phần cần dùng: HỌC SÂU bằng WebSearch / đọc tài liệu chính thức, rồi LƯU trước khi làm việc. Đã đủ: dùng, chỉ học thêm phần thiếu. (Học một lần, tra sổ; không học lại cả chủ đề mỗi việc.)
+- Ví dụ chủ đề cho model: mesh và topology, UV và texture (PBR), retopo / hạ số mặt, rigging cơ khí (xương cho bộ phận cứng), skinning, animation (khung chính, timing, đường cong), xuất glTF và quy ước Panda3D/Ursina. Mỗi chủ đề một skill riêng, tên ngắn kiểu `blender-rigging-mechanical`.
+- Người đọc là Claude: viết bằng TIẾNG ANH, cô đọng, không cần bản tóm tắt tiếng Việt. Kích thước do agent tự quyết theo độ quan trọng và độ phức tạp của chủ đề: `SKILL.md` giữ gọn (mô tả đủ rõ để tự nạp + quy tắc cốt lõi + bẫy), chi tiết dài đẩy sang file kèm trong `references/` chỉ mở khi cần. Chủ đề lớn thì tách nhiều skill nhỏ.
+- Nhãn độ tin cậy trên MỌI ý: nguồn (URL), ngày đọc, mức tin cậy (cao / vừa / thấp), trạng thái `unverified` hoặc `verified-in-project` (kèm tên thử nghiệm đã làm). Ý quan trọng phải được thử bằng một thí nghiệm nhỏ trong dự án rồi nâng lên `verified-in-project`. Mâu thuẫn giữa nguồn thì ghi cả hai, không chọn im lặng.
+- Gắn phiên bản công cụ vào ghi chú (vd. Blender 5.1, extension 1.0.0) để biết khi nào cần xem lại; không đặt hạn cố định.
+- Khung giao thức nằm ở skill `learn-first` (`.claude/skills/learn-first/SKILL.md`). Học xong phải LƯU rồi mới làm việc; báo cuối phiên nêu "đã học / đã cập nhật skill: ...".
 
 ## 7. Hạ tầng và multiplayer
 - Chế độ: HỢP TÁC, N phòng dựng sẵn, mỗi phòng 4 người, đánh bia/bot.
