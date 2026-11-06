@@ -92,6 +92,12 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 - Gắn phiên bản công cụ vào ghi chú (vd. Blender 5.1, extension 1.0.0) để biết khi nào cần xem lại; không đặt hạn cố định.
 - Khung giao thức nằm ở skill `learn-first` (`.claude/skills/learn-first/SKILL.md`). Học xong phải LƯU rồi mới làm việc; báo cuối phiên nêu "đã học / đã cập nhật skill: ...".
 
+## 6f. Thư mục review theo từng object (người dùng chốt 6/11/2026)
+- MỖI object mới (súng, nhân vật, bia, đạo cụ...) có MỘT thư mục riêng `assets/review/<object>/` để người dùng xem/nghe mọi tài nguyên của object đó ở một chỗ. Tạo thư mục NGAY khi bắt đầu object, trước khi sinh tài nguyên đầu tiên.
+- Cấu trúc con cố định: `concept/` (ảnh), `model/` (glb thô + glb đã hạ mặt), `animation/` (ảnh chụp turntable, lưới khung chính từng clip, video/gif nếu có), `audio/` (mọi tiếng của object, kể cả bản bị loại), thêm `README.md` ngắn: danh sách từng file, nguồn, trạng thái duyệt (chờ / duyệt / loại), số liệu (tam giác, xương, khung).
+- Mọi tài nguyên sinh ra (AI, Blender, âm) lưu VÀO thư mục này trước; chỉ bản đã duyệt mới được chép sang `assets/guns/`, `assets/sounds/`... Đường dẫn trong `docs/credits.md` trỏ vào thư mục review.
+- `assets/review/` bị gitignore (nặng): README là bản ghi, không có trong git.
+
 ## 7. Hạ tầng và multiplayer
 - Chế độ: HỢP TÁC, N phòng dựng sẵn, mỗi phòng 4 người, đánh bia/bot.
 - Máy chủ phòng: Cloudflare Durable Object, mỗi phòng một đối tượng, nói chuyện WebSocket. Phải viết lại luật bắn / di chuyển / bia chạy bằng TypeScript.
@@ -108,7 +114,7 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 ## 9. Việc còn mở
 - NỢ HIỆU NĂNG: `perf_scenarios` bắn liên thanh khi ngắm 51,7 FPS (ngưỡng 55); tổng 77,1 đạt. Cần phiên tối ưu riêng.
 - NỢ KIỂM TRA: sau G7 `tools\selftests\audio_selftest.py` trượt 11/50 mục (kỳ vọng cũ: chưa tính tiếng thở `breath`, tiếng ElevenLabs dài hơn, số nhóm tiếng 15 thay vì 11); g1-g7 và g5/g6 chưa chạy lại đầy đủ.
-- Mẫu xem thử súng lục (6/11/2026) nằm ở `assets/review/pistol_sample/`; chờ người dùng duyệt từng cái. Higgsfield ghi nhận model thực chạy là `nano_banana_2` dù yêu cầu `nano_banana_pro`: cần kiểm lại.
+- Súng lục Glock (phiên G8, 6/11/2026): mẫu đã duyệt, tài nguyên ở `assets/review/glock/`; kế hoạch `docs/sessions/G8.md`. Higgsfield ghi nhận model thực chạy là `nano_banana_2` dù yêu cầu `nano_banana_pro`: cần kiểm lại.
 - Xác minh Cloudflare có đủ cho tần số cập nhật của FPS 4 người (đo thật, đừng đoán).
 - Tripo không có trong 3D AI Studio: hỏi người dùng muốn dùng đường khác hay thay bằng Prism/P2.
 - Thử xem/nghe thử trong Claude Desktop với ElevenLabs và Higgsfield (mục 6, mỗi nền tảng một bản rẻ nhất), ghi kết quả vào mục 6.

@@ -15,6 +15,6 @@ Quy tắc ở `docs/WORKFLOW.md` mục 6b. Mỗi lần sinh tài nguyên thêm M
 | 6/11/2026 | ElevenLabs | Nháp | Test kết nối: tiếng cạch súng 1 s (không giữ file) | Composio `ELEVENLABS_GENERATE_SOUND_EFFECTS`, `eleven_text_to_sound_v3`, mp3_44100_128 | chưa biết (lệnh không trả credit) | chưa biết |
 | 6/11/2026 | Higgsfield | Nháp | Test ảnh: CHƯA LÀM, lỗi 401 khoá bị từ chối (Soul Standard 720p), thử 3 lần | Composio `HIGGSFIELD_GENERATE_SOUL_STANDARD_IMAGE` | 0 (không rõ có bị tính) | 860 |
 | 6/11/2026 | 3D AI Studio | Nháp | Test model 3D: CHƯA LÀM, phiên không có công cụ 3D AI Studio (Prism 3.1) | — | 0 | 864 |
-| 6/11/2026 | ElevenLabs | Tiếng hiệu ứng | Mẫu xem thử: tiếng súng lục 2 s (`assets/review/pistol_sample/pistol_shot_eleven_v3.mp3`) | Composio `ELEVENLABS_GENERATE_SOUND_EFFECTS`, `eleven_text_to_sound_v3` | chưa biết (lệnh không trả credit) | chưa biết |
-| 6/11/2026 | Higgsfield | Nháp | Ảnh concept súng lục 1k (`assets/review/pistol_sample/pistol_concept_higgsfield.png`) | `higgsfield_mcp` `nano_banana_pro` (job ghi nhận chạy `nano_banana_2`) | 2 | 858 |
-| 6/11/2026 | 3D AI Studio | Nháp | Model súng lục từ ảnh trên (`assets/review/pistol_sample/pistol_prism31.glb`, 1,43 triệu tam giác, 41,7 MB) | Prism 3.1, texture 3.0, PBR | 35 | 829 |
+| 6/11/2026 | ElevenLabs | Tiếng hiệu ứng | Mẫu xem thử: tiếng súng lục 2 s (`assets/review/glock/audio/pistol_shot_eleven_v3.mp3`) | Composio `ELEVENLABS_GENERATE_SOUND_EFFECTS`, `eleven_text_to_sound_v3` | chưa biết (lệnh không trả credit) | chưa biết |
+| 6/11/2026 | Higgsfield | Nháp | Ảnh concept súng lục 1k (`assets/review/glock/concept/pistol_concept_higgsfield.png`) | `higgsfield_mcp` `nano_banana_pro` (job ghi nhận chạy `nano_banana_2`) | 2 | 858 |
+| 6/11/2026 | 3D AI Studio | Nháp | Model súng lục từ ảnh trên (`assets/review/glock/model/pistol_prism31.glb`, 1,43 triệu tam giác, 41,7 MB) | Prism 3.1, texture 3.0, PBR | 35 | 829 |
