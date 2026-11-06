@@ -46,9 +46,13 @@ LEFT_PALM_BELOW_PLATE = 0.020                                  # m: left palm jo
 # Idle pose = the standard 'thumbs forward' two-hand grip (see skill fps-pistol-animation): palm on the LEFT side of the grip,
 # fingers wrapped over the right-hand fingers, thumb forward, elbow behind and below the wrist. Result of the fit with
 # those constraints (random search 50k + 15k refinement, cost 3.5).
-LEFT_ROT_DEG = (-18.8, 3.9, 32.4)
-LEFT_SHIFT = Vector((0.0235, -0.0439, 0.0746))
-LEFT_CURL = 1.5
+LEFT_ROT_DEG = (19.2, -26.1, -45.6)
+LEFT_SHIFT = Vector((0.0235, 0.0464, 0.0565))
+LEFT_CURL = 1.4            # middle / ring / pinky: right-hand curl angle x this
+LEFT_INDEX_CURL = 1.0      # index: right-hand index curl x this
+LEFT_THUMB_CURL = 0.5      # thumb (all 4 joints): its own M4 left-thumb angle x this
+# Constants come from tools/build/blender/glock_fit_left.py (3rd fit, cost 7.8): left palm at the same depth as the right
+# palm (+0.1 cm), thumb/index/middle/ring touching the gun (gap -0.8..+0.4 cm), thumb tip 10 cm forward, elbow 21 cm behind.
 LEFT_MAG_OFF = (0.0, 0.0, 0.0)      # gun-local offset grip pose -> under the magazine (set by fit_left_hand, used by the reload keys)
 
 BASE = {}                                                      # basis of non-gun bones at the M4 pose
@@ -237,18 +241,21 @@ def place_glock(g0, pitch_deg=5.0):
     bpy.context.view_layer.update()
 
 
-def fit_left_hand(curl=LEFT_CURL):
-    """Left hand supports the magazine: finger curls copied from the right hand (the M4 left hand is open, made for a
-    handguard) and the whole left arm moved so the palm sits just under the magazine floorplate."""
-    for fnm, idx in (('Index', 10), ('Middle', 14), ('Ring', 18), ('Pinky', 22)):     # thumb keeps its own M4 pose
-        for k in range(1, 4):          # joints 1..3 only: the tip joint (4) of the left hand must keep its own M4 values,
-            #                              copying them from the right hand throws the tip ~1.3 m away (a 'rod' in the render)
+def fit_left_hand():
+    """Left hand: standard two-hand grip. Finger curls come from the right hand (the M4 left hand is open, made for a
+    handguard), the thumb scales its own pose, then the whole arm is placed (palm under the floorplate first, then the
+    fitted rotation/shift about the palm)."""
+    for fnm, idx, cf in (('Index', 10, LEFT_INDEX_CURL), ('Middle', 14, LEFT_CURL), ('Ring', 18, LEFT_CURL), ('Pinky', 22, LEFT_CURL)):
+        for k in range(1, 4):          # joints 1..3 only: the tip joint (4) must keep its own M4 values (copying throws it ~1.3 m away)
             rn = f'RightHand{fnm}{k}_0{idx + k - 1}'
             ln = f'LeftHand{fnm}{k}_0{idx + k - 1 + 23}'
-            if rn in P and ln in P:
-                P[ln].rotation_mode = 'QUATERNION'
-                axis, ang = P[rn].rotation_quaternion.to_axis_angle()
-                P[ln].rotation_quaternion = Quaternion(axis, ang * curl)
+            P[ln].rotation_mode = 'QUATERNION'
+            axis, ang = P[rn].rotation_quaternion.to_axis_angle()
+            P[ln].rotation_quaternion = Quaternion(axis, ang * cf)
+    for k in range(1, 5):
+        ln = f'LeftHandThumb{k}_0{6 + k - 1 + 23}'
+        axis, ang = P[ln].rotation_quaternion.to_axis_angle()
+        P[ln].rotation_quaternion = Quaternion(axis, ang * LEFT_THUMB_CURL)
     bpy.context.view_layer.update()
     palm = (W @ P['LeftHand_028'].head + W @ P['LeftHandMiddle1_037'].head) / 2
     mag = bpy.data.objects['Mag1_G17_D_0']
