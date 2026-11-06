@@ -23,7 +23,8 @@ def actor():
     loadPrcFileData('', 'audio-library-name null')
     from direct.actor.Actor import Actor
     from direct.showbase.ShowBase import ShowBase
-    ShowBase()
+    import builtins
+    getattr(builtins, 'base', None) or ShowBase()
     return Actor(Filename.from_os_specific(str(GLB)))
 
 

@@ -19,7 +19,8 @@ def model():
     loadPrcFileData('', 'window-type none')
     loadPrcFileData('', 'audio-library-name null')
     from direct.showbase.ShowBase import ShowBase
-    base = ShowBase()
+    import builtins
+    base = getattr(builtins, 'base', None) or ShowBase()
     return base.loader.loadModel(Filename.from_os_specific(str(GLB)))
 
 
