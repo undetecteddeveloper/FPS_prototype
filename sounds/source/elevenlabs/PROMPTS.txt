@@ -1,0 +1,29 @@
+1. [0.9s, influence 0.6] Single M4 assault rifle gunshot fired indoors in a long concrete shooting range, sharp supersonic crack with mechanical action, short natural room reverb tail, recorded on a body-worn camera microphone, slightly clipped. One shot only, no music, no voices.
+2. [0.9s, influence 0.6] Single M4 assault rifle gunshot fired indoors in a long concrete shooting range, sharp supersonic crack with mechanical action, short natural room reverb tail, recorded on a body-worn camera microphone. One shot only, no music, no voices.
+3. [0.9s, influence 0.6] One 5.56 rifle gunshot in a concrete indoor range, loud punchy crack, metallic bolt clack, brief echo decaying quickly, close microphone slightly overloaded. Exactly one shot, no music, no voices.
+4. [0.7s, influence 0.65] Close-up foley: M4 rifle magazine release button click, then empty metal magazine sliding out of the magazine well. Dry, no reverb, no music, no voices.
+5. [0.5s, influence 0.65] Close-up foley: metal rifle magazine sliding into a magazine well, short soft metallic scrape. Dry, no reverb, no music, no voices.
+6. [0.5s, influence 0.7] Close-up foley: M4 rifle magazine firmly seated, one solid metallic clack as it locks into place. Dry, single impact, no music, no voices.
+7. [0.6s, influence 0.7] Close-up foley: M4 rifle bolt release, bolt carrier slams forward with one sharp heavy metal clack and spring ring. Dry, no music, no voices.
+8. [0.8s, influence 0.6] Soldier raising a rifle: nylon sling and fabric rustle with a light metallic rattle of gear. Close microphone, dry, no music, no voices.
+9. [0.5s, influence 0.6] Gloved hand gripping a polymer rifle handguard, soft thump with a small metal rattle as the rifle settles. Close microphone, dry, no music, no voices.
+10. [0.5s, influence 0.6] Gloved hands quickly shifting a rifle, soft fabric and polymer movement, very subtle. Dry, no music, no voices.
+11. [0.5s, influence 0.75] Empty rifle dry fire: single small metallic trigger and hammer click, no gunshot. Close microphone, dry, no music, no voices.
+12. [0.5s, influence 0.7] One single footstep, heavy tactical boot on a hard brick floor indoors, heel strike, short gear rustle. One step only, no music, no voices.
+13. [0.5s, influence 0.7] One single footstep, combat boot stepping on gritty brick tile in a large room, firm thud with slight grit scrape. One step only, no music, no voices.
+14. [0.5s, influence 0.7] One single soft footstep, rubber soled military boot on hard masonry floor, muted thud. One step only, no music, no voices.
+15. [0.5s, influence 0.7] One single footstep, tactical boot on brick floor with a small clink of equipment on the vest. One step only, no music, no voices.
+16. [0.7s, influence 0.65] Armed soldier landing after a short jump: two boots thud heavily on a hard brick floor with gear and rifle rattle. One landing only, no music, no voices.
+17. [0.5s, influence 0.6] Boot sole scuff pushing off a hard floor to jump, with a short rustle of tactical gear. No music, no voices.
+18. [0.5s, influence 0.7] Bullet hitting a paper target on a plywood board, sharp woody thwack with a tiny paper tear, heard from a distance in a concrete room. One impact, no gunshot, no music, no voices.
+19. [0.5s, influence 0.7] Rifle round punching through a wooden shooting target, single dry wood crack thud. One impact, no gunshot, no music, no voices.
+20. [0.6s, influence 0.7] Bullet striking a concrete wall indoors, sharp crack with small debris and dust falling. One impact, no gunshot, no ricochet whine, no music, no voices.
+21. [0.6s, influence 0.7] Rifle bullet hitting hard concrete, short snap and chips of stone scattering. One impact, no gunshot, no music, no voices.
+22. [0.6s, influence 0.7] Bullet impact on a brick floor, sharp thud with crumbling grit. One impact, no gunshot, no music, no voices.
+23. [1.2s, influence 0.7] A single claw hammer striking a corrugated sheet-steel roof with full force, enormous harsh metallic clang, piercing ringing overtones, loud booming reverb inside a hollow metal warehouse, painful and unpleasant, sharp transient, one hit only, no music, no voices.
+24. [1.2s, influence 0.7] Extremely loud assault rifle gunshot inside a steel-roofed hangar, like a sledgehammer smashing a tin roof: harsh piercing metallic crack, ringing clang, booming echo, distorted and clipped, ear-splitting and unpleasant. One shot only, no music, no voices.
+25. [1s, influence 0.7] Single brutal rifle shot recorded by a cheap body camera microphone in a metal-walled shooting range, overloaded harsh crack, shrill metallic ring, resonant steel panel echo, aggressive and abrasive. One shot only, no music, no voices.
+26. [0.9s, influence 0.7] A heavy nail hammer hitting a thin steel sheet very hard, sharp metallic bang with a shrill ringing tail and a deep boom underneath, loud and harsh, short reverb in a large metal building. One hit only, no music, no voices.
+27. [3.6s, influence 0.6] Calm slow human breathing at rest, one full breath cycle: gentle inhale through the nose then relaxed exhale, close microphone, quiet and natural, about 3.5 seconds, no speech, no music.
+28. [3.6s, influence 0.6] Soldier breathing steadily while holding a rifle, one slow breath cycle: soft inhale then slightly audible exhale through the mouth, body-worn camera microphone close to the chest, slightly tense, about 3.5 seconds, no speech, no music.
+29. [3.6s, influence 0.6] Slightly out of breath person breathing, one breath cycle: deeper audible inhale then longer breathy exhale, adrenaline, close microphone, about 3.5 seconds, no speech, no music.

@@ -1,30 +1,50 @@
 import dataclasses
+import statistics
 
 import pytest
 
-from fps.core.shake import Shake, hash_unit, smooth_noise
+from fps.core.shake import Shake, hash_unit, signed_pow, smooth_noise
 from fps.weapon_data import M4
 
 D = M4.shake
 SHOT_INTERVAL = 60.0 / M4.rpm
 
 
-def burst_trace(shots, fps, seed=None, ads=0.0, settle=0.0, data=D):
-    """Bắn `shots` phát liên tục (750 phát/phút) ở `fps`, theo đúng thứ tự của Combat: on_shot(tuổi) của khung rồi update(dt).
-    Trả về ([(thời gian cuối khung, trauma, camera_pose)] mỗi khung, Shake)."""
+def burst_trace(shots, fps, seed=None, ads=0.0, settle=0.0, data=D, interval=SHOT_INTERVAL, gun=False):
+    """Bắn `shots` phát cách nhau `interval` (mặc định 750 phát/phút) ở `fps`, theo đúng thứ tự của Combat: on_shot(tuổi) của khung rồi update(dt).
+    Trả về ([(thời gian cuối khung, độ nóng, camera_pose | gun_pose)] mỗi khung, Shake)."""
     sh = Shake(data, seed)
     dt = 1.0 / fps
     out = []
     fired = 0
-    frames = round((shots * SHOT_INTERVAL + settle) * fps) + 1
+    frames = round((shots * interval + settle) * fps) + 1
     for i in range(1, frames + 1):
         t1 = i * dt
-        while fired < shots and fired * SHOT_INTERVAL <= t1 + 1e-9:
-            sh.on_shot(max(0.0, t1 - fired * SHOT_INTERVAL))
+        while fired < shots and fired * interval <= t1 + 1e-9:
+            sh.on_shot(max(0.0, t1 - fired * interval))
             fired += 1
         sh.update(dt)
-        out.append((t1, sh.trauma, sh.camera_pose(ads)))
+        out.append((t1, sh.heat, sh.gun_pose(ads) if gun else sh.camera_pose(ads)))
     return out, sh
+
+
+def max_abs_per_axis(trace):
+    return [max(abs(p[i]) for _, _, p in trace) for i in range(6)]
+
+
+def single_shot_trace(n, seed=None, data=D, dt=1 / 480, seconds=0.5):
+    """Một phát lẻ (phát thứ `n` của chuỗi ngẫu nhiên) từ trạng thái yên; [(t, camera_pose)]."""
+    sh = Shake(data, seed)
+    sh.shot_count = n
+    sh.on_shot()
+    sh.update(0.0)
+    out = []
+    t = 0.0
+    while t < seconds:
+        sh.update(dt)
+        t += dt
+        out.append((t, sh.camera_pose()))
+    return out
 
 
 def test_noise_is_bounded_deterministic_and_smooth():
@@ -40,82 +60,201 @@ def test_noise_is_bounded_deterministic_and_smooth():
     assert hash_unit(1, 0, -5) == hash_unit(1, 0, -5)
 
 
-def test_single_shot_dies_exactly_on_time():
+def test_signed_pow_keeps_sign_and_pushes_outward():
+    assert signed_pow(0.0, 0.6) == 0.0
+    assert signed_pow(-0.25, 0.5) == pytest.approx(-0.5)
+    assert signed_pow(0.25, 0.5) == pytest.approx(0.5)
+    assert signed_pow(1.0, 0.6) == 1.0 and signed_pow(-1.0, 0.6) == -1.0
+
+
+# --- phát lẻ: mỗi phát là một cú giật rõ ---
+def test_single_shot_is_a_clear_short_kick():
+    pitch_peaks, roll_peaks = [], []
+    for n in range(30):
+        tr = single_shot_trace(n)
+        pitch = [p[3] for _, p in tr]
+        roll_peaks.append(max(abs(p[5]) for _, p in tr))
+        pitch_peaks.append(max(pitch))
+        assert max(pitch) > 2 * abs(min(pitch)), n                 # pitch chủ yếu NGÓC LÊN (nảy ngược nhỏ)
+        assert max(pitch) >= 0.35, n                               # phát nhẹ nhất vẫn thấy
+        t_peak = next(t for t, p in tr if p[3] == max(pitch))
+        assert t_peak < 0.06, n                                    # cú giật nhanh, không trôi
+        quiet = [t for t, p in tr if max(abs(p[3]), abs(p[4]), abs(p[5])) > 0.02]
+        assert max(quiet) < 0.35, n                                # tắt hẳn (dưới 0,02 độ) trước phát kế của nhịp bấm từng phát
+        assert max(abs(p[i]) for _, p in tr for i in range(3)) < 0.01      # dịch < 1 cm
+    assert statistics.mean(pitch_peaks) >= 0.75                    # ~1 độ
+    assert statistics.mean(roll_peaks) >= 0.9                      # roll là kênh thấy rõ nhất
+    assert max(roll_peaks) >= 2.0                                  # có phát nghiêng mạnh hẳn
+    assert max(pitch_peaks) >= 1.3
+
+
+def test_shots_differ_in_strength_and_direction():
     sh = Shake(D)
-    sh.on_shot()
+    rows = [sh.shot_peak(n) for n in range(40)]
+    strengths = [s for _, s, _ in rows]
+    assert min(strengths) >= 1 - D.strength_var - 1e-9 and max(strengths) <= 1 + D.strength_var + 1e-9
+    assert sum(s > 1.25 for s in strengths) >= 5 and sum(s < 0.75 for s in strengths) >= 5    # có phát mạnh hẳn, phát nhẹ hẳn
+    assert all(b == 1.0 for _, _, b in rows)                       # nguội: không nhân độ nóng
+    peaks = [p for p, _, _ in rows]
+    assert all(p[3] > 0 for p in peaks)                            # pitch luôn ngóc lên
+    assert all(p[2] < 0 for p in peaks)                            # luôn lùi
+    for axis in (0, 1, 4, 5):                                      # x, y, yaw, roll: cả hai dấu
+        assert sum(p[axis] > 0 for p in peaks) >= 10 and sum(p[axis] < 0 for p in peaks) >= 10, axis
+    assert len({round(p[5], 6) for p in peaks}) == len(peaks)      # không có hai phát giống nhau
+    # nóng hẳn thì cùng một phát mạnh đúng 1 + heat_boost lần
+    hot, _, boost = sh.shot_peak(3, heat=1.0)
+    cold, _, _ = sh.shot_peak(3)
+    assert boost == pytest.approx(1 + D.heat_boost)
+    for a, b in zip(hot, cold):
+        assert a == pytest.approx(b * (1 + D.heat_boost))
+
+
+def test_on_shot_scale_scales_only_that_kick():
+    data = dataclasses.replace(D, tremor_amp=(0.0,) * 6)          # chỉ so cú giật (run tay theo độ nóng, không theo scale)
+    a = single_shot_trace(4, data=data)
+    sh = Shake(data)
+    sh.shot_count = 4
+    sh.on_shot(0.0, scale=0.5)
     sh.update(0.0)
-    assert sh.trauma == pytest.approx(D.fire_trauma)
-    life = D.fire_trauma / D.fire_decay
-    dt = 1.0 / 240
-    t = 0.0
-    while t < life - 2 * dt:
-        sh.update(dt)
-        t += dt
-    assert sh.trauma > 0 and sh.active
-    for _ in range(4):
-        sh.update(dt)
-    assert sh.trauma == 0.0
-    assert sh.camera_pose() == (0.0,) * 6
-    assert not sh.active
+    assert sh.heat == pytest.approx(1 / D.heat_shots)             # độ nóng không theo scale
+    for (_, pa) in a[:100]:
+        sh.update(1 / 480)
+        pb = sh.camera_pose()
+        for x, y in zip(pa, pb):
+            assert y == pytest.approx(0.5 * x, abs=1e-12)
 
 
-def test_single_shot_is_a_light_touch_and_burst_is_bigger():
-    sh = Shake(D)
-    sh.on_shot()
-    sh.update(0.0)
-    single = sh.amplitude
-    trace, _ = burst_trace(30, 240)
-    assert single < 0.15
-    assert max(tr ** D.power for _, tr, _ in trace) > 4 * single
+# --- sấy ---
+def test_heat_builds_during_spray_holds_and_cools():
+    trace, sh = burst_trace(30, 240, settle=1.0)
+    end = 29 * SHOT_INTERVAL                                       # phát cuối
+    heat_at = lambda t: min(trace, key=lambda r: abs(r[0] - t))[1]   # noqa: E731
+    assert heat_at(5 * SHOT_INTERVAL + 0.01) == pytest.approx(6 / D.heat_shots, abs=1e-9)
+    assert heat_at(end + 0.01) == 1.0                              # 30 phát > heat_shots: nóng hẳn
+    # giữa loạt không nguội: độ nóng chỉ tăng
+    during = [h for t, h, _ in trace if t <= end + 1e-9]
+    assert all(b >= a for a, b in zip(during, during[1:]))
+    assert heat_at(end + D.heat_hold - 0.01) == 1.0                # còn giữ
+    assert heat_at(end + D.heat_hold + 1.0 / D.heat_cool + 0.01) == 0.0
+    assert sh.heat == 0.0
 
 
-@pytest.mark.parametrize('fps', [30, 60, 144, 1000])
-def test_burst_trauma_is_clamped_and_pose_within_ceiling(fps):
-    trace, _ = burst_trace(60, fps, settle=0.5)       # hai băng liền
-    cap = D.fire_max_trauma
-    assert max(tr for _, tr, _ in trace) == pytest.approx(cap)      # có chạm trần
-    assert all(tr <= cap + 1e-12 for _, tr, _ in trace)
-    ceiling = cap ** D.power
-    for _, _, pose in trace:
-        for v, amp in zip(pose, D.fire_amp):
-            assert abs(v) <= amp * ceiling * D.fire_scale + 1e-12      # trần thật = biên độ x fire_scale
-    # trần tuyệt đối, đủ "vừa phải": roll < 0,6 độ, pitch/yaw < 0,3 độ, dịch < 2 mm
-    assert max(abs(p[5]) for _, _, p in trace) < 0.6
-    assert max(abs(p[3]) for _, _, p in trace) < 0.3 and max(abs(p[4]) for _, _, p in trace) < 0.3
-    assert max(abs(p[i]) for _, _, p in trace for i in range(3)) < 0.002
+def test_slow_taps_never_heat_up():
+    trace, _ = burst_trace(10, 240, interval=0.3, settle=0.3)
+    assert max(h for _, h, _ in trace) == pytest.approx(1 / D.heat_shots)
 
 
-def max_abs_per_axis(trace):
-    return [max(abs(p[i]) for _, _, p in trace) for i in range(6)]
+def test_spray_peak_is_about_twice_the_single_shots():
+    """30 viên sấy (750 phát/phút) so với 30 phát lẻ cách nhau 1 s, CÙNG chuỗi ngẫu nhiên (cùng seed): đỉnh pitch và roll ~2 lần
+    (trung bình 10 seed; đỉnh của 30 phát lẻ đã là phát ngẫu nhiên mạnh nhất nên so như nhau)."""
+    rp, rr = [], []
+    for seed in range(1, 11):
+        single = max_abs_per_axis(burst_trace(30, 240, seed=seed, interval=1.0)[0])
+        spray = max_abs_per_axis(burst_trace(30, 240, seed=seed)[0])
+        rp.append(spray[3] / single[3])
+        rr.append(spray[5] / single[5])
+    assert 1.7 <= statistics.mean(rp) <= 2.3, rp
+    assert 1.7 <= statistics.mean(rr) <= 2.3, rr
+    assert min(rp + rr) >= 1.2                                     # seed nào sấy cũng mạnh hơn rõ
 
 
+def test_spray_is_bounded_and_does_not_drift():
+    trace, _ = burst_trace(60, 240, settle=0.5)                    # hai băng liền
+    peak = max_abs_per_axis(trace)
+    assert peak[3] < 5.0 and peak[4] < 3.0 and peak[5] < 9.0       # mạnh nhưng không mất kiểm soát (độ)
+    assert max(peak[:3]) < 0.03                                    # dịch < 3 cm
+    # không lệch tích luỹ: trung bình pitch của băng thứ hai không lớn hơn băng đầu là bao
+    first = [p[3] for t, _, p in trace if 1.0 <= t < 2.4]
+    second = [p[3] for t, _, p in trace if 3.4 <= t < 4.8]
+    assert statistics.mean(second) < statistics.mean(first) * 1.3 + 0.1
+    assert abs(statistics.mean(p[5] for _, _, p in trace)) < 0.5  # roll dấu ngẫu nhiên: không nghiêng hẳn về một phía
+
+
+def test_shake_dies_after_spray_ends():
+    trace, sh = burst_trace(30, 240, settle=1.0)
+    last = 29 * SHOT_INTERVAL
+    after_03 = [p for t, _, p in trace if t >= last + 0.3]
+    after_05 = [p for t, _, p in trace if t >= last + 0.5]
+    assert max(max(abs(v) for v in p[3:]) for p in after_03) < 0.25       # còn chút run tay đang tắt
+    assert max(max(abs(v) for v in p[3:]) for p in after_05) < 0.01       # ~0 sau 0,5 s
+    assert max(max(abs(v) for v in p[:3]) for p in after_05) < 1e-4
+    assert sh.heat == 0.0 and not sh.active
+    assert trace[-1][2] == (0.0,) * 6
+
+
+# --- độc lập FPS ---
+@pytest.mark.parametrize('gun', [False, True])
+@pytest.mark.parametrize('fps', [30, 60, 144])
+def test_pose_independent_of_frame_rate(fps, gun):
+    """Cùng loạt 30 viên ở 240 FPS và ở `fps`: tại các thời điểm chung, tư thế camera (và súng) như nhau (phát có tuổi trong khung,
+    lò xo nghiệm chính xác, xung trễ của súng đưa vào đúng thời điểm, run tay chỉ theo đồng hồ)."""
+    ref, _ = burst_trace(30, 240, settle=0.6, gun=gun)
+    got, _ = burst_trace(30, fps, settle=0.6, gun=gun)
+    ref_by_t = {round(t, 6): (h, p) for t, h, p in ref}
+    n = 0
+    for t, h, p in got:
+        key = round(t, 6)
+        if key not in ref_by_t:
+            continue
+        rh, rp = ref_by_t[key]
+        n += 1
+        assert h == pytest.approx(rh, abs=1e-9)
+        for a, b in zip(p, rp):
+            assert a == pytest.approx(b, abs=1e-6)
+    assert n > 30
+
+
+def test_irregular_frames_match_fixed_frames():
+    """Khung dài ngắn lẫn lộn (như máy giật) cho cùng kết quả với khung đều."""
+    times = [0.0137 + k * SHOT_INTERVAL for k in range(20)]
+
+    def run(dts):
+        sh = Shake(D)
+        t1 = 0.0
+        for dt in dts:
+            t0, t1 = t1, t1 + dt
+            for ts in times:
+                if t0 < ts <= t1:
+                    sh.on_shot(t1 - ts)
+            sh.update(dt)
+        return sh
+    irregular = [(1 / 30, 1 / 200, 1 / 61, 0.045, 1 / 144)[i % 5] for i in range(400)]
+    total = sum(irregular)
+    ref = run([total / 4000] * 4000)
+    got = run(irregular)
+    assert got.t == pytest.approx(ref.t)
+    for a, b in zip(got.camera_pose(), ref.camera_pose()):
+        assert a == pytest.approx(b, abs=1e-6)
+
+
+def test_same_seed_repeats_and_other_seed_differs():
+    a, _ = burst_trace(10, 120, seed=5)
+    b, _ = burst_trace(10, 120, seed=5)
+    c, _ = burst_trace(10, 120, seed=6)
+    assert [p for _, _, p in a] == [p for _, _, p in b]
+    assert [p for _, _, p in a] != [p for _, _, p in c]
+
+
+# --- hệ số, ngắm, súng ---
 @pytest.mark.parametrize('fps', [60, 240])
 def test_fire_scale_multiplies_every_fire_amplitude_by_exactly_the_ratio(fps):
-    """fire_scale 1,2 so với 1,0: mọi trục của camera và của súng lớn đúng 1,2 lần ở mọi khung (không bị trần trauma cắt: trần kẹp trauma, không kẹp biên độ)."""
+    """fire_scale 1,5 so với 1,0: mọi trục của camera và của súng lớn đúng 1,5 lần ở mọi khung (cú giật và run tay)."""
     base = dataclasses.replace(D, fire_scale=1.0)
-    assert D.fire_scale == pytest.approx(1.2)
-    a, sa = burst_trace(30, fps, data=base, settle=0.3)
-    b, sb = burst_trace(30, fps, data=D, settle=0.3)
-    for (_, _, pa), (_, _, pb) in zip(a, b):
-        for x, y in zip(pa, pb):
-            assert y == pytest.approx(x * 1.2, abs=1e-12)
-    for ma, mb in zip(max_abs_per_axis(a), max_abs_per_axis(b)):
-        assert mb / ma == pytest.approx(1.2, rel=1e-9)
-    # phần súng đi theo cũng nhân 1,2
-    ga, gb = Shake(base), Shake(D)
-    for sh in (ga, gb):
-        for _ in range(12):
-            sh.on_shot(0.0)
-            sh.update(1 / 120)
-    for x, y in zip(ga.gun_pose(), gb.gun_pose()):
-        assert y == pytest.approx(x * 1.2, abs=1e-12)
+    big = dataclasses.replace(D, fire_scale=1.5)
+    for gun in (False, True):
+        a, _ = burst_trace(30, fps, data=base, settle=0.3, gun=gun)
+        b, _ = burst_trace(30, fps, data=big, settle=0.3, gun=gun)
+        for (_, _, pa), (_, _, pb) in zip(a, b):
+            for x, y in zip(pa, pb):
+                assert y == pytest.approx(x * 1.5, abs=1e-12)
 
 
 def test_fire_scale_does_not_touch_reload_beats():
     base = dataclasses.replace(D, fire_scale=1.0)
+    big = dataclasses.replace(D, fire_scale=2.0)
     for kind in D.beat_peaks:
         poses = []
-        for data in (base, D):
+        for data in (base, big):
             sh = Shake(data)
             sh.on_beat(kind)
             sh.update(0.0)
@@ -125,51 +264,6 @@ def test_fire_scale_does_not_touch_reload_beats():
                 row.append(sh.camera_pose())
             poses.append(row)
         assert poses[0] == poses[1]
-
-
-def test_shake_dies_after_burst_ends():
-    trace, sh = burst_trace(30, 120, settle=1.0)
-    assert sh.trauma == 0.0 and not sh.active
-    assert trace[-1][2] == (0.0,) * 6
-
-
-@pytest.mark.parametrize('fps', [30, 60, 120, 240, 1000])
-def test_trauma_and_pose_independent_of_fps_when_not_clamped(fps):
-    """3 phát cách nhau 0,25 s (không chạm trần), thời điểm KHÔNG trùng ranh giới khung: trauma và tư thế tại 0,9 s
-    phải như nhau ở mọi FPS (phát có tuổi trong khung)."""
-    def run(f):
-        sh = Shake(D)
-        dt = 1.0 / f
-        times = [0.1037, 0.3537, 0.6037]
-        for i in range(1, round(0.9 * f) + 1):
-            t1 = i * dt
-            for ts in times:
-                if t1 - dt < ts <= t1:
-                    sh.on_shot(t1 - ts)
-            sh.update(dt)
-        return sh
-    ref, got = run(100000), run(fps)
-    assert got.t == pytest.approx(0.9)
-    assert got.trauma == pytest.approx(ref.trauma, abs=1e-3)
-    for a, b in zip(got.camera_pose(), ref.camera_pose()):
-        assert a == pytest.approx(b, abs=1e-3 * max(abs(b), 1e-3) + 1e-6)
-
-
-@pytest.mark.parametrize('fps', [30, 60, 120, 240])
-def test_burst_clamped_close_across_fps(fps):
-    ref, _ = burst_trace(30, 1000, settle=0.3)
-    got, _ = burst_trace(30, fps, settle=0.3)
-    ref_by_t = {round(t, 4): tr for t, tr, _ in ref}
-    errs = [abs(tr - ref_by_t[round(t, 4)]) for t, tr, _ in got if round(t, 4) in ref_by_t]
-    assert errs and max(errs) < 0.03      # phát có tuổi trong khung nên chỉ lệch nhỏ (làm tròn nhịp bắn vào khung)
-
-
-def test_same_seed_repeats_and_other_seed_differs():
-    a, _ = burst_trace(10, 120, seed=5)
-    b, _ = burst_trace(10, 120, seed=5)
-    c, _ = burst_trace(10, 120, seed=6)
-    assert [p for _, _, p in a] == [p for _, _, p in b]
-    assert [p for _, _, p in a] != [p for _, _, p in c]
 
 
 def test_ads_reduces_the_shake_to_the_configured_fraction():
@@ -182,6 +276,7 @@ def test_ads_reduces_the_shake_to_the_configured_fraction():
     mid = D.ads_multiplier + (1 - D.ads_multiplier) * 0.5          # smoothstep(0,5) = 0,5
     peak_hip = max(abs(p[5]) for _, _, p in hip)
     assert max(abs(p[5]) for _, _, p in half) == pytest.approx(peak_hip * mid, rel=1e-6)
+    assert max(abs(p[5]) for _, _, p in ads) < peak_hip
 
 
 def test_disabled_shake_is_silent():
@@ -194,20 +289,34 @@ def test_disabled_shake_is_silent():
     assert sh.camera_pose() == (0.0,) * 6 and sh.gun_pose() == (0.0,) * 6 and not sh.active
 
 
-def test_gun_pose_opposes_world_and_follows_partially():
-    _, sh = burst_trace(12, 120)
-    cam_peak = gun_peak = 0.0
-    opposed = same = 0
-    for _ in range(300):
-        sh.on_shot(0.0)
+def test_gun_pose_opposes_world_follows_partially_and_lags():
+    cam, _ = burst_trace(1, 1000, settle=0.4)
+    gun, _ = burst_trace(1, 1000, settle=0.4, gun=True)
+    cam_pitch = [p[3] for _, _, p in cam]
+    gun_pitch = [p[3] for _, _, p in gun]
+    assert min(gun_pitch) == pytest.approx(-max(cam_pitch) * D.gun_follow, rel=1e-6)    # đảo dấu, ít hơn (một phát: không có run tay)
+    t_cam = cam[cam_pitch.index(max(cam_pitch))][0]
+    t_gun = gun[gun_pitch.index(min(gun_pitch))][0]
+    assert t_gun - t_cam == pytest.approx(D.gun_delay, abs=2e-3)      # trễ đúng gun_delay
+    # cả loạt, bỏ độ trễ: súng = -gun_follow x camera ở mọi khung (cú giật, run tay và xung nạp)
+    no_lag = dataclasses.replace(D, gun_delay=0.0)
+    sh = Shake(no_lag)
+    for i in range(240):
+        if i % 10 == 0:
+            sh.on_shot(0.003)
+        if i == 120:
+            sh.on_beat('seat')
         sh.update(1 / 120)
-        cam, gun = sh.camera_pose()[5], sh.gun_pose()[5]
-        cam_peak, gun_peak = max(cam_peak, abs(cam)), max(gun_peak, abs(gun))
-        if abs(cam) > 0.1:
-            opposed += cam * gun < 0
-            same += cam * gun > 0
-    assert opposed > 5 * max(same, 1)                    # đảo dấu: camera nghiêng phải thì thế giới (và súng theo nó) nghiêng trái
-    assert gun_peak == pytest.approx(cam_peak * D.gun_follow, rel=0.15)     # súng rung ít hơn thế giới
+        for c, g in zip(sh.camera_pose(0.3), sh.gun_pose(0.3)):
+            assert g == pytest.approx(-c * D.gun_follow, abs=1e-12)
+
+
+def test_reset_clears_everything():
+    _, sh = burst_trace(10, 120)
+    assert sh.active and sh.heat > 0 and sh.amplitude > 0
+    sh.reset()
+    assert not sh.active and sh.heat == 0.0 and sh.trauma == 0.0
+    assert sh.camera_pose() == (0.0,) * 6 and sh.gun_pose() == (0.0,) * 6
 
 
 # --- nạp đạn ---
@@ -294,7 +403,7 @@ def test_reload_beat_is_short_and_light():
                 quiet_after = t
         assert 0.05 <= peak <= 0.3, kind                 # nhẹ (độ)
         assert quiet_after is not None and quiet_after < 0.4, kind       # tắt nhanh, không rung suốt
-        assert sh.trauma == 0.0                          # mốc nạp không đụng trauma của bắn
+        assert sh.heat == 0.0                            # mốc nạp không làm nóng loạt bắn
 
 
 @pytest.mark.parametrize('fps', [30, 60, 240])

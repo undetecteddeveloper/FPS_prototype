@@ -203,6 +203,7 @@ class DebugPanel:
         self._drag = None                                 # ('slider', spec) hoặc ('scroll',)
         self._built = False
         self._hidden_hud = []
+        self._fps_frames, self._fps_time = 0, 0.0
         self.message = ''
         self.shots_seen = 0
         self.dots = []
@@ -225,6 +226,11 @@ class DebugPanel:
         self.fps_text = UiText('', (x1 - 0.018, 0.5 - 0.026), origin=(0.5, 0), scale=0.85, tint=FAINT, shadow=False, parent=r, z=Z_TEXT)
         UiText('Kéo thanh để chỉnh  ·  chuột phải: về mặc định  ·  lăn chuột: cuộn  ·  F1 / Esc: đóng',
                (x0 + 0.018, 0.5 - 0.054), origin=(-0.5, 0), scale=0.75, tint=FAINT, shadow=False, parent=r, z=Z_TEXT)
+
+        # game không có HUD: phím và ghi công nằm ở đây, góc dưới phải màn hình
+        br = window.bottom_right
+        UiText('R nạp đạn   ·   B đổi chế độ bắn   ·   Esc nhả chuột   ·   Alt+F4 thoát game', br + (-0.02, 0.040), origin=(0.5, -0.5), scale=0.8, tint=FAINT, parent=r, z=Z_TEXT)
+        UiText(self.game.params.gun.credit, br + (-0.02, 0.014), origin=(0.5, -0.5), scale=0.75, tint=FAINT, parent=r, z=Z_TEXT)
 
         # các tab nhóm: hai hàng
         self.tabs = []
@@ -344,7 +350,7 @@ class DebugPanel:
         if self.manage_mouse:
             mouse.locked = False
         hud = g.hud                                        # chữ ở góc dưới / trái nằm dưới bảng: ẩn cho khỏi lộ xuyên nền
-        self._hidden_hud = [t for t in (hud.fps_text, hud.hint, hud.credit) if t.enabled]
+        self._hidden_hud = [t for t in (hud.fps_text, hud.hint, hud.credit) if t.enabled] if hud else []
         for t in self._hidden_hud:
             t.enabled = False
         self._refresh_all()
@@ -553,7 +559,11 @@ class DebugPanel:
         for row in self.rows:
             row.refresh()
         self._update_counts()
-        self.fps_text.text = self.game.hud.fps_text.text
+        self._fps_frames += 1
+        self._fps_time += dt
+        if self._fps_time >= 0.25:
+            self.fps_text.text = f'{self._fps_frames / self._fps_time:.0f} FPS'
+            self._fps_frames, self._fps_time = 0, 0.0
         self._update_cone(dt)
 
     # --- hình nón ---

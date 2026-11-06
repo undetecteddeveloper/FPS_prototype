@@ -1,8 +1,8 @@
 """Hai lớp recoil riêng biệt (toán thuần, không import ursina):
 
-- `CameraRecoil`: cú giật làm LỆCH GÓC NHÌN theo mẫu từng phát (cộng vào yaw/pitch của người chơi, người chơi
-  phải kéo chuột bù). Sau khi ngừng bắn, một phần (`recovery`) tự hồi về.
-- `GunKick`: kick của súng trên màn hình, lò xo giảm chấn; chỉ là hình ảnh, không đổi hướng đạn.
+- `CameraRecoil`: sinh cú giật ngẫu nhiên từng phát (không có mẫu cố định). Phần `camera_share` làm LỆCH GÓC NHÌN (cộng vào yaw/pitch của người chơi, người chơi
+  phải kéo chuột bù; sau khi ngừng bắn, một phần `recovery` tự hồi về), phần còn lại trả cho `FreeAim` làm súng trôi khỏi tâm.
+- `GunKick`: kick của súng trên màn hình, lò xo giảm chấn. Phần xoay của nó cũng đổi hướng nòng, nên cũng đổi hướng đạn.
 
 Góc: "lên" và "phải" dương, tính bằng độ. Mọi số nằm trong weapon_data.RecoilData / GunKickData.
 """
@@ -20,29 +20,37 @@ class CameraRecoil:
         self.rng = rng or random.Random()
         self.clock = 0.0
         self.last_shot = None             # giá trị clock lúc phát cuối
-        self.index = 0                    # bước kế tiếp trong mẫu
+        self.walk = 0.0                   # xu hướng ngang của loạt hiện tại, đi ngẫu nhiên từng phát
         self.pending = [0.0, 0.0]         # (lên, phải) cú giật đã tính nhưng chưa áp vào góc nhìn
         self.burst = [0.0, 0.0]           # tổng ròng của loạt đạn này; hồi sẽ lấy một phần của số này
         self.rec = [0.0, 0.0]             # còn bao nhiêu phải hồi
         self.armed = False                # đã bắn mà chưa tính phần hồi
 
-    def on_shot(self):
+    def on_shot(self, scale: float = 1.0) -> tuple:
+        """Một phát: sinh cú giật ngẫu nhiên, phần `camera_share` xếp hàng vào góc nhìn; trả về (lên, phải) độ, phần còn lại cho súng trôi (`FreeAim.on_shot`).
+        `scale` = hệ số tư thế (ngắm, ngồi): xem `posture_scale`."""
         d = self.d
-        if self.last_shot is None or self.clock - self.last_shot > d.pattern_reset_time:
-            self.index = 0
+        if self.last_shot is None or self.clock - self.last_shot > d.burst_reset_time:
+            self.walk = 0.0
             self.burst = [0.0, 0.0]
-        up, right = d.pattern[min(self.index, len(d.pattern) - 1)]
-        up, right = up * d.up_scale, right * d.right_scale
-        self.index += 1
-        up *= 1.0 + self.rng.uniform(-d.noise, d.noise)
-        right *= 1.0 + self.rng.uniform(-d.noise, d.noise)
-        self.pending[0] += up
-        self.pending[1] += right
-        self.burst[0] += up
-        self.burst[1] += right
+        self.walk = min(max(self.walk + self.rng.uniform(-d.right_walk, d.right_walk), -d.right_walk_max), d.right_walk_max)
+        up = (d.up + self.rng.uniform(-d.up_noise, d.up_noise)) * d.up_scale * scale
+        right = (d.right_bias + self.walk + self.rng.uniform(-d.right_noise, d.right_noise)) * d.right_scale * scale
+        share = min(max(d.camera_share, 0.0), 1.0)
+        self.pending[0] += up * share
+        self.pending[1] += right * share
+        self.burst[0] += up * share
+        self.burst[1] += right * share
         self.rec = [0.0, 0.0]             # bắn tiếp thì thôi hồi
         self.armed = True
         self.last_shot = self.clock
+        return up * (1.0 - share), right * (1.0 - share)
+
+    def posture_scale(self, ads: float, crouching: bool) -> float:
+        """Hệ số cú giật theo tư thế: báng tì vai khi ngắm, trọng tâm thấp khi ngồi."""
+        d = self.d
+        k = 1.0 + (d.ads_scale - 1.0) * smoothstep(min(max(ads, 0.0), 1.0))
+        return k * (d.crouch_scale if crouching else 1.0)
 
     def step(self, dt: float) -> tuple:
         """Trả về (lên, phải) độ cần cộng vào góc nhìn trong khung hình này; âm = đang hồi."""

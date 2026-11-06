@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 sys.stdout.reconfigure(encoding='utf-8')
 
 from main import create_game  # noqa: E402
+from fps.core.lens import equivalent_center_fov  # noqa: E402
 from panda3d.core import Filename, Point2, Point3  # noqa: E402
 from PIL import Image  # noqa: E402
 from ursina import Entity, application, camera, held_keys, mouse, time, window  # noqa: E402
@@ -35,9 +36,11 @@ from fps.core.signs import SignLayout, sign_rect  # noqa: E402
 from fps.game.shooting_range import DISTANCE_MARKS, aabb_of  # noqa: E402
 from fps.game.targets import LAYOUT, MOVERS, PATROL_EDGE_X, TARGET_THICKNESS, build_targets  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False)          # bia chạy BẬT (mặc định của game thật)
+game = create_game(vsync=False, sound=False, draw=False, hud=True, free_aim=False, lens=False)          # bia chạy BẬT (mặc định của game thật)
 player, combat, look = game.player, game.combat, game.look
 gun = game.params.gun
+# giật đều, chỉ đi lên: bài này đo độ chính xác va chạm với bia chạy chứ không đo cú giật
+gun.recoil.up, gun.recoil.up_noise, gun.recoil.right_bias, gun.recoil.right_noise, gun.recoil.right_walk, gun.recoil.camera_share = 0.33, 0.03, 0.03, 0.0, 0.0, 1.0
 mouse.locked = False
 combat.require_locked_mouse = False
 for _name in ('stand', 'walk', 'sprint', 'air', 'ads', 'ads_move', 'bloom_per_shot'):      # đo hướng đạn nên tắt độ tản (như g2)
@@ -131,7 +134,7 @@ def static_boxes():
             out.extend((blo, bhi) for blo, bhi, _ in owner.boxes)
         else:
             out.append((lo, hi))
-    out += [aabb_of(p) for p in game.world['posts']]
+    out += list(game.world['post_boxes'])
     out += [(r['lo'], r['hi']) for _, _, r in game.world['sign_rects']]
     return out
 
@@ -208,9 +211,8 @@ class Script(Entity):
         info['impact'] = imp
         info['expected_local'] = offset
         if combat.decals.count > holes and info['hit']:
-            decal = combat.decals.items[(combat.decals.next - 1) % len(combat.decals.items)]
-            info['decal'] = decal
-            info['local_x'] = decal.position[0]
+            info['decal'] = combat.decals.last_parent
+            info['local_x'] = combat.decals.last_local[0]
         return info
 
     def run(self):
@@ -381,7 +383,7 @@ class Script(Entity):
 
         # lỗ đạn đi theo bia: bắn, rồi để bia chạy tiếp 1 s (bước cố định) -> lỗ cũng đi đúng bấy nhiêu và vẫn đứng yên trên mặt bia
         info = self.manual_shot(t, 1 / 60, 0.4, x0=-5.0, stop_on_hit=True)
-        decal = info['decal']
+        decal = combat.decals.by_owner[t.root].entity                # mesh lỗ đạn của riêng bia này
         local0, world0 = decal.position[0], decal.world_position.x
         root0 = t.root.x
         check('lỗ đạn gắn vào target.root (đi theo bia)', decal.parent is t.root, True, decal.parent is t.root)
@@ -413,8 +415,8 @@ class Script(Entity):
             yield
             if combat.target_hits > last_hits:
                 last_hits = combat.target_hits
-                decal = combat.decals.items[(combat.decals.next - 1) % len(combat.decals.items)]
-                used.append((t.root.x, decal.position[0]))
+                if combat.last_impact.owner is t:          # đạn cuối loạt có thể vượt qua bia gần và trúng bia xa phía sau
+                    used.append((t.root.x, combat.decals.last_local[0]))
             marker_seen = marker_seen or max(e.color.a for e in game.hud.hit_marker) > 0
             if game.hud.last_hit.text:
                 hud_texts.add(game.hud.last_hit.text)
@@ -457,7 +459,7 @@ class Script(Entity):
         check('bóng bia chạy được vẽ lại khi bia chạy (lần/s tổng, 3 bia)', round(rate, 1), f'~{expect:.0f} (FPS thấp thì ít hơn)',
               0.5 * expect <= rate <= expect * 1.2)
         freeze(True)
-        yield from self.frames(10)
+        yield from self.frames(40)                      # đủ cho mọi bia tới lượt vẽ lại lần cuối (6 lần/s mỗi bia)
         r0 = look.mover_shadow_refreshes
         yield from self.frames(60)
         check('bia đứng yên: bóng không bị vẽ lại', look.mover_shadow_refreshes - r0, 0, look.mover_shadow_refreshes == r0)
@@ -515,6 +517,9 @@ class Script(Entity):
         player.position = (0, 0, 0)
         player._apply_view()
         freeze(True)
+        # bài này tắt ống kính; lúc chơi ống kính phóng giữa khung (1 + fisheye) lần nên đo ở FOV tương đương của giữa khung, như mắt người chơi thấy
+        saved_fov = game.params.player.fov
+        game.params.player.fov = equivalent_center_fov(saved_fov, game.params.lens.fisheye)
         yield from self.frames(8)
         shot('lane')
         full = Image.open(ROOT / 'shots' / 'targets_lane.png').convert('L')
@@ -547,6 +552,7 @@ class Script(Entity):
             check(f'biển {d} m nằm trong màn hình, rộng >= 12 px', f'{w_px:.0f} x {h_px:.0f}', '>= 12', on_screen and w_px >= 12)
             check(f'  tương phản chữ / nền (0..255)', hi_p - lo_p, '>= 40', hi_p - lo_p >= 40)
             check(f'  nhận ra đúng số bằng so khớp mẫu', f'{best} (điểm {scores[d]:+.2f})', f'{d}', best == d)
+        game.params.player.fov = saved_fov
         # ảnh phóng gần (ngắm) cho biển xa nhất
         player.position = (0, 0, 0)
         player.yaw, player.pitch = 0.0, 3.0

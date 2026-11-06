@@ -26,12 +26,18 @@ from fps.core.movement import MoveState, aim_direction  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between, crosshair_gap  # noqa: E402
 from fps.core.spring import burst_peak_ratio  # noqa: E402
-from fps.weapon_data import M4_PATTERN  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, shake=False, moving_targets=False)     # bia đứng yên (G6); camera shake (G6) làm camera.forward / vị trí súng lệch khỏi tia ngắm: tắt khi đo recoil/tâm ngắm
+game = create_game(vsync=False, sound=False, draw=False, shake=False, moving_targets=False, hud=True, free_aim=False)     # bia đứng yên (G6); camera shake (G6) làm camera.forward / vị trí súng lệch khỏi tia ngắm: tắt khi đo recoil/tâm ngắm
 player, combat, hud, viewmodel = game.player, game.combat, game.hud, game.viewmodel
 gun = game.params.gun
 acc = gun.accuracy
+# Bài này đo CƠ CHẾ độ tản, tâm ngắm, phần giật vào camera (đều giữ nguyên, chỉnh được ở F1): dùng bộ số có hình nón rõ và cho toàn bộ cú giật vào camera theo một nhịp đều.
+# Hành vi mặc định (đạn theo nòng, giật ngẫu nhiên, súng trôi) kiểm ở tools/g7_selftest.py.
+acc.stand, acc.walk, acc.sprint, acc.air, acc.crouch_multiplier = 2.0, 3.5, 4.5, 6.0, 0.7
+acc.ads, acc.ads_move, acc.bloom_per_shot = 0.1, 0.6, 0.25
+gun.recoil.up, gun.recoil.up_noise, gun.recoil.right_bias, gun.recoil.right_noise, gun.recoil.right_walk = 0.35, 0.035, 0.10, 0.01, 0.0
+gun.recoil.camera_share, gun.recoil.ads_scale = 1.0, 1.0
+M4_PATTERN = ((0.35, 0.10),) * 30
 mouse.locked = False                      # không giữ con trỏ của người dùng
 combat.require_locked_mouse = False       # cho phép bắn dù chuột không bị bắt (chỉ trong bài kiểm tra)
 combat.rng.seed(20240131)                 # lặp lại được (nhưng nhịp khung hình vẫn đổi chút kết quả)

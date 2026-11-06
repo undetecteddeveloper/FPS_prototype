@@ -1,7 +1,7 @@
 """Ghép việc bắn lại: cò súng -> phát bắn -> viên đạn bay -> dò va chạm -> phản hồi (hit marker, nháy bia, lỗ đạn).
 
-Đạn xuất phát từ vị trí mắt, theo hướng nhìn (đã gồm recoil camera) cộng một độ lệch ngẫu nhiên trong hình nón tản.
-Mỗi phát bắn: lấy độ tản HIỆN TẠI (trước khi phát này cộng bloom) -> bắn -> cộng bloom, recoil camera, kick súng.
+Đạn xuất phát từ vị trí mắt, theo hướng NÒNG SÚNG đang chỉ (`aim_source`, xem core/freeaim.py) cộng độ tản cơ khí rất nhỏ.
+Mỗi phát bắn: lấy độ tản HIỆN TẠI -> bắn -> cú giật sinh ngẫu nhiên (một phần vào camera, phần còn lại làm súng trôi), kick súng.
 Mỗi khung hình mỗi viên đạn đi một đoạn rồi dò va chạm trên cả đoạn (swept), không phụ thuộc FPS.
 """
 import math
@@ -11,11 +11,13 @@ from dataclasses import dataclass
 from ursina import color, held_keys, mouse
 
 from fps.core.ballistics import advance, distance_between, first_hit, moving_hit
+from fps.core.freeaim import FreeAim
 from fps.core.handling import Handling, Phase
 from fps.core.movement import MoveState
 from fps.core.recoil import CameraRecoil, GunKick
 from fps.core.spread import Accuracy, random_in_cone
-from fps.game.targets import HoleDecals, Target
+from fps.game.decals import HoleDecals
+from fps.game.targets import Target, hole_texture
 from fps.core.weapon import Weapon
 from fps.weapon_data import GameParams
 
@@ -65,6 +67,7 @@ class Combat:
         self.rng = rng or random.Random()
         self.audio = audio                         # GunAudio hoặc None (tắt tiếng)
         self.fx = fx                               # Effects (tia lửa đầu nòng, tracer) hoặc None
+        self.foley = None                          # Foley (tiếng đạn trúng, cò rỗng) hoặc None; Game gán sau khi dựng
         self.shake = shake                         # core.shake.Shake (rung thuần hình ảnh, không đổi hướng đạn) hoặc None
         self.weapon = Weapon(self.gun)
         self.handling = Handling(self.gun, self.weapon)     # rút súng / nạp đạn
@@ -72,9 +75,14 @@ class Combat:
         self.accuracy = Accuracy(self.gun.accuracy)
         self.recoil = CameraRecoil(self.gun.recoil, self.rng)
         self.gun_kick = GunKick(self.gun.kick, self.rng)
+        self.free_aim = FreeAim(self.gun.free_aim)
+        self.aim_source = None                     # hàm trả về hướng nòng (thế giới); None = ra giữa màn hình
         self.spread_now = self.accuracy.angle(player.state, player.ads_amount)   # cho tâm ngắm động
         self.last_shot = None
-        self.decals = HoleDecals(self.fb)
+        self.decals = HoleDecals(self.fb, hole_texture())
+        for t in targets:
+            if t.patrol is not None:
+                self.decals.prepare_owner(t.root)
         self.bullets = []
         self.pressed = False                       # vừa bóp cò (sự kiện nhấn chuột, dùng cho bắn đơn)
         self.require_locked_mouse = True           # không bắn khi người chơi đã nhả chuột bằng Esc
@@ -124,12 +132,16 @@ class Combat:
         ready = mouse_ok and self.player.can_fire and self.handling.can_fire
         held = trigger and ready
         pressed = self.pressed and ready
+        if pressed and self.foley and self.weapon.out_of_ammo:
+            self.foley.on_dry_fire()
         if ready or not trigger or self.handling.busy:
             self.pressed = False                       # còn giữ cò mà súng chưa sẵn sàng vì chạy: nhớ cú bóp để bắn khi sẵn sàng (nạp thì bỏ)
         self.accuracy.update(dt)
         ages = self.weapon.update(dt, held, pressed)
         if ages:
             origin, view_dir = self.player.aim_ray()
+            if self.aim_source is not None:
+                view_dir = self.aim_source()
             for age in ages:
                 state, ads = self.player.state, self.player.ads_amount
                 spread = self.accuracy.angle(state, ads)
@@ -137,7 +149,8 @@ class Combat:
                 self.last_shot = ShotInfo(view_dir, direction, spread, state)
                 self._fire(origin, direction, age)
                 self.accuracy.on_shot()
-                self.recoil.on_shot()
+                gun_up, gun_right = self.recoil.on_shot(self.recoil.posture_scale(ads, self.player.crouching))
+                self.free_aim.on_shot(gun_up, gun_right)
                 self.gun_kick.on_shot(ads, age)
                 if self.shake:
                     self.shake.on_shot(age)
@@ -147,6 +160,7 @@ class Combat:
         if up or right:
             self.player.kick_view(up, right)       # sau khi bắn: phát này đã đi theo hướng nhìn trước cú giật
         self.gun_kick.update(dt)
+        self.free_aim.update(dt, self.player.turn_rate(dt))
         if self.shake:
             self.shake.update(dt)          # sau mọi sự kiện rung của khung (phát bắn có tuổi, mốc nạp): xử lý theo đúng thời điểm
         if self.fx:
@@ -214,6 +228,8 @@ class Combat:
     def _on_hit(self, bullet: Bullet, hit):
         distance = distance_between(bullet.origin, hit.point)
         self.last_impact = Impact(hit.point, hit.normal, distance, hit.owner, bullet.origin)
+        if self.foley:
+            self.foley.on_impact(isinstance(hit.owner, Target), distance)
         if isinstance(hit.owner, Target):
             self.target_hits += 1
             hit.owner.flash()

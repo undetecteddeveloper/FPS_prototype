@@ -63,3 +63,11 @@ class CueSchedule:
     @property
     def pending_names(self) -> list:
         return [name for _, name, _ in self._pending]
+
+
+def impact_sound(audio, distance: float, on_target: bool) -> tuple:
+    """Tiếng đạn trúng nghe từ chỗ người bắn: (trễ giây, âm lượng). Âm thanh đi từ điểm trúng về tai nên tới muộn, và nhỏ dần theo khoảng cách."""
+    distance = max(distance, 0.0)
+    base = audio.hit_target_volume if on_target else audio.hit_hard_volume
+    return distance / max(audio.speed_of_sound, 1.0), base / (1.0 + distance / max(audio.hit_reference_distance, 1e-3))
+

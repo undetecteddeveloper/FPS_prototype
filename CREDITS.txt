@@ -1,6 +1,6 @@
 CREDITS
 
-Ghi công cũng hiện trong game: dòng chữ nhỏ ở góc dưới bên trái ("M4: BarcodeGames (CC BY 4.0)").
+Ghi công cũng hiện trong game: mở bảng F1, dòng chữ nhỏ ở góc dưới bên phải màn hình ("M4: BarcodeGames (CC BY 4.0)"). Lúc chơi màn hình không có chữ nào (kiểu Bodycam).
 
 === Mô hình 3D ===
 
@@ -8,7 +8,8 @@ M4 - FPS Weapon Animations Pack (v.1)   [ĐANG DÙNG: guns\m4_-_fps_weapon_anima
   Tác giả:   BarcodeGames (https://sketchfab.com/barcodegames)
   Nguồn:     https://sketchfab.com/3d-models/m4-fps-weapon-animations-pack-v1-662fc74dda2646cfb48fc610705768ef
   Giấy phép: CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/) - được dùng và sửa, bắt buộc ghi công tác giả
-  Thay đổi:  nạp qua bản vá trình chuyển đổi glTF (fps\game\gltf_patch.py), bỏ normal map, đổi đơn vị cm sang m,
+  Thay đổi:  nạp qua bản vá trình chuyển đổi glTF (fps\game\gltf_patch.py), đổi đơn vị cm sang m, normal map thu về 1024 (fps\game\gltf_maps.py),
+             phủ màu tay áo lên phần da cẳng tay, làm tối găng tay,
              vẽ bằng shader riêng (shaders\viewmodel.*), tư thế đứng yên / ngắm / chạy / sway tự viết bằng mã.
 
 Animated FPS hands (rifle animation pack)   [CHƯA DÙNG: guns\animated_fps_hands_rifle_animation_pack.glb, 109 MB, không đưa lên git]
@@ -16,6 +17,13 @@ Animated FPS hands (rifle animation pack)   [CHƯA DÙNG: guns\animated_fps_hand
   Giấy phép: CC BY 4.0. File có trong thư mục guns nhưng game chưa nạp nó. Nếu sau này dùng thì phải ghi công ở đây VÀ trong game.
 
 === Âm thanh ===
+
+Tiếng ĐANG DÙNG mặc định: tiếng súng, nạp đạn, rút súng, bước chân, nhảy, chạm đất, đạn trúng, cò rỗng (sounds\el_shot_*.wav, sounds\foley\el_*.wav;
+file gốc sounds\source\elevenlabs\*.mp3, dựng bằng tools\prep_elevenlabs.py)
+  Tạo bằng AI ElevenLabs Sound Effects (qua Composio, tài khoản của chủ dự án, 5/11/2026). Quyền dùng thương mại phụ thuộc gói ElevenLabs của tài khoản lúc tạo
+  (gói miễn phí có điều kiện ghi công / không được thương mại): CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH.
+
+Các tiếng dưới đây vẫn nằm trong dự án nhưng game không còn dùng mặc định:
 
 Tiếng súng M4 (sounds\m4_shot.wav; dựng từ sounds\source\m4_shot_original.wav bằng tools\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
   Do chủ dự án cung cấp. Tác giả / nguồn / giấy phép: CHƯA RÕ. CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây);

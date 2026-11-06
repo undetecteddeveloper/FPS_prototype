@@ -46,7 +46,7 @@ from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between, ring_radius  # noqa: E402
 from fps.game import debug_panel as dp  # noqa: E402
 
-game = create_game(vsync=False, sound=True, draw=False, moving_targets=False, user_params=True)
+game = create_game(vsync=False, sound=True, draw=False, moving_targets=False, user_params=True, hud=True, free_aim=False)
 player, combat, viewmodel, hud = game.player, game.combat, game.viewmodel, game.hud
 store, panel = game.params_store, game.debug
 weapon, handling = combat.weapon, combat.handling
@@ -217,7 +217,7 @@ class Script(Entity):
 
     def measure_recoil(self):
         self.reset_state(mag=3)
-        gun.recoil.noise = 0.0
+        gun.recoil.up_noise = gun.recoil.right_noise = gun.recoil.right_walk = 0.0
         low = 0.0
         held_keys['left mouse'] = 1
         for _ in range(70):
@@ -475,7 +475,7 @@ class Script(Entity):
         yield from self.close_panel()
         up0 = yield from self.measure_recoil()
         check('up_scale 0: không giật lên', round(up0, 3), '0', up0 < 0.01)
-        gun.recoil.noise = 0.10
+        gun.recoil.up_noise, gun.recoil.right_noise, gun.recoil.right_walk = M4.recoil.up_noise, M4.recoil.right_noise, M4.recoil.right_walk
         store.reset_group('recoil')
 
         yield from self.open_panel()
@@ -539,7 +539,7 @@ class Script(Entity):
         yield from self.open_panel()
         yield from self.slide_to('gun.view_light.specular', spec_target)
         yield from self.close_panel()
-        spec_in = viewmodel.root.get_shader_input('spec_strength').get_vector()[0]
+        spec_in = viewmodel.root.get_shader_input('vm_mat').get_vector()[0]
         check(f'view_light.specular {spec_default} -> {spec_target}: shader của súng nhận số mới', round(spec_in, 2), f'{spec_target:.2f}',
               abs(spec_in - spec_target) < 0.01)
         store.reset_group('look')
@@ -558,6 +558,8 @@ class Script(Entity):
         yield from self.open_panel()
         yield from self.wait(0.2, frames=4)
         acc = combat.accuracy
+        yield from self.slide_to('gun.accuracy.stand', 2.0)                 # mặc định chỉ còn tản cơ khí 0,03 độ: đo từ một số dễ thấy
+        yield from self.wait(0.1, frames=3)
         r_stand0 = panel.state_rings[0].scale_x
         yield from self.slide_to('gun.accuracy.stand', 4.0)
         yield from self.wait(0.1, frames=3)
@@ -639,7 +641,7 @@ class Script(Entity):
         yield from self.click_button(panel.btn_reset_group)
         check('nút "Đặt lại nhóm này": nhóm Bắn về mặc định, nhóm khác giữ', (gun.rpm, gun.accuracy.stand), '(750, 1.0)', gun.rpm == 750.0 and gun.accuracy.stand == 1.0)
         yield from self.click_button(panel.footer[2])
-        check('nút "Mặc định (tất cả)": mọi thanh về mặc định', (len(store.changed_specs()), gun.accuracy.stand), '(0, 2.0)', not store.changed_specs() and gun.accuracy.stand == 2.0)
+        check('nút "Mặc định (tất cả)": mọi thanh về mặc định', (len(store.changed_specs()), gun.accuracy.stand), f'(0, {M4.accuracy.stand})', not store.changed_specs() and gun.accuracy.stand == M4.accuracy.stand)
         # file hỏng
         for text, label in (('{ không phải json', 'JSON hỏng'), ('[1,2,3]', 'sai dạng'), ('', 'rỗng')):
             store.set(spec('gun.rpm'), 800)

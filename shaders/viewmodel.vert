@@ -6,16 +6,16 @@ uniform mat4 p3d_ProjectionMatrix;
 uniform mat3 p3d_NormalMatrix;
 #ifdef ENABLE_SKINNING
 uniform mat4 p3d_TransformTable[100];
-attribute vec4 transform_weight;
-attribute vec4 transform_index;
+in vec4 transform_weight;
+in vec4 transform_index;
 #endif
-attribute vec4 p3d_Vertex;
-attribute vec3 p3d_Normal;
-attribute vec2 p3d_MultiTexCoord0;
+in vec4 p3d_Vertex;
+in vec3 p3d_Normal;
+in vec2 p3d_MultiTexCoord0;
 
-varying vec3 v_pos;
-varying vec3 v_normal;
-varying vec2 v_uv;
+out vec3 v_pos;
+out vec3 v_normal;
+out vec2 v_uv;
 
 void main() {
 #ifdef ENABLE_SKINNING

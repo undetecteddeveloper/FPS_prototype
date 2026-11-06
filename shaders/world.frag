@@ -1,30 +1,19 @@
 #version 140
-// Thế giới trong phòng tập kín: đèn trần (đèn điểm, suy giảm theo khoảng cách) + bóng thật từ atlas độ sâu (lamp_shadows.py)
-// hoặc bóng giả, AO giả ở chân tường / quanh cột / dưới trần, vân vật liệu vẽ theo toạ độ thế giới (gạch lát sàn, bê tông
-// đổ cốp pha, trần tấm), sương bụi trong phòng hoà vào tối ấm.
+// Thế giới trong phòng tập kín: đèn trần + bóng (light_common.glsl, dùng chung với súng), tia lửa đầu nòng, AO giả ở chân tường / quanh cột / dưới trần,
+// vân vật liệu vẽ theo toạ độ thế giới (gạch lát sàn, bê tông đổ cốp pha, trần tấm), bụi trong phòng hoà vào tối.
 // Pháp tuyến lấy từ đạo hàm vị trí (mesh không cần normal). Mọi uniform riêng có tiền tố look_ (đầu vào mặc định của shader
 // Ursina như fog_color đặt trên từng vật thể sẽ đè lên đầu vào cùng tên đặt ở render).
 uniform sampler2D p3d_Texture0;
 uniform sampler2D look_detail_tex;
-uniform sampler2DShadow look_shadow_atlas;
 uniform vec4 p3d_ColorScale;
-uniform vec3 look_camera_pos;
 uniform vec4 look_fog;              // rgb = màu bụi trong phòng, a = mật độ (exp)
 uniform float look_detail_strength;
-uniform float look_material;        // 0 thường, 1 sàn gạch, 2 tường bê tông, 3 cột/dầm, 4 trần, 5 tự phát sáng, 6 biển (nhận đèn + chữ phát sáng nhẹ)
-uniform vec4 look_lamp;             // x, y, z đèn đầu, khoảng cách giữa hai đèn
-uniform vec4 look_lamp2;            // số đèn, bán kính tắt hẳn, khoảng cách nửa độ rọi, cường độ
-uniform vec3 look_lamp_color;
-uniform vec3 look_lamp_cone;        // cos góc nón rọi đủ sáng, cos góc nón ngoài, phần sáng lọt ra ngoài nón
-uniform vec3 look_ambient_up;
-uniform vec3 look_ambient_down;
-uniform vec3 look_bounce;           // màu x cường độ ánh sáng dội giả từ sàn
+uniform float look_material;        // 0 thường, 1 sàn gạch, 2 tường bê tông, 3 cột/dầm, 4 trần, 5 tự phát sáng, 6 biển
 uniform vec4 look_room;             // nửa bề rộng, z tường sau, z tường cuối, chiều cao trần
 uniform vec4 look_pillar;           // z cột đầu, khoảng cách cột, nửa bề rộng cột (dọc z), độ nhô cột
-uniform vec4 look_shadow;           // chế độ (0 tắt, 1 thật, 2 giả), bias hằng (m), bias theo khoảng cách (m/m), độ phát sáng
-uniform vec4 look_shadow_grid;      // số cột ô, số hàng ô, 1/rộng atlas, 1/cao atlas
-uniform mat4 look_face_mat[5];      // vector đèn->điểm sang clip của mặt +x, -x, -y, +z, -z
-uniform float look_exposure;
+uniform vec2 look_flash_world;      // nhân độ sáng tia lửa lên thế giới, falloff
+
+#include "light_common.glsl"
 
 in vec2 uvs;
 in vec4 vertex_color;
@@ -134,29 +123,6 @@ float fake_ao(vec3 p, vec3 n) {
     return ao;
 }
 
-// --- bóng thật: một đèn, vector đèn -> điểm v ---
-float lamp_shadow(float lamp, vec3 v) {
-    vec3 a = abs(v);
-    int f;
-    if (a.x >= a.y && a.x >= a.z) f = v.x > 0.0 ? 0 : 1;
-    else if (a.y >= a.z) { if (v.y > 0.0) return 1.0; f = 2; }
-    else f = v.z > 0.0 ? 3 : 4;
-    vec4 c = look_face_mat[f] * vec4(v, 1.0);
-    vec3 ndc = c.xyz / c.w;
-    float ref = ndc.z * 0.5 + 0.5;
-    if (ref >= 1.0) return 1.0;
-    float tile = lamp * 5.0 + float(f);
-    float col = mod(tile, look_shadow_grid.x);
-    float row = floor(tile / look_shadow_grid.x + 1e-4);
-    vec2 uv = (vec2(col, row) + ndc.xy * 0.5 + 0.5) / look_shadow_grid.xy;
-    vec2 t = look_shadow_grid.zw;
-    float s = texture(look_shadow_atlas, vec3(uv + vec2(-0.5, -0.5) * t, ref));
-    s += texture(look_shadow_atlas, vec3(uv + vec2(0.5, -0.5) * t, ref));
-    s += texture(look_shadow_atlas, vec3(uv + vec2(-0.5, 0.5) * t, ref));
-    s += texture(look_shadow_atlas, vec3(uv + vec2(0.5, 0.5) * t, ref));
-    return s * 0.25;
-}
-
 void main() {
     vec4 base = texture(p3d_Texture0, uvs) * p3d_ColorScale * vertex_color;
     int mat = int(look_material + 0.5);
@@ -164,9 +130,8 @@ void main() {
     float dist = length(to_cam);
     float fog = clamp(1.0 - exp(-look_fog.a * dist), 0.0, 1.0);
 
-    if (mat == 5) {                                                // bóng đèn, lòng chóa: tự sáng
-        vec3 e = 1.0 - exp(-base.rgb * look_shadow.w * look_exposure);
-        frag_color = vec4(mix(e, look_fog.rgb, fog * 0.6), 1.0);
+    if (mat == 5) {                                                // bóng đèn, lòng chóa: nguồn sáng, chói hơn mọi thứ nó chiếu vào
+        frag_color = vec4(mix(tonemap(base.rgb * look_shadow.w), look_fog.rgb, fog * 0.6), 1.0);
         return;
     }
 
@@ -182,46 +147,22 @@ void main() {
     // nhiễu chi tiết trên mặt hướng lên (sàn, nóc vật), mờ dần từ 40 m tới 160 m (xa hơn thì nhấp nháy)
     float up = smoothstep(0.6, 0.9, n.y);
     float fade = 1.0 - smoothstep(40.0, 160.0, dist);
-    float noise = texture(look_detail_tex, world_pos.xz * 0.21).r * 0.6 + texture(look_detail_tex, world_pos.xz * 0.043 + 0.37).r * 0.4;
-    float detail = mat == 1 ? 0.6 : 1.0;
-    base.rgb *= 1.0 + (noise - 0.5) * look_detail_strength * detail * up * fade;
+    if (up * fade > 0.0) {
+        float noise = texture(look_detail_tex, world_pos.xz * 0.21).r * 0.6 + texture(look_detail_tex, world_pos.xz * 0.043 + 0.37).r * 0.4;
+        float detail = mat == 1 ? 0.6 : 1.0;
+        base.rgb *= 1.0 + (noise - 0.5) * look_detail_strength * detail * up * fade;
+    }
 
     float ao = fake_ao(world_pos, n);
     vec3 ambient = mix(look_ambient_down, look_ambient_up, n.y * 0.5 + 0.5) * ao;
 
-    // đèn trần: xét đèn gần nhất theo z và hai đèn mỗi bên (bán kính <= 2 khoảng cách đèn)
-    int mode = int(look_shadow.x + 0.5);
-    float count = look_lamp2.x, R = look_lamp2.y, ref2 = look_lamp2.z * look_lamp2.z;
-    float kc = floor((world_pos.z - look_lamp.z) / look_lamp.w + 0.5);
-    vec3 v_dir = to_cam / max(dist, 1e-4);
-    float light = 0.0, spec = 0.0, bounce = 0.0;
-    for (int j = -2; j <= 2; j++) {
-        float k = kc + float(j);
-        if (k < 0.0 || k > count - 1.0) continue;
-        vec3 lp = vec3(look_lamp.x, look_lamp.y, look_lamp.z + k * look_lamp.w);
-        vec3 L = lp - world_pos;
-        float d2 = dot(L, L);
-        float d = sqrt(d2);
-        if (d >= R) continue;
-        L /= d;
-        float x = d / R;
-        float win = 1.0 - x * x * x * x;
-        // ánh sáng dội giả: sàn dưới đèn hắt lại lên tường/trần gần đó (không bóng, không hướng), giảm theo khoảng cách tới đèn
-        bounce += win * win / (1.0 + d2 / (4.0 * ref2));
-        float ndl = dot(n, L);
-        if (ndl <= 0.0 || L.y <= 0.0) continue;                    // quay lưng với đèn, hoặc ở trên mép chóa (chóa che)
-        float cone = mix(look_lamp_cone.z, 1.0, smoothstep(look_lamp_cone.y, look_lamp_cone.x, L.y));
-        float att = look_lamp2.w * cone * win * win / (1.0 + d2 / ref2);
-        float sh = 1.0;
-        if (mode == 1) sh = lamp_shadow(k, world_pos + n * (look_shadow.y + look_shadow.z * d) - lp);
-        light += att * ndl * sh;
-        if (mat == 1) spec += att * sh * pow(max(dot(n, normalize(L + v_dir)), 0.0), 40.0);
-    }
+    float spec, bounce;
+    float light = gather_lamps(world_pos, n, to_cam / max(dist, 1e-4), dist, mat == 1 ? 40.0 : 0.0, spec, bounce);
     float direct_ao = mix(1.0, ao, 0.45);                           // AO cũng làm tối nhẹ ánh đèn (bù cho thiếu ánh dội)
     ambient += look_bounce * bounce * ao * (1.0 - 0.6 * up);        // mặt đứng và trần nhận ánh dội nhiều hơn sàn
     vec3 lit = base.rgb * (ambient + look_lamp_color * light * direct_ao) + look_lamp_color * spec * gloss * 0.10;
-    if (mat == 6) lit += base.rgb * base.rgb * 0.9;                // biển khoảng cách: chữ sáng hơn nền (phát sáng nhẹ, tỉ lệ bình phương màu), đọc được từ xa
-    lit = 1.0 - exp(-lit * look_exposure);
+    if (look_flash_color.r > 0.0) lit += base.rgb * flash_light(world_pos, n, look_flash_world.y) * look_flash_world.x;
+    if (mat == 6) lit += base.rgb * base.rgb * 0.85;                // biển: chữ sơn phản quang (nền tối gần như không phản lại), không có đèn nào thì vẫn đọc được từ xa
 
-    frag_color = vec4(mix(lit, look_fog.rgb, fog), base.a);
+    frag_color = vec4(mix(tonemap(lit), look_fog.rgb, fog), base.a);
 }

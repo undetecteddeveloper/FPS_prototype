@@ -18,8 +18,9 @@ class GunAudio:
         self.gun = gun
         self.rng = rng or random.Random()
         loader = application.base.loader
-        path = Filename.from_os_specific(str(project_root / gun.shot_sound))
-        self.sounds = [loader.load_sfx(path) for _ in range(max(1, gun.shot_pool))]
+        # shot_sound: một đường dẫn hoặc nhiều biến thể; các bản trong vòng lần lượt là từng biến thể nên hai phát liền nhau không giống hệt
+        files = (gun.shot_sound,) if isinstance(gun.shot_sound, str) else tuple(gun.shot_sound)
+        self.sounds = [loader.load_sfx(Filename.from_os_specific(str(project_root / files[i % len(files)]))) for i in range(max(1, gun.shot_pool))]
         self._next = 0
         self.played = 0                    # số tiếng đã phát (cho kiểm tra)
 

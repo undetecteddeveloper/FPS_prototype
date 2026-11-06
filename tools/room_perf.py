@@ -1,6 +1,6 @@
 """Phòng tập kín: đo FPS CÓ SO SÁNH XEN KẼ giữa bóng thật / không bóng / bóng giả trong CÙNG một lần chạy.
 
-vsync tắt, 1280x720. Mỗi vòng: cho từng chế độ, đổi chế độ (shader đọc công tắc ở render), bỏ 15 khung, đo 90 khung.
+vsync tắt, 1366x768. Mỗi vòng: cho từng chế độ, đổi chế độ (shader đọc công tắc ở render), bỏ 15 khung, đo 90 khung.
 Ba góc nhìn luân phiên giữa các vòng (dọc làn từ vạch bắn, ở 100 m, nhìn chéo sang tường). Báo trung vị thời gian khung
 của từng chế độ (ít nhiễu hơn trung bình khi máy đang bận việc khác), FPS trung bình, 1% thấp nhất, và % chậm hơn "tắt bóng".
 Cũng báo thời gian của khung đầu tiên (vẽ atlas bóng một lần).
@@ -24,7 +24,7 @@ MODES = (True, False, 'fake')
 NAMES = {True: 'bóng thật', False: 'tắt bóng', 'fake': 'bóng giả'}
 VIEWS = [((0, 0, 0), 0, 0), ((0, 0, 100), 0, 0), ((-4, 0, 30), 35, 5)]
 
-game = create_game(vsync=False, sound=False, draw=False)
+game = create_game(vsync=False, size=(1366, 768), sound=False, draw=False)
 mouse.locked = False
 player = game.player
 samples = {m: [] for m in MODES}
@@ -73,7 +73,7 @@ class Script(Entity):
 
 
 def report():
-    print('\n=== FPS phòng tập: so sánh xen kẽ (vsync tắt, 1280x720) ===')
+    print('\n=== FPS phòng tập: so sánh xen kẽ (vsync tắt, 1366x768) ===')
     print('khung đầu (gồm vẽ atlas bóng một lần):', ', '.join(f'{d * 1000:.0f} ms' for d in first_frames))
     base = statistics.median(samples[False])
     for m in MODES:

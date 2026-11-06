@@ -11,17 +11,28 @@ Chuỗi nút: root -> sway -> rig -> actor.   `sway` nhận kick súng, sway, bo
 from pathlib import Path
 
 from direct.actor.Actor import Actor
-from panda3d.core import (Camera, Filename, NodePath, PerspectiveLens, Point3, PTA_LVecBase3f, ShaderAttrib, Vec3)
+from panda3d.core import (Camera, Filename, NodePath, PerspectiveLens, PNMImage, Point3, SamplerState, ShaderAttrib, Texture, Vec3, Vec4)
 from ursina import application, window
 
 from fps.core.movement import smoothstep, step_toward
+from fps.game.frame_light import FrameLight
+from fps.game.gltf_maps import read_normal_maps
 from fps.game.shaders import load_glsl
-from fps.weapon_data import GunData
+from fps.weapon_data import GunData, LookData
+
+MATERIALS = ('Hand_D', 'Glove_D', 'M4_D', 'Bullet5_56x45mm_D')
+# nhân vào độ bóng / độ tập trung / phản chiếu của ViewLightData theo vật liệu. Asset gán specular 0 cho thân súng nên số của súng là số chỉnh tay
+# (bóng, tập trung, phản chiếu, nhân màu); găng tay trong file sáng màu quá, găng chiến thuật thường tối
+MATERIAL_SCALE = {'M4_D': (1.0, 1.0, 1.0, 1.0), 'Glove_D': (0.22, 0.4, 0.35, 0.42), 'Hand_D': (0.08, 0.3, 0.15, 1.0), 'Bullet5_56x45mm_D': (1.5, 1.6, 1.4, 1.0)}
 
 
 class Viewmodel:
-    def __init__(self, gun: GunData, project_root: Path):
+    def __init__(self, gun: GunData, project_root: Path, light: FrameLight = None):
         self.gun = gun
+        self.light = light or FrameLight(LookData(), gun)
+        self.project_root = project_root
+        self.ads = 0.0                                # 0 hông .. 1 ngắm hẳn (đặt trong `animate`)
+        self.barrel_pose = (0.0,) * 6                 # tư thế súng thật (không gồm rung hình ảnh): hướng đạn đọc từ đây
         base = application.base
 
         self.root = NodePath('viewmodel_root')      # không gắn vào render: camera chính không thấy
@@ -55,7 +66,7 @@ class Viewmodel:
 
     # --- dựng ---
     def _set_up_shading(self):
-        """Shader riêng cho súng + tay, skin bộ xương trên GPU.
+        """Shader riêng cho súng + tay, skin bộ xương trên GPU, ánh sáng lấy từ FrameLight (chung với thế giới).
 
         Skin trên CPU (mặc định của Panda) tính lại 2 875 đỉnh bàn tay mỗi khung ~1,3 ms; vì clip 30 fps được nội suy để mượt ở
         màn 60+ Hz nên bộ xương đổi MỌI khung hình và FPS tụt rõ lúc nạp đạn. Mesh có skin (cột transform_blend) dùng biến thể
@@ -64,6 +75,7 @@ class Viewmodel:
         skinned = ShaderAttrib.make(load_glsl('viewmodel', ('ENABLE_SKINNING',))).set_flag(ShaderAttrib.F_hardware_skinning, True)
         self.root.set_attrib(static)
         self.skinned_vertices = 0
+        self.material_nodes = {}                     # tên vật liệu -> [GeomNode]
         for geom_np in self.actor.find_all_matches('**/+GeomNode'):
             node = geom_np.node()
             for i in range(node.get_num_geoms()):
@@ -72,37 +84,44 @@ class Viewmodel:
                     self.skinned_vertices += vd.get_num_rows()
                     geom_np.set_attrib(skinned)
                     break
-        self.apply_light()
+            for name in MATERIALS:
+                if name in geom_np.get_name():
+                    self.material_nodes.setdefault(name, []).append(geom_np)
+                    break
         r = self.root
-        # đèn tia lửa đổi MỖI khung lúc bắn: đưa vào shader bằng mảng PTA sửa tại chỗ. Gọi set_shader_input lại mỗi khung thì trạng thái
-        # vẽ của cả súng đổi theo, Panda phải ghép lại trạng thái cho từng mesh (khung bắn đầu tiên chậm ~40 ms và mỗi khung bắn đều tốn thêm)
-        self._flash_pos = PTA_LVecBase3f.empty_array(1)
-        self._flash_color = PTA_LVecBase3f.empty_array(1)
-        self._flash_falloff = float(self.gun.flash.light_attenuation[2])
-        r.set_shader_input('flash_pos', self._flash_pos)
-        r.set_shader_input('flash_color', self._flash_color)
-        r.set_shader_input('flash_falloff', float(self.gun.flash.light_attenuation[2]))
-        self.set_flash_light(Vec3(0, 0, 0), Vec3(0, 0, 0))
+        self.light.bind(r)
+        r.set_shader_input('vm_view_x', self.light.view_x)
+        r.set_shader_input('vm_view_y', self.light.view_y)
+        r.set_shader_input('vm_view_z', self.light.view_z)
+        r.set_shader_input('vm_flash_falloff', float(self.gun.flash.light_attenuation[2]))
+        flat = Texture('flat_normal')
+        flat.setup_2d_texture(1, 1, Texture.T_unsigned_byte, Texture.F_rgb)
+        flat.set_ram_image(bytes((255, 128, 128)))                # BGR: pháp tuyến phẳng
+        r.set_shader_input('vm_normal_tex', flat)
+        self.normal_maps = read_normal_maps(self.project_root / self.gun.glb)
+        for name, nodes in self.material_nodes.items():
+            tex = self.normal_maps.get(name)
+            if tex is not None:
+                for np_ in nodes:
+                    np_.set_shader_input('vm_normal_tex', tex)
+        self.apply_light()
 
     def apply_light(self):
-        """Đẩy `GunData.view_light` vào shader của súng (lúc dựng, và mỗi khi bảng debug đổi một số ánh sáng; chỉ đổi vài uniform)."""
-        light, r = self.gun.view_light, self.root
-        norm = sum(c * c for c in light.sun_dir) ** 0.5 or 1.0
-        r.set_shader_input('sun_dir', Vec3(*(c / norm for c in light.sun_dir)))
-        r.set_shader_input('sun_color', Vec3(*light.sun_color))
-        r.set_shader_input('sky_color', Vec3(*light.sky_color))
-        r.set_shader_input('ground_color', Vec3(*light.ground_color))
-        r.set_shader_input('spec_strength', light.specular)
-        r.set_shader_input('rim_strength', light.rim)
+        """Đẩy vật liệu `GunData.view_light` vào shader của súng (lúc dựng, và mỗi khi bảng debug đổi số; chỉ đổi vài uniform)."""
+        light = self.gun.view_light
+        self.root.set_shader_input('vm_mat', Vec4(light.specular, light.gloss, light.env, light.normal_strength))
+        self.root.set_shader_input('vm_sleeve', Vec4(*light.sleeve_color, 0.0))
+        self.root.set_shader_input('vm_albedo', float(light.albedo))
+        for name, nodes in self.material_nodes.items():
+            sp, gl, en, al = MATERIAL_SCALE.get(name, (1.0, 1.0, 1.0, 1.0))
+            for np_ in nodes:
+                np_.set_shader_input('vm_mat', Vec4(light.specular * sp, light.gloss * gl, light.env * en, light.normal_strength))
+                np_.set_shader_input('vm_albedo', float(light.albedo * al))
+                np_.set_shader_input('vm_sleeve', Vec4(*light.sleeve_color, 1.0 if name == 'Hand_D' else 0.0))
 
     def set_flash_light(self, view_pos, color, falloff: float = None):
-        """Đèn tia lửa đầu nòng. `view_pos` trong hệ của cảnh súng (x phải, y lên, z ra trước); `color` đen = tắt.
-        `falloff` đặt một lần lúc dựng (đổi giữa chừng sẽ đổi trạng thái vẽ)."""
-        self._flash_pos.set_element(0, Vec3(view_pos[0], view_pos[1], -view_pos[2]))     # không gian nhìn của GL: -z là phía trước
-        self._flash_color.set_element(0, Vec3(*color))
-        if falloff is not None and falloff != self._flash_falloff:
-            self._flash_falloff = falloff
-            self.root.set_shader_input('flash_falloff', float(falloff))
+        """Đèn tia lửa đầu nòng. `view_pos` trong hệ của cảnh súng (x phải, y lên, z ra trước); `color` đen = tắt. Chiếu lên cả súng và thế giới (FrameLight)."""
+        self.light.set_flash(view_pos, color)
 
     def _set_up_camera(self, base):
         self.lens = PerspectiveLens()
@@ -113,12 +132,23 @@ class Viewmodel:
         cam_node.set_lens(self.lens)
         self.cam_np = self.root.attach_new_node(cam_node)
 
-        self.region = base.win.make_display_region()
-        self.region.set_sort(5)                      # sau thế giới (0), trước giao diện (20)
-        self.region.set_clear_depth_active(True)
-        self.region.set_clear_depth(1.0)
-        self.region.set_clear_color_active(False)
-        self.region.set_camera(self.cam_np)
+        self.output = base.win
+        self.region = self._make_region(base.win)
+
+    def _make_region(self, output):
+        region = output.make_display_region()
+        region.set_sort(5)                           # sau thế giới (0), trước giao diện (20)
+        region.set_clear_depth_active(True)
+        region.set_clear_depth(1.0)
+        region.set_clear_color_active(False)
+        region.set_camera(self.cam_np)
+        return region
+
+    def move_to_output(self, output):
+        """Vẽ súng vào buffer khác (ống kính vẽ ảnh đã ghép cả thế giới + súng)."""
+        self.output.remove_display_region(self.region)
+        self.output = output
+        self.region = self._make_region(output)
 
     @property
     def current_fov(self) -> float:
@@ -126,8 +156,9 @@ class Viewmodel:
         return self._fov
 
     def _sync_lens(self):
-        r = self.gun.reload
-        fov = self.gun.view_fov + (r.view_fov - self.gun.view_fov) * smoothstep(self._view)
+        g, r = self.gun, self.gun.reload
+        base_fov = g.view_fov + (g.ads_view_fov - g.view_fov) * smoothstep(self.ads)
+        fov = base_fov + (r.view_fov - base_fov) * smoothstep(self._view)
         aspect = window.aspect_ratio
         if aspect != self._aspect or fov != self._fov:
             self._aspect, self._fov = aspect, fov
@@ -212,9 +243,10 @@ class Viewmodel:
         left = (settle - self.actor.getCurrentFrame(clip.anim)) / 30.0 / max(self.gun.reload.speed, 1e-3)
         return left > self.gun.reload.view_blend
 
-    def animate(self, dt: float, magazine_empty: bool):
+    def animate(self, dt: float, magazine_empty: bool, ads: float = 0.0):
         """Mỗi khung (trước `update`): tiến trình trượt khi huỷ, và bolt khoá sau / nhả khi băng cạn / có đạn."""
         r = self.gun.reload
+        self.ads = ads
         self._view = step_toward(self._view, 1.0 if self._reload_view_wanted() else 0.0, 1.0 / max(r.view_blend, 1e-3), dt)
         if self._fade:
             f = self._fade
@@ -244,9 +276,10 @@ class Viewmodel:
             self.actor.setControlEffect(locked[0], self._empty)
         self._bundle.force_update()
 
-    def update(self, *poses: tuple):
+    def update(self, *poses: tuple, visual: tuple = ()):
         """Mỗi tư thế = (x phải, y lên, z ra trước, pitch ngóc lên, yaw phải, roll phải), mét và độ: kick súng
-        (GunKick.pose) và sway/ADS/chạy (Sway.update). Cộng lại rồi đặt lên nút `sway`.
+        (GunKick.pose), sway/ADS/chạy (Sway.update), trôi tự do (FreeAim.pose). Cộng lại rồi đặt lên nút `sway`; tổng này là `barrel_pose`, nguồn của hướng đạn.
+        `visual`: các tư thế CHỈ HÌNH ẢNH (rung camera, súng đi theo đầu), không vào `barrel_pose` nên không đổi hướng đạn.
 
         BẪY dấu (đã đo bằng tools/g3_selftest.py): `set_hpr` THÔ của nút trong đồ thị súng này khác `Entity.rotation`
         của Ursina ở thế giới: h dương quay súng sang TRÁI, p dương ngóc nòng LÊN, r dương nghiêng PHẢI."""
@@ -254,12 +287,12 @@ class Viewmodel:
         k = smoothstep(self._view)
         if k > 0.0:
             poses = poses + (tuple(c * k for c in self.gun.reload.view_pose),)
-        x, y, z, pitch_up, yaw_right, roll_right = (sum(c) for c in zip(*poses)) if poses else (0,) * 6
+        self.barrel_pose = tuple(sum(c) for c in zip(*poses)) if poses else (0.0,) * 6
+        x, y, z, pitch_up, yaw_right, roll_right = (sum(c) for c in zip(self.barrel_pose, *visual))
         self.sway.set_pos_hpr(x, y, z, -yaw_right, pitch_up, roll_right)
 
     def destroy(self):
-        base = application.base
-        base.win.remove_display_region(self.region)
+        self.output.remove_display_region(self.region)
         self.actor.cleanup()
         self.actor.remove_node()
         self.root.remove_node()

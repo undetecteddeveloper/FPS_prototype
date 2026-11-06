@@ -151,7 +151,7 @@ def test_reload_uses_only_the_users_recording():
     # không còn tiếng tổng hợp cũ (mag_out, mag_tap...) lẫn vào cú va đầu tiên
     for key in ('reload', 'reload_empty'):
         for c in AUDIO.cues[key]:
-            assert AUDIO.sound_files.get(c.sound, '').startswith('user_'), (key, c.sound)
+            assert AUDIO.sound_files.get(c.sound, '').startswith('el_'), (key, c.sound)
 
 
 def test_draw_has_two_quiet_cues():

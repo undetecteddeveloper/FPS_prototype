@@ -164,8 +164,9 @@ def test_bob_steps_follow_the_bob_cadence(state, speed, rate_name):
 
 @pytest.mark.parametrize('fps', [30, 60, 144, 240])
 def test_bob_steps_do_not_depend_on_fps(fps):
+    sd = SwayData()
     out, _ = bob_walk(30.0, fps=fps)
-    assert abs(len(out) - 10) <= 1
+    assert abs(len(out) - 2 * 30.0 * sd.bob_rate / sd.bob_stride) <= 1
 
 
 def test_step_lands_on_the_lowest_point_of_the_bob():
@@ -186,12 +187,12 @@ def test_bob_steps_never_pile_up_into_continuous_noise():
     for state, speed in ((S.WALK, 4.5), (S.SPRINT, 6.8), (S.CROUCH_WALK, 2.2)):
         out, _ = bob_walk(30.0, state, speed)
         gaps = [b[0] - a[0] for a, b in zip(out, out[1:])]
-        assert min(gaps) > 0.4, (state, min(gaps))
+        assert min(gaps) > 0.33, (state, min(gaps))       # tiếng bước dài tối đa 0,32 s (MAX_SECONDS) nên không chồng lên nhau
 
 
 def test_bob_steps_scale_with_bob_rate():
     base, _ = bob_walk(30.0)
-    fast, _ = bob_walk(30.0, sway_data=dataclasses.replace(SwayData(), bob_rate=0.8))
+    fast, _ = bob_walk(30.0, sway_data=dataclasses.replace(SwayData(), bob_rate=2 * SwayData().bob_rate))
     assert abs(len(fast) - 2 * len(base)) <= 2
 
 

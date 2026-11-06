@@ -117,7 +117,7 @@ def test_set_writes_into_the_live_object(store):
     assert gun.rpm == 900.0 and isinstance(gun.rpm, float)
     assert not store.set(store.by_id['gun.rpm'], 900)                  # không đổi thì False
     store.set(store.by_id['gun.kick.peak[2]'], -0.05)
-    assert gun.kick.peak == (0.0, 0.004, -0.05, 1.6, 0.0, 0.0) and isinstance(gun.kick.peak, tuple)
+    assert gun.kick.peak == (0.0, 0.004, -0.05, 0.7, 0.0, 0.0) and isinstance(gun.kick.peak, tuple)
     store.set(store.by_id['gun.tracer.every'], 5.0)
     assert gun.tracer.every == 5 and isinstance(gun.tracer.every, int)
     store.set(store.by_id['player.sprint_blocks_fire'], False)
@@ -287,10 +287,10 @@ def test_weapon_follows_rpm_changes_live():
     assert shots == pytest.approx(25, abs=1)
 
 
-def test_camera_recoil_scales_pattern():
+def test_camera_recoil_scales_with_the_panel_numbers():
     gun = copy.deepcopy(M4)
+    gun.recoil.up_noise = gun.recoil.right_noise = gun.recoil.right_walk = 0.0
     a = CameraRecoil(gun.recoil, random.Random(1))
-    gun.recoil.noise = 0.0
     a.on_shot()
     up1, right1 = a.pending
     gun.recoil.up_scale, gun.recoil.right_scale = 2.0, -1.0

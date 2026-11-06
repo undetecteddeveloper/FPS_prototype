@@ -1,6 +1,6 @@
-"""Giao diện hình ảnh: shader thế giới (đèn trần, bóng, vân vật liệu, AO giả, bụi trong phòng) và lớp tối góc màn hình.
+"""Giao diện hình ảnh của thế giới: shader (đèn trần, bóng, vân vật liệu, AO giả, bụi trong phòng), quầng đèn, bóng của bia chạy.
 
-Shader thế giới nằm ở shaders/world.vert|frag (khung theo unlit_with_fog_shader của Ursina). Áp lên mọi vật thể của trường bắn,
+Shader thế giới nằm ở shaders/world.vert|frag (khung theo unlit_with_fog_shader của Ursina); phần ánh sáng dùng chung với súng ở shaders/light_common.glsl + frame_light.py. Áp lên mọi vật thể của trường bắn,
 bia và lỗ đạn bằng cách đặt `Entity.shader`; vật liệu chọn bằng đầu vào `look_material` của từng Entity. Vật thể giao diện giữ
 shader mặc định của Ursina. Số liệu ở weapon_data.LookData; kích thước phòng ở core/room.RoomLayout.
 
@@ -10,18 +10,17 @@ mềm dưới bia và cột mốc, False = không bóng. AO giả (chân tườn
 import math
 import random
 
-from panda3d.core import (ColorBlendAttrib, LMatrix4f, PTA_LMatrix4f, TransparencyAttrib, PTA_LVecBase3f, SamplerState, Texture as PandaTexture, Vec3, Vec4)
+from panda3d.core import (ColorBlendAttrib, OmniBoundingVolume, TransparencyAttrib, SamplerState, Vec2 as PandaVec2, Vec4)
 from PIL import Image
-from ursina import Entity, Shader, Texture, application, camera, color, time, window
+from ursina import Entity, Mesh, Shader, Texture, application, color, time, window
 from ursina.vec2 import Vec2
 
-from fps.core.room import FACE_COUNT
-from fps.game.shaders import SHADER_DIR
+from fps.game.frame_light import FrameLight
+from fps.game.shaders import load_glsl, read_source
 from fps.weapon_data import LookData
 
 MATERIALS = {'floor': 1.0, 'walls': 2.0, 'pillars': 3.0, 'ceiling': 4.0, 'lamp_glow': 5.0, 'lamp_shades': 0.0,
              'signs': 6.0, 'sign_rods': 0.0}      # 6 = biển khoảng cách (có chữ phát sáng nhẹ)
-SHADOW_MODES = {False: 0.0, True: 1.0, 'fake': 2.0}
 
 
 def noise_texture(size: int = 128, cells: int = 8, seed: int = 11) -> Texture:
@@ -49,20 +48,6 @@ def noise_texture(size: int = 128, cells: int = 8, seed: int = 11) -> Texture:
     return tex
 
 
-def vignette_texture(size: int = 128) -> Texture:
-    """Tối dần từ giữa ra góc (alpha 0 ở giữa), để phủ lên cả màn hình."""
-    img = Image.new('RGBA', (size, size))
-    px = []
-    for y in range(size):
-        for x in range(size):
-            u, v = (x + 0.5) / size * 2 - 1, (y + 0.5) / size * 2 - 1
-            r = min(math.hypot(u, v) / math.sqrt(2), 1.0)          # 0 giữa .. 1 ở góc
-            a = max(0.0, (r - 0.35) / 0.65) ** 1.8
-            px.append((0, 0, 0, int(255 * a)))
-    img.putdata(px)
-    return Texture(img)
-
-
 def blob_texture(size: int = 64) -> Texture:
     """Vệt tối mềm (bóng giả): alpha giảm dần từ giữa ra mép."""
     img = Image.new('RGBA', (size, size))
@@ -88,21 +73,12 @@ def halo_texture(size: int = 64) -> Texture:
     return Texture(img, filtering='mipmap')
 
 
-def _dummy_shadow_texture() -> PandaTexture:
-    """Atlas 1x1 (độ sâu = 1, không che gì) để sampler2DShadow luôn có kết cấu hợp lệ khi tắt bóng thật."""
-    tex = PandaTexture('no_shadow')
-    tex.setup_2d_texture(1, 1, PandaTexture.T_float, PandaTexture.F_depth_component32)
-    tex.set_ram_image(b'\x00\x00\x80\x3f')
-    tex.set_minfilter(SamplerState.FT_shadow)
-    tex.set_magfilter(SamplerState.FT_shadow)
-    return tex
-
-
 class WorldLook:
-    def __init__(self, params: LookData, world: dict, targets: list, decals):
+    def __init__(self, params: LookData, world: dict, targets: list, decals, light: FrameLight):
         self.p = params
         self.world = world
         self.targets = targets
+        self.light = light
         self.shader = self._make_shader()
         self.shadows = None                 # LampShadows khi bật bóng thật
         self.blobs = []
@@ -120,47 +96,27 @@ class WorldLook:
         render.set_shader_input('look_detail_strength', float(params.detail_strength))
         render.set_shader_input('look_detail_tex', noise_texture()._texture)
         render.set_shader_input('look_material', 0.0)
-        render.set_shader_input('look_lamp', Vec4(params.lamp_x, params.lamp_y, params.lamp_z0, params.lamp_spacing))
-        render.set_shader_input('look_lamp2', Vec4(float(params.lamp_count), params.lamp_radius, params.lamp_ref,
-                                                   params.lamp_intensity))
-        render.set_shader_input('look_lamp_color', Vec3(*params.lamp_color))
-        render.set_shader_input('look_lamp_cone', Vec3(math.cos(math.radians(params.lamp_cone)),
-                                                       math.cos(math.radians(params.lamp_cone_outer)), params.lamp_side))
-        render.set_shader_input('look_ambient_up', Vec3(*params.ambient_up))
-        render.set_shader_input('look_ambient_down', Vec3(*params.ambient_down))
-        render.set_shader_input('look_bounce', Vec3(*params.bounce_color))
         render.set_shader_input('look_room', Vec4(room.half_width, room.z_back, room.z_end, room.height))
         render.set_shader_input('look_pillar', Vec4(room.pillar_z0, room.pillar_spacing, room.pillar_width / 2,
                                                     room.pillar_depth))
-        render.set_shader_input('look_exposure', float(params.exposure))
-        # vị trí camera đổi mỗi khung: mảng PTA sửa tại chỗ, không gọi lại set_shader_input (đổi trạng thái vẽ của cả thế giới mỗi khung)
-        self._camera_pos = PTA_LVecBase3f.empty_array(1)
-        self._camera_pos.set_element(0, Vec3(0, 1.6, 0))
-        render.set_shader_input('look_camera_pos', self._camera_pos)
-        self._no_shadow_tex = _dummy_shadow_texture()
-        self._identity_mats = PTA_LMatrix4f.empty_array(FACE_COUNT)
-        for i in range(FACE_COUNT):
-            self._identity_mats[i] = LMatrix4f.ident_mat()
+        self._push_flash(render)
+        light.bind(render)
 
         entities = [world[k] for k in MATERIALS]
         entities += [*world['stripes'], *world['posts'], *world['berms']]
         entities += [t.plate for t in targets]
-        entities += list(decals.items)
+        entities += decals.entities
         for e in entities:
             e.shader = self.shader
         for key, mat in MATERIALS.items():
             world[key].set_shader_input('look_material', mat)
 
         self._make_blobs(world, targets)
-        self.halos = self._make_halos(world['lamps'], params) if params.lamp_halo > 0 else []
+        self.halos = self._make_halos(world['lamps'], params) if params.lamp_halo > 0 else None
         self.mode = None
         self.set_shadow_mode(params.shadows)
 
         window.color = color.rgb(*params.fog_color)        # không có trời: nền (nếu lọt ra) cùng màu bụi trong phòng
-        self.vignette = None
-        if params.vignette > 0:
-            self.vignette = Entity(parent=camera.ui, model='quad', texture=vignette_texture(), z=1,
-                                   scale=(window.aspect_ratio, 1), color=color.rgba(1, 1, 1, params.vignette))   # tối ở góc = vignette
         # vẽ trước lúc dựng: dịch shader thế giới + vẽ atlas bóng không rơi vào khung đầu của game
         if self.shadows:
             self.shadows.render_now()
@@ -177,17 +133,20 @@ class WorldLook:
             application.base.graphicsEngine.render_frame()
         self._ready = True
 
+    def _push_flash(self, node):
+        flash = self.light.gun.flash
+        node.set_shader_input('look_flash_world', PandaVec2(flash.world_power / max(flash.light_power, 0.01), flash.world_falloff))
+
     @staticmethod
     def _make_shader() -> Shader:
-        vert = (SHADER_DIR / 'world.vert').read_text(encoding='utf-8')
-        frag = (SHADER_DIR / 'world.frag').read_text(encoding='utf-8')
+        vert, frag = read_source('world.vert'), read_source('world.frag')
         return Shader(name='fps_world', language=Shader.GLSL, vertex=vert, fragment=frag,
                       default_input={'texture_scale': Vec2(1, 1), 'texture_offset': Vec2(0.0, 0.0)})
 
     def _make_blobs(self, world, targets):
         tex = blob_texture()
         spots = [(t.root.x, t.root.z, t.width * 1.6, 1.8) for t in targets]
-        spots += [(e.x, e.z, 0.9, 1.3) for e in world['posts']]
+        spots += [(x, z, 0.9, 1.3) for x, z in world['post_spots']]
         for x, z, sx, sz in spots:
             b = Entity(model='plane', texture=tex, position=(x, 0.002, z), scale=(sx, 1, sz), color=color.white, enabled=False,
                        shader=self.shader)
@@ -201,18 +160,25 @@ class WorldLook:
                 self.mover_blobs.append((t, b))
 
     @staticmethod
-    def _make_halos(lamps, params) -> list:
-        """Một thẻ luôn quay về camera ở mỗi bóng đèn, trộn cộng, không ghi độ sâu (chóa đèn vẫn che được nó)."""
-        tex = halo_texture()
-        tint = color.rgba(*params.lamp_color, params.lamp_halo)
-        out = []
+    def _make_halos(lamps, params) -> Entity:
+        """Quầng sáng của mọi bóng đèn trong MỘT lần vẽ: mỗi thẻ có 4 đỉnh nằm ở tâm đèn, shaders/halo.vert bung ra quay về camera. Trộn cộng, không ghi độ sâu."""
+        verts, uvs, tris = [], [], []
         for x, y, z in lamps:
-            e = Entity(model='quad', texture=tex, position=(x, y - 0.08, z), scale=1.6, color=tint, billboard=True)
-            e.set_attrib(ColorBlendAttrib.make(ColorBlendAttrib.M_add, ColorBlendAttrib.O_incoming_alpha, ColorBlendAttrib.O_one))
-            e.set_depth_write(False)
-            e.set_bin('fixed', 5)
-            out.append(e)
-        return out
+            n = len(verts)
+            verts += [(x, y - 0.08, z)] * 4
+            uvs += [(0, 0), (1, 0), (1, 1), (0, 1)]
+            tris += [n, n + 1, n + 2, n, n + 2, n + 3]
+        e = Entity(model=Mesh(vertices=verts, uvs=uvs, triangles=tris, static=True), texture=halo_texture(), add_to_scene_entities=False)
+        e.setShader(load_glsl('halo'), 1)
+        e.set_shader_input('halo_size', 1.6)
+        e.set_shader_input('halo_color', Vec4(*params.lamp_color, params.lamp_halo))
+        e.set_attrib(ColorBlendAttrib.make(ColorBlendAttrib.M_add, ColorBlendAttrib.O_incoming_alpha, ColorBlendAttrib.O_one))
+        e.set_depth_write(False)
+        e.set_two_sided(True)
+        e.set_bin('fixed', 5)
+        e.node().set_bounds(OmniBoundingVolume())
+        e.node().set_final(True)
+        return e
 
     def set_shadow_mode(self, mode):
         """True / 'fake' / False; đổi được lúc đang chạy (bóng thật dựng lần đầu khi cần)."""
@@ -224,17 +190,12 @@ class WorldLook:
             for t in self.targets:
                 if self._ready or t.patrol is None:          # lúc dựng: bia chạy vào atlas sau lần vẽ đầu (xem cuối __init__)
                     LampShadows.add_caster(t.plate)
-        render = application.base.render
         if mode is True:
             self._mover_drawn_x.clear()                      # atlas có thể giữ bóng cũ của bia chạy: vẽ lại ở các lượt kế tiếp
-            for k, v in self.shadows.shader_inputs().items():
-                render.set_shader_input(k, v)
+            self.light.radius = self.shadows.radius          # bán kính đã nướng vào bản đồ bóng
+            self.light.set_shadows(mode, self.shadows.shader_inputs())
         else:
-            render.set_shader_input('look_shadow_atlas', self._no_shadow_tex)
-            render.set_shader_input('look_face_mat', self._identity_mats)
-            render.set_shader_input('look_shadow_grid', Vec4(1, 1, 1, 1))
-        bias_a, bias_b = self.p.shadow_bias
-        render.set_shader_input('look_shadow', Vec4(SHADOW_MODES[mode], bias_a, bias_b, self.p.lamp_emissive))
+            self.light.set_shadows(mode)
         for b in self.blobs:
             b.enabled = mode == 'fake'
         self.mode = mode
@@ -243,29 +204,39 @@ class WorldLook:
         """Bảng debug (G6): đẩy lại các số ánh sáng của `LookData` có hiệu lực TỨC THÌ (đèn, tông màu, bụi, bóng, tối góc...) vào shader
         với đúng tên đầu vào như lúc dựng. Không đụng vị trí / số đèn và cỡ bản đồ bóng (nướng lúc dựng: cần khởi động lại)."""
         p, render = self.p, application.base.render
-        radius = self.shadows.radius if self.shadows else p.lamp_radius        # bán kính đã nướng vào bản đồ bóng
         render.set_shader_input('look_fog', (*p.fog_color, p.fog_density))
         render.set_shader_input('look_detail_strength', float(p.detail_strength))
-        render.set_shader_input('look_lamp2', Vec4(float(p.lamp_count), radius, p.lamp_ref, p.lamp_intensity))
-        render.set_shader_input('look_lamp_color', Vec3(*p.lamp_color))
-        render.set_shader_input('look_lamp_cone', Vec3(math.cos(math.radians(p.lamp_cone)),
-                                                       math.cos(math.radians(p.lamp_cone_outer)), p.lamp_side))
-        render.set_shader_input('look_ambient_up', Vec3(*p.ambient_up))
-        render.set_shader_input('look_ambient_down', Vec3(*p.ambient_down))
-        render.set_shader_input('look_bounce', Vec3(*p.bounce_color))
-        render.set_shader_input('look_exposure', float(p.exposure))
+        self._push_flash(render)
         self.set_shadow_mode(p.shadows)                      # cũng đẩy lại look_shadow (chống sọc bóng, độ chói bóng đèn)
+        self.light.apply_params()
         window.color = color.rgb(*p.fog_color)
-        tint = color.rgba(*p.lamp_color, p.lamp_halo)
-        for h in self.halos:
-            h.color = tint
-        if self.vignette is not None:
-            self.vignette.color = color.rgba(1, 1, 1, p.vignette)
+        if self.halos is not None:
+            self.halos.set_shader_input('halo_color', Vec4(*p.lamp_color, p.lamp_halo))
 
     def _lamps_near_mover(self, target) -> list:
         """Các đèn cần vẽ lại bóng khi bia chạy đổi chỗ: đèn cách bia dọc z trong `mover_shadow_reach` x bán kính đèn."""
         z = target.root.z
-        return self.shadows.lamps_near(z, z, self.p.mover_shadow_reach * self.p.lamp_radius)
+        return self.shadows.lamps_near(z, z, self.p.mover_shadow_reach * self.shadows.radius)
+
+    def _faces_for_mover(self, target, old_x: float) -> dict:
+        """Đèn -> các mặt cubemap có thể nhìn thấy bia (ở chỗ cũ hoặc chỗ mới): chỉ vẽ lại những mặt đó, rẻ hơn hẳn vẽ cả 5 mặt."""
+        half = target.width / 2.0
+        x0, x1 = min(old_x, target.root.x) - half, max(old_x, target.root.x) + half
+        z = target.root.z
+        out = {}
+        for i in self._lamps_near_mover(target):
+            lx, _, lz = self.shadows.lamps[i]
+            faces = [2]                                      # -y: luôn có, bia đứng dưới đèn
+            if x1 > lx:
+                faces.append(0)                              # +x
+            if x0 < lx:
+                faces.append(1)                              # -x
+            if z + 0.1 > lz:
+                faces.append(3)                              # +z
+            if z - 0.1 < lz:
+                faces.append(4)                              # -z
+            out[i] = faces
+        return out
 
     def _tick_movers(self):
         """Bóng thật của bia chạy: đèn và tường đứng yên nên atlas chỉ vẽ một lần, còn bia chạy thì cứ 1/(hz x số bia) giây vẽ lại
@@ -280,16 +251,15 @@ class WorldLook:
         for _ in range(len(self.movers)):                    # bia kế tiếp CÓ đổi chỗ từ lần vẽ trước
             t = self.movers[self._mover_next % len(self.movers)]
             self._mover_next += 1
-            if abs(t.root.x - self._mover_drawn_x.get(t, 1e9)) > 1e-4:
+            old = self._mover_drawn_x.get(t)
+            if old is None or abs(t.root.x - old) > 1e-4:
                 self._mover_drawn_x[t] = t.root.x
-                self.shadows.refresh_lamps(self._lamps_near_mover(t))
+                self.shadows.refresh_faces(self._faces_for_mover(t, t.root.x if old is None else old))
                 self.mover_shadow_refreshes += 1
                 return
 
     def update(self):
-        """Mỗi khung: vị trí camera cho bụi trong phòng và độ mờ dần của chi tiết; tắt buffer bóng khi đã vẽ xong;
-        bóng của bia chạy (thật: vẽ lại đèn gần; giả: vệt tối đi theo bia)."""
-        self._camera_pos.set_element(0, Vec3(*camera.world_position))
+        """Mỗi khung: tắt buffer bóng khi đã vẽ xong; bóng của bia chạy (thật: vẽ lại đèn gần; giả: vệt tối đi theo bia)."""
         if self.shadows:
             self.shadows.update()
             self._tick_movers()

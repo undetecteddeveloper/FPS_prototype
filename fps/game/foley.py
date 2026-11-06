@@ -15,7 +15,8 @@ from pathlib import Path
 from panda3d.core import Filename
 from ursina import application
 
-from fps.core.cues import CueSchedule
+from fps.core.breath import Breathing
+from fps.core.cues import CueSchedule, impact_sound
 from fps.core.footsteps import FootEvent, Footsteps, pick_variant
 from fps.weapon_data import AudioData, GunData
 
@@ -48,9 +49,10 @@ class Foley:
         self.rng = rng or random.Random()
         self.schedule = CueSchedule()
         self.steps = Footsteps(audio, self.rng)
+        self.breathing = Breathing(audio, gun.sway)
         self._px, self._pz = player.x, player.z
 
-        names = set(STEP_NAMES) | {audio.cancel_sound}
+        names = set(STEP_NAMES) | {audio.cancel_sound, 'dry', 'hit_target', 'hit_hard', 'breath'}
         for cues in audio.cues.values():
             names.update(c.sound for c in cues)
         names.discard(None)
@@ -60,19 +62,23 @@ class Foley:
         self.counts = Counter()                    # số lần phát theo tên nhóm (cho kiểm tra)
         self.log = deque(maxlen=512)               # (clock, tên, âm lượng, biến thể) các tiếng gần nhất
         self.last_sound = None
+        self.pending = []                          # (đồng hồ lúc phát, tên, âm lượng, cao độ): tiếng đạn trúng đang trên đường về tai người bắn
 
     def _load_bank(self, name: str, project_root: Path) -> _Bank:
         folder = project_root / self.audio.folder
         group = self.audio.sound_files.get(name, name)             # tên logic -> nhóm file (tiếng người dùng cung cấp hoặc tổng hợp)
         files = sorted(folder.glob(f'{group}_*.wav'))
         if not files:
-            raise FileNotFoundError(f'thiếu {folder}\\{group}_*.wav: chạy tools\\prep_foley.py (tiếng user_*: tools\\prep_user_audio.py)')
+            raise FileNotFoundError(f'thiếu {folder}\\{group}_*.wav: chạy tools\\prep_foley.py (tiếng user_*: tools\\prep_user_audio.py; el_*: tools\\prep_elevenlabs.py)')
         loader = application.base.loader
         return _Bank([[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(max(1, self.audio.pool))] for f in files])
 
     # --- phát ---
-    def play(self, name: str, volume: float, pitch: float = 1.0, pan: float = 0.0):
+    def play(self, name: str, volume: float, pitch: float = 1.0, pan: float = 0.0, fit_hz: float = 0.0):
+        """`fit_hz` > 0: kéo giãn tiếng cho vừa một chu kỳ 1 / fit_hz giây (chỉ trong khoảng 0,85-1,2 lần)."""
         variant, sound = self.banks[name].next_sound(self.rng)
+        if fit_hz > 0.0 and sound.length() > 0.0:
+            pitch *= min(max(sound.length() * fit_hz, 0.85), 1.2)
         sound.set_volume(min(max(volume, 0.0), 1.0))
         sound.set_play_rate(pitch * self.audio.pitch_scale.get(name, 1.0))
         sound.set_balance(min(max(pan, -1.0), 1.0))
@@ -90,6 +96,17 @@ class Foley:
         pan = 0.0 if ev.kind == 'land' else (self.audio.foot_pan if ev.foot else -self.audio.foot_pan)
         self.play(name, ev.gain, ev.pitch, pan)
 
+    def on_impact(self, on_target: bool, distance: float):
+        """Đạn vừa trúng: tiếng va tới tai sau `distance / tốc độ âm thanh` giây."""
+        a = self.audio
+        delay, volume = impact_sound(a, distance, on_target)
+        pitch = 1.0 + self.rng.uniform(-a.hit_pitch_variation, a.hit_pitch_variation)
+        self.pending.append((self.clock + delay, 'hit_target' if on_target else 'hit_hard', volume, pitch))
+
+    def on_dry_fire(self):
+        """Bóp cò khi đã hết sạch đạn: game không có HUD nên đây là cách duy nhất biết hết đạn, cùng với khoá nòng."""
+        self.play('dry', self.audio.dry_volume)
+
     # --- móc vào Game.update ---
     def on_handling_event(self, event: tuple):
         """Sự kiện của core.handling.Handling: ('start', key, speed) / ('swap', key) / ('done', key) / ('cancel', key, frame)."""
@@ -102,11 +119,17 @@ class Foley:
         elif kind == 'cancel':
             self.schedule.cancel(self.audio)
 
-    def update(self, dt: float, bob_phase: float = None):
+    def update(self, dt: float, bob_phase: float = None, sway=None, ads: float = 0.0):
         """Mỗi khung, SAU khi đã xử lý các sự kiện của Handling (cùng `dt` thật với Handling.update) và SAU `Sway.update` (để pha bob là của khung này).
-        `bob_phase` = Sway.phase: bước chân phát đúng lúc súng chạm điểm thấp nhất của bob."""
+        `bob_phase` = Sway.phase: bước chân phát đúng lúc súng chạm điểm thấp nhất của bob. `sway` = Sway (đồng hồ thở + bob), `ads` = player.ads_amount: tiếng thở."""
         self.clock += dt
         self._play_cues(self.schedule.update(dt))
+        if self.pending:
+            due = [e for e in self.pending if e[0] <= self.clock]
+            if due:
+                self.pending = [e for e in self.pending if e[0] > self.clock]
+                for _, name, volume, pitch in due:
+                    self.play(name, volume, pitch)
         p = self.player
         moved = math.hypot(p.x - self._px, p.z - self._pz)
         self._px, self._pz = p.x, p.z
@@ -114,3 +137,7 @@ class Foley:
             moved = 0.0
         for ev in self.steps.update(dt, moved, p.on_ground, p.vy, p.landed, p.sprinting, p.crouching, bob_phase):
             self._play_foot(ev)
+        if sway is not None:
+            volume = self.breathing.update(sway.clock, sway.bob_amount, ads, p.on_ground)
+            if volume is not None and volume > 0.0:
+                self.play('breath', volume, fit_hz=self.gun.sway.breath_freq)

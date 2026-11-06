@@ -28,7 +28,7 @@ from fps.core.handling import Phase  # noqa: E402
 from fps.core.movement import MoveState  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=True, moving_targets=False)
+game = create_game(vsync=False, sound=False, draw=True, moving_targets=False, hud=True, free_aim=False)
 player, combat, viewmodel, hud = game.player, game.combat, game.viewmodel, game.hud
 handling, weapon = combat.handling, combat.weapon
 gun = game.params.gun
@@ -76,7 +76,7 @@ def main_y():
 
 def flash_level() -> float:
     """Độ sáng đèn tia lửa mà shader của súng đang nhận (kênh lớn nhất)."""
-    v = viewmodel._flash_color.get_element(0)                   # mảng PTA mà shader của súng đọc
+    v = viewmodel.light.flash_color.get_element(0)              # mảng PTA mà shader của súng đọc
     return max(v[0], v[1], v[2])
 
 

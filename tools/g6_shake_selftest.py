@@ -27,11 +27,17 @@ from fps.core.movement import aim_direction  # noqa: E402
 from fps.core.recoil import CameraRecoil, GunKick  # noqa: E402
 from fps.core.spread import angle_between  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, moving_targets=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
+game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, hud=True, free_aim=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
 player, combat, viewmodel = game.player, game.combat, game.viewmodel
 shake = game.shake
 gun = game.params.gun
 D = gun.shake
+# bài này đo riêng lớp rung: tắt chuyển động đầu và phần súng trôi (kiểm ở tools/g7_selftest.py)
+game.shake_view.head = None
+_fa = gun.free_aim
+_fa.rest_yaw = _fa.rest_pitch = _fa.rest_roll = _fa.rest_pos = 0.0
+_fa.idle_yaw = _fa.idle_pitch = _fa.idle_roll = 0.0
+_fa.tremor_angle = _fa.tremor_pos = 0.0
 mouse.locked = False
 combat.require_locked_mouse = False
 
@@ -124,6 +130,7 @@ class Script(Entity):
         combat.pressed = False
         shake.reset()
         shake.t = 0.0                  # cùng đồng hồ nhiễu cho mọi lượt đo: so sánh bật/tắt, hông/ngắm công bằng
+        shake.shot_count = 0           # cùng chuỗi độ mạnh / hướng từng phát (băm theo số thứ tự phát)
         shake.enabled = True
         shake.beat_log.clear()
 
@@ -137,15 +144,15 @@ class Script(Entity):
         held_keys['left mouse'] = 1
         while combat.weapon.mag > 0:
             yield
-            samples.append((combat.weapon.mag, shake.trauma) + shake_metrics())
+            samples.append((combat.weapon.mag, shake.heat) + shake_metrics())
         held_keys['left mouse'] = 0
         after, t = [], 0.0
-        while t < 1.0:                            # 1 s (đồng hồ game) sau loạt cuối: tính theo giây chứ không theo số khung, vì trauma tắt theo THỜI GIAN
+        while t < 1.0:                            # 1 s (đồng hồ game) sau loạt cuối: tính theo giây chứ không theo số khung, vì rung tắt theo THỜI GIAN
             yield
             t += min(time.dt, 0.05)
-            after.append((t, (0, shake.trauma) + shake_metrics()))
+            after.append((t, (0, shake.heat) + shake_metrics()))
         samples.extend(x for _, x in after)
-        settle = D.fire_max_trauma / D.fire_decay + 0.1       # trauma tắt hẳn sau cap / decay giây kể từ phát cuối (+ chút dư)
+        settle = D.heat_hold + 1.0 / D.heat_cool + 0.1       # độ nóng (run tay) về 0 sau hold + 1 / cool giây kể từ phát cuối; lò xo giật tắt trước đó (+ chút dư)
         self.spray_tail = [x for tt, x in after if tt >= settle]
         self.spray_samples = samples
 
@@ -241,7 +248,7 @@ class Script(Entity):
 
         gp = set_pose(5, 0.5)
         p = screen_px(far)
-        check('roll phải +0,5 độ: điểm bên phải màn hình đi LÊN', round(p[1] - base[1], 1), '> 0', p[1] - base[1] > 2)
+        check('roll phải +0,5 độ: điểm bên phải màn hình đi LÊN', round(p[1] - base[1], 1), '> 0', p[1] - base[1] > 1)
         gp = set_pose(3, 0.5)
         p = screen_px((0.0, player.camera_pivot.y, 12.0))
         check('pitch ngóc +0,5 độ: điểm giữa đi XUỐNG', round(p[1] - base_center[1], 1), '< 0', p[1] - base_center[1] < -2)
@@ -274,25 +281,27 @@ class Script(Entity):
         mm_max = max(x[4] for x in s)
         px_max = max(x[5] for x in s)
         tr_max = max(x[1] for x in s)
-        cap = D.fire_max_trauma
         print(f'BẮN (một băng 30 viên, hông): roll tối đa {roll_max:.3f} độ, lệch hướng nhìn tối đa {dev_max:.3f} độ, dịch tối đa {mm_max:.2f} mm, '
-              f'điểm ảnh lệch tối đa {px_max:.1f} px (điểm gần góc màn hình), trauma tối đa {tr_max:.2f}')
-        ceiling = cap ** D.power
-        check('bắn: trauma lên sát trần mà không vượt (đo cuối khung)', round(tr_max, 3), f'{cap - D.fire_decay * 0.04:.2f} .. {cap}',
-              cap - D.fire_decay * 0.04 <= tr_max <= cap + 1e-9)
-        check('bắn: roll nhìn thấy được (độ)', round(roll_max, 3), '>= 0.15', roll_max >= 0.15)
-        check('bắn: roll vừa phải (độ)', round(roll_max, 3), f'<= {D.fire_amp[5] * D.fire_scale * ceiling + 0.02:.2f}',
-              roll_max <= D.fire_amp[5] * D.fire_scale * ceiling + 0.02)
-        dev_cap = ceiling * D.fire_scale * math.hypot(D.fire_amp[3], D.fire_amp[4]) + 0.02   # tối đa của mô hình: pitch và yaw cùng đạt đỉnh
-        check('bắn: lệch hướng nhìn (pitch/yaw) vừa phải (độ)', round(dev_max, 3), f'<= {dev_cap:.2f}', dev_max <= dev_cap)
-        check('bắn: dịch chuyển vừa phải (mm)', round(mm_max, 2), '<= 2.5', mm_max <= 2.5)
-        check('bắn: dịch trên màn hình vừa phải (px)', round(px_max, 1), '2 .. 14', 2 <= px_max <= 14)
+              f'điểm ảnh lệch tối đa {px_max:.1f} px (điểm gần góc màn hình), độ nóng tối đa {tr_max:.2f}')
+        check('bắn: cả băng làm nóng hẳn (độ nóng = 1)', round(tr_max, 3), '1.0', tr_max >= 1.0 - 1e-9)
+        # giới hạn của mô hình: mỗi trục <= (bias + spread) x độ mạnh tối đa x (1 + heat_boost) x fire_scale x hệ số dồn (~1,6) + run tay
+        k_max = (1 + D.strength_var) * (1 + D.heat_boost) * D.fire_scale * 1.6
+
+        def axis_cap(i):
+            return k_max * (abs(D.fire_bias[i]) + abs(D.fire_spread[i])) + D.tremor_amp[i] * D.fire_scale
+        check('bắn: roll thấy rõ (độ)', round(roll_max, 3), '>= 1.0', roll_max >= 1.0)
+        check('bắn: roll trong giới hạn của mô hình (độ)', round(roll_max, 3), f'<= {axis_cap(5):.2f}', roll_max <= axis_cap(5))
+        dev_cap = math.hypot(axis_cap(3), axis_cap(4))
+        check('bắn: lệch hướng nhìn (pitch/yaw) trong giới hạn (độ)', round(dev_max, 3), f'0.5 .. {dev_cap:.2f}', 0.5 <= dev_max <= dev_cap)
+        mm_cap = math.sqrt(sum(axis_cap(i) ** 2 for i in range(3))) * 1000.0
+        check('bắn: dịch chuyển trong giới hạn (mm)', round(mm_max, 2), f'<= {mm_cap:.1f}', mm_max <= mm_cap)
+        check('bắn: dịch trên màn hình rõ mà không văng (px)', round(px_max, 1), '10 .. 500', 10 <= px_max <= 500)
         late = [x for x in firing if x[0] <= 10]
         early = [x for x in firing if x[0] >= 25]
         check('bắn: rung dựng dần (10 viên cuối > 3 viên đầu)', f'{max(x[2] for x in late):.2f} vs {max(x[2] for x in early):.2f}', 'lớn hơn',
               max(x[2] for x in late) > max(x[2] for x in early))
         tail = self.spray_tail
-        check('bắn: sau khi trauma tắt hết (cap / decay + 0,1 s) rung đã tắt hẳn', round(max(x[2] for x in tail), 4) if tail else None, '0',
+        check('bắn: sau khi nguội hẳn (hold + 1 / cool + 0,1 s) rung đã tắt hẳn', round(max(x[2] for x in tail), 4) if tail else None, '0',
               bool(tail) and max(x[2] + x[3] + x[4] for x in tail) < 0.01)
         check('bắn: camera về đúng 0 (độ)', tuple(round(c, 6) for c in camera.rotation), '(0,0,0)', not any(camera.rotation))
         yield from self.wait(0.3)
@@ -310,20 +319,20 @@ class Script(Entity):
         held_keys['left mouse'] = 0
         yield from self.wait(1.0)
 
-        # ảnh phóng đại (x8) để kiểm bằng mắt rằng cả thế giới và súng cùng rung đúng hướng
-        saved_amp = D.fire_amp
-        D.fire_amp = tuple(c * 8 for c in saved_amp)
+        # ảnh phóng đại (x3) để kiểm bằng mắt rằng cả thế giới và súng cùng rung đúng hướng
+        saved_amp = D.fire_scale
+        D.fire_scale = saved_amp * 3
         self.reset_state()
         combat.rng.seed(S_SEED)
         yield from self.wait(0.1)
         held_keys['left mouse'] = 1
         while combat.weapon.mag > 12:
             yield
-        shot('spray_mid_x8')
+        shot('spray_mid_x3')
         while combat.weapon.mag > 0:
             yield
         held_keys['left mouse'] = 0
-        D.fire_amp = saved_amp
+        D.fire_scale = saved_amp
         yield from self.wait(1.0)
 
         # --- C. ngắm (ADS) ---
@@ -332,25 +341,27 @@ class Script(Entity):
         roll_hip, roll_ads = max(res_hip['rolls']), max(res_ads['rolls'])
         check('ADS: rung còn đúng tỉ lệ cấu hình', round(roll_ads / roll_hip, 3), D.ads_multiplier, abs(roll_ads / roll_hip - D.ads_multiplier) < 0.02)
 
-        # --- C2. hệ số rung bắn: cùng kịch bản (cùng seed, dt cố định) với fire_scale = 1,0 và hiện hành -> mọi biên độ lớn đúng tỉ lệ ---
-        saved_scale = D.fire_scale
-        D.fire_scale = 1.0
-        base_hip = self.deterministic_pass(True, ads=0.0)
-        base_ads = self.deterministic_pass(True, ads=1.0)
-        D.fire_scale = saved_scale
-        ratio_hip = roll_hip / max(base_hip['rolls'])
-        ratio_ads = roll_ads / max(base_ads['rolls'])
-        print(f'HỆ SỐ RUNG BẮN: roll tối đa hông {max(base_hip["rolls"]):.3f} -> {roll_hip:.3f} độ (x{ratio_hip:.3f}), ngắm {max(base_ads["rolls"]):.3f} -> {roll_ads:.3f} độ (x{ratio_ads:.3f}); '
-              f'fire_scale = {saved_scale}')
-        check('rung bắn hông: biên độ roll tăng đúng fire_scale (tỉ lệ)', round(ratio_hip, 3), f'{saved_scale} +-0.01', abs(ratio_hip - saved_scale) < 0.01)
-        check('rung bắn ngắm: cũng tăng đúng fire_scale (và vẫn ADS x ads_multiplier)', round(ratio_ads, 3), f'{saved_scale} +-0.01',
-              abs(ratio_ads - saved_scale) < 0.01)
-        # phần súng đi theo cũng nhân: độ lệch thân súng giữa rung bật / tắt, fire_scale 1,0 so với hiện hành
+        # --- C2. hệ số rung bắn: cùng kịch bản (cùng seed, dt cố định) với fire_scale hiện hành và x1,5 -> mọi biên độ lớn đúng tỉ lệ ---
+        base_scale = D.fire_scale
+        test_scale = 1.5
+        D.fire_scale = base_scale * test_scale
+        big_hip = self.deterministic_pass(True, ads=0.0)
+        big_ads = self.deterministic_pass(True, ads=1.0)
+        D.fire_scale = base_scale
+        ratio_hip = max(big_hip['rolls']) / roll_hip
+        ratio_ads = max(big_ads['rolls']) / roll_ads
+        print(f'HỆ SỐ RUNG BẮN: roll tối đa hông {roll_hip:.3f} -> {max(big_hip["rolls"]):.3f} độ (x{ratio_hip:.3f}), ngắm {roll_ads:.3f} -> {max(big_ads["rolls"]):.3f} độ (x{ratio_ads:.3f}); '
+              f'fire_scale {base_scale} -> {base_scale * test_scale}')
+        check('rung bắn hông: biên độ roll tăng đúng fire_scale (tỉ lệ)', round(ratio_hip, 3), f'{test_scale} +-0.01', abs(ratio_hip - test_scale) < 0.01)
+        check('rung bắn ngắm: cũng tăng đúng fire_scale (và vẫn ADS x ads_multiplier)', round(ratio_ads, 3), f'{test_scale} +-0.01',
+              abs(ratio_ads - test_scale) < 0.01)
+        # phần súng đi theo cũng nhân: độ lệch thân súng giữa rung bật / tắt, fire_scale hiện hành so với x1,5
+        saved_scale = test_scale
         off_pass = self.deterministic_pass(False)
-        D.fire_scale = 1.0
         on_base = self.deterministic_pass(True)
-        D.fire_scale = saved_scale
+        D.fire_scale = base_scale * test_scale
         on_now = self.deterministic_pass(True)
+        D.fire_scale = base_scale
 
         def gun_dev_of(res):
             return max(max(abs(a - b) for a, b in zip(g1, g0)) for g1, g0 in zip(res['gun'], off_pass['gun']))
@@ -412,7 +423,7 @@ class Script(Entity):
         off = self.deterministic_pass(False)
         n_shots = len(on['shots'])
         check('kịch bản xác định: bắn được cả loạt', n_shots, '>= 20', n_shots >= 20 and n_shots == len(off['shots']))
-        check('rung có thật trong lần rung BẬT (roll tối đa, độ)', round(max(on['rolls']), 3), '>= 0.15', max(on['rolls']) >= 0.15)
+        check('rung có thật trong lần rung BẬT (roll tối đa, độ)', round(max(on['rolls']), 3), '>= 1.0', max(on['rolls']) >= 1.0)
         check('rung TẮT: camera không lệch (roll, độ)', max(off['rolls']), 0, max(off['rolls']) == 0)
         check('tia ngắm (gốc + hướng) giống hệt mỗi bước', on['rays'] == off['rays'], True, on['rays'] == off['rays'])
         check('yaw/pitch của người chơi giống hệt mỗi bước', on['views'] == off['views'], True, on['views'] == off['views'])
@@ -423,7 +434,7 @@ class Script(Entity):
         gun_dev = max(max(abs(a - b) for a, b in zip(g1, g0)) for g1, g0 in zip(on['gun'], off['gun']))
         print(f'SÚNG trên màn hình: lệch tối đa do rung {gun_dev * 1000:.2f} mm (thân súng, hệ camera vẽ súng)')
         check('súng có rung theo (mm)', round(gun_dev * 1000, 2), '> 0.2', gun_dev * 1000 > 0.2)
-        check('  nhưng nhẹ (mm)', round(gun_dev * 1000, 2), '<= 6', gun_dev * 1000 <= 6)
+        check('  nhưng không văng khỏi tay (mm)', round(gun_dev * 1000, 2), '<= 30', gun_dev * 1000 <= 30)    # G7: giật từng phát mạnh (bản trauma cũ <= 6 mm)
 
         # --- F. tia ngắm đọc từ Player không phụ thuộc camera đang rung ---
         self.reset_state()

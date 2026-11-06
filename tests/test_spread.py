@@ -10,8 +10,12 @@ from fps.weapon_data import AccuracyData
 S = MoveState
 
 
+# Cơ chế độ tản giữ nguyên (bảng F1 vẫn chỉnh được) nên test dùng bộ số có hình nón rõ; mặc định của game chỉ còn tản cơ khí rất nhỏ (test cuối file).
+CONE = AccuracyData(stand=2.0, walk=3.5, sprint=4.5, air=6.0, crouch_multiplier=0.7, ads=0.1, ads_move=0.6, bloom_per_shot=0.25)
+
+
 def acc():
-    return Accuracy(AccuracyData())
+    return Accuracy(CONE)
 
 
 def test_base_spread_per_state_matches_the_brief():
@@ -125,3 +129,13 @@ def test_crosshair_gap_matches_perspective_projection():
     assert 0.03 < crosshair_gap(2.0, vtan) < 0.045
     gaps = [crosshair_gap(a, vtan) for a in (0, 1, 2, 4, 6, 10)]
     assert gaps == sorted(gaps)
+
+
+def test_default_gun_has_only_a_tiny_mechanical_spread():
+    """Đã chốt: bỏ hình nón theo trạng thái (đạn bay theo nòng, sự thiếu chính xác đến từ nòng thật sự lệch đi)."""
+    a = Accuracy(AccuracyData())
+    for state in (S.IDLE, S.WALK, S.SPRINT, S.AIR, S.CROUCH_IDLE, S.CROUCH_WALK):
+        assert a.angle(state) == pytest.approx(0.03)
+        assert a.angle(state, 1.0) == pytest.approx(0.03)
+    a.on_shot()
+    assert a.angle(S.IDLE) == pytest.approx(0.03)          # không có bloom

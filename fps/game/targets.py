@@ -4,15 +4,13 @@ Bia chạy (G6) đi ngang làn (trục x) giữa hai biên (`MOVERS`, toán ở 
 khung, trước khi đạn đi; bia ghi lại x đầu khung và x cuối khung (`x_start`, `x_end`) để đạn dò va chạm với hộp ở đúng thời điểm
 của từng bước nhỏ (`Combat._advance`), không phải ở cuối khung.
 
-Lỗ đạn là `quad` dán lên mặt trúng, tái dùng vòng tròn trong một bể cố định (không phình ra mãi). Lỗ gắn vào `target.root`
-nên bia chạy mang lỗ theo.
+Lỗ đạn ở game/decals.py.
 """
 from dataclasses import dataclass
 
 from PIL import Image, ImageDraw
-from ursina import Entity, Texture, color, lerp, scene
+from ursina import Entity, Texture, color, lerp
 
-from fps.core.ballistics import decal_rotation, hole_size
 from fps.core.patrol import Patrol, phase_start
 from fps.weapon_data import FeedbackParams
 
@@ -60,7 +58,7 @@ def _target_texture() -> Texture:
     return tex
 
 
-def _hole_texture() -> Texture:
+def hole_texture() -> Texture:
     size = 64
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -123,38 +121,6 @@ class Target:
         if self.flash_left > 0:
             self.flash_left = max(0.0, self.flash_left - dt)
             self.plate.color = lerp(color.white, FLASH_COLOR, self.flash_left / self.flash_duration)
-
-
-class HoleDecals:
-    def __init__(self, params: FeedbackParams):
-        self.params = params
-        self.texture = _hole_texture()
-        # tạo sẵn cả bể lúc khởi động (tạo vật thể giữa lúc bắn gây khựng ~10 ms mỗi lần)
-        self.items = [Entity(model='quad', texture=self.texture, enabled=False) for _ in range(params.max_holes)]
-        self.next = 0
-        self.used = 0
-
-    def add(self, point, normal, distance: float, parent=None, tint=None):
-        fb = self.params
-        e = self.items[self.next]
-        self.next = (self.next + 1) % len(self.items)
-        self.used = min(self.used + 1, len(self.items))
-        e.parent = scene                 # lỗ cũ được tái dùng có thể đang gắn vào một bia
-        # nhích ra khỏi mặt phẳng: ở xa độ phân giải độ sâu thô (~1 cm ở 150 m) nên nhích theo khoảng cách
-        offset = 0.02 + 0.0002 * distance
-        e.position = tuple(p + n * offset for p, n in zip(point, normal))
-        e.rotation = decal_rotation(normal)
-        e.scale = hole_size(distance, fb.hole_base_size, fb.hole_size_per_meter)
-        e.color = tint or color.white
-        e.set_depth_offset(2)
-        e.enabled = True
-        if parent is not None:
-            e.world_parent = parent      # giữ nguyên toạ độ thế giới, từ giờ đi theo `parent`
-        return e
-
-    @property
-    def count(self) -> int:
-        return self.used
 
 
 def make_patrol(distance: float, spec: MoverSpec) -> Patrol:

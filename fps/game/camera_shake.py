@@ -11,21 +11,20 @@ from fps.core.shake import Shake
 
 
 class ShakeView:
-    def __init__(self, shake: Shake):
+    def __init__(self, shake: Shake, head=None):
         self.shake = shake
-        self._applied = False            # camera đang lệch khỏi (0,0,0)
+        self.head = head                 # core.headcam.HeadCam: chuyển động đầu + thân + liếc súng khi nạp, cũng thuần hình ảnh (Game.update gọi head.update trước apply)
 
     def apply(self, ads: float) -> tuple:
-        """Đặt rung lên camera thế giới; trả về tư thế cộng thêm cho súng (đưa vào Viewmodel.update)."""
+        """Đặt rung + chuyển động đầu lên camera thế giới; trả về tư thế cộng thêm cho súng (đưa vào Viewmodel.update, `visual`).
+        Phần liếc súng của HeadCam đi theo `glance_follow` (~1) nên lúc cúi nhìn súng, súng đi lên giữa khung chứ không dính ống kính."""
         sh = self.shake
-        if not sh.active:
-            if self._applied:
-                self._applied = False
-                camera.position = (0, 0, 0)
-                camera.rotation = (0, 0, 0)
-            return (0.0,) * 6
-        x, y, z, pitch_up, yaw_right, roll_right = sh.camera_pose(ads)
+        camera_pose = sh.camera_pose(ads) if sh.active else (0.0,) * 6
+        gun_pose = sh.gun_pose(ads) if sh.active else (0.0,) * 6
+        if self.head is not None:
+            camera_pose = tuple(a + b for a, b in zip(camera_pose, self.head.camera_pose()))
+            gun_pose = tuple(a + b for a, b in zip(gun_pose, self.head.gun_pose()))
+        x, y, z, pitch_up, yaw_right, roll_right = camera_pose
         camera.position = (x, y, z)
         camera.rotation = (-pitch_up, yaw_right, roll_right)
-        self._applied = True
-        return sh.gun_pose(ads)
+        return gun_pose

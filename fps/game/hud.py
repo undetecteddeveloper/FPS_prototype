@@ -1,4 +1,4 @@
-"""HUD: FPS, tâm ngắm động (giãn theo độ tản, ẩn khi ngắm), số đạn, chế độ bắn, hit marker, khoảng cách bia vừa trúng, ghi công.
+"""HUD (chỉ để kiểm tra: `create_game(hud=True)`; game thật KHÔNG có HUD kiểu Bodycam, xem Game trong app.py): FPS, tâm ngắm động, số đạn, chế độ bắn, hit marker, khoảng cách bia vừa trúng, ghi công.
 
 Font: Segoe UI Semilight có sẵn trong Windows (đủ dấu tiếng Việt), mảnh và sắc hơn OpenSans mặc định của
 Ursina. Mỗi dòng chữ có một bản sao đen dịch 1 px làm bóng để đọc được trên nền trời sáng.

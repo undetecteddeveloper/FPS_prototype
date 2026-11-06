@@ -282,6 +282,43 @@ class Script(Entity):
         got = self.names_since(t0)
         check('rút súng: hai tiếng nhẹ', str(got), "['draw_a', 'draw_b']", got == ['draw_a', 'draw_b'])
 
+        # --- đạn trúng: tiếng từ chỗ trúng về tai, tới muộn theo tốc độ âm thanh, xa thì nhỏ hơn ---
+        check('Combat nối với Foley', combat.foley is foley, True, combat.foley is foley)
+        t0 = foley.clock
+        foley.on_impact(True, 34.3)                         # 0,1 s
+        yield from self.wait(0.05)
+        check('đạn trúng bia 34,3 m: chưa nghe thấy sau 0,05 s', str(self.names_since(t0)), '[]', self.names_since(t0) == [])
+        yield from self.wait(0.10)
+        check('  nghe thấy sau 0,1 s', str(self.names_since(t0)), "['hit_target']", self.names_since(t0) == ['hit_target'])
+        near = foley.log[-1][2]
+        t0 = foley.clock
+        foley.on_impact(False, 200.0)
+        yield from self.wait(0.7)
+        check('đạn trúng tường 200 m: tiếng trúng cứng', str(self.names_since(t0)), "['hit_hard']", self.names_since(t0) == ['hit_hard'])
+        check('  nhỏ hơn bia gần', (round(foley.log[-1][2], 3), round(near, 3)), 'nhỏ hơn', foley.log[-1][2] < near)
+        # bắn thật vào bia gần: có đúng một tiếng trúng bia
+        shooter = player
+        target = next(t for t in game.targets if t.distance == 10.0)
+        shooter.position = (target.root.x, 0, 0)
+        shooter.yaw, shooter.pitch = 0.0, 0.0
+        shooter._apply_view()
+        combat.weapon.auto = False
+        combat.weapon.mag, combat.weapon.reserve, combat.weapon.cooldown = 30, 30, 0.0
+        yield from self.wait(0.05)
+        t0 = foley.clock
+        combat.pressed = True
+        yield from self.wait(0.25)
+        check('bắn thật vào bia 10 m: nghe tiếng trúng bia', str(self.names_since(t0)), "['hit_target']", self.names_since(t0).count('hit_target') == 1)
+        # hết sạch đạn: cò rỗng
+        combat.weapon.mag, combat.weapon.reserve = 0, 0
+        yield from self.wait(0.15)
+        t0 = foley.clock
+        combat.pressed = True
+        yield from self.wait(0.05)
+        check('hết sạch đạn, bóp cò: tiếng cò rỗng', str(self.names_since(t0)), "['dry']", self.names_since(t0) == ['dry'])
+        combat.weapon.mag, combat.weapon.reserve = 30, 150
+        combat.weapon.auto = True
+
         yield from self.wait(0.3)
         check('mỗi tiếng foley vừa phát đều ở trạng thái PLAYING', f'{self.audited - self.not_playing}/{self.audited}', 'tất cả',
               self.audited > 20 and self.not_playing == 0)

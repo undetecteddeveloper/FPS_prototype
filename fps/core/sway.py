@@ -27,6 +27,7 @@ class SwayInput:
     look: tuple = (0.0, 0.0)      # (yaw sang phải, pitch lên) độ mà CHUỘT vừa quay trong khung này
     eye_dy: float = 0.0           # camera đi lên (+) / xuống (-) bao nhiêu mét trong khung này
     landed: float = 0.0           # tốc độ chạm đất (m/s) nếu vừa chạm đất, ngược lại 0
+    jumped: float = 0.0           # tốc độ bật lên (m/s) nếu vừa nhảy trong khung này, ngược lại 0 (camera đầu: xung lúc bật)
 
 
 # --- tư thế ADS ---
@@ -146,6 +147,7 @@ class Sway:
         _add(total, self._lag(dt, inp), calm)
         _add(total, self._jolt(dt, inp), calm)
         _add(total, d.sprint_pose, sprint)
+        _add(total, d.rest_pose, 1.0 - ads)
         _add(total, self.ads_target, ads)
         return tuple(total)
 

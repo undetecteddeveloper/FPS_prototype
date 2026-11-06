@@ -17,7 +17,7 @@ from ursina import Entity, application, held_keys, mouse, time  # noqa: E402
 
 from fps.core.movement import MoveState  # noqa: E402
 
-game = create_game(vsync=False, sound=False, draw=False, moving_targets=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
+game = create_game(vsync=False, sound=False, draw=False, moving_targets=False, free_aim=False)     # G6: bia chạy làm đo thay đổi theo giờ; đo trên bia đứng yên
 player = game.player
 p = game.params.player
 mouse.locked = False   # không giữ con trỏ của người dùng; hướng nhìn điều khiển bằng player.look()

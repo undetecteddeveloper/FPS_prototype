@@ -2,7 +2,7 @@
 
 `state` (MoveState) là nguồn duy nhất cho tốc độ, spread (G3) và sway (G4).
 Phím: WASD đi, Shift chạy nước rút (giữ), Ctrl hoặc C ngồi (giữ), Space nhảy, chuột phải ngắm (giữ), chuột nhìn.
-Recoil camera (G3) đi vào qua `kick_view`. ADS và tư thế chạy là hai tiến độ 0..1 (`ads_amount`, `sprint_amount`);
+Phần giật vào camera đi vào qua `kick_view`. ADS và tư thế chạy là hai tiến độ 0..1 (`ads_amount`, `sprint_amount`);
 đường cong êm (smoothstep) chỉ áp khi dùng, còn tiến độ thô để spread và sprint-to-fire dùng.
 """
 import math
@@ -11,6 +11,7 @@ from ursina import Entity, camera, held_keys, mouse, time
 
 from fps.core.movement import (MoveState, aim_direction, apply_look, clamp_to_bounds, resolve_state, smoothstep,
                       step_horizontal_velocity, step_toward, step_vertical, target_speed, wants_sprint, wish_direction)
+from fps.core.freeaim import FreeLook
 from fps.core.spring import Spring, impulse_gain
 from fps.core.sway import SwayInput
 from fps.weapon_data import GunData, PlayerParams
@@ -39,10 +40,13 @@ class Player(Entity):
         self.ads_amount = 0.0                 # 0 hông .. 1 ngắm hẳn; spread (spread.py) nội suy theo số này
         self.sprint_amount = 0.0              # 0 .. 1 tiến độ hạ súng vào tư thế chạy; về 0 mới bắn được
         self.landed = 0.0                     # tốc độ chạm đất (m/s) nếu khung này vừa chạm đất
+        self.jumped = 0.0                     # tốc độ bật lên (m/s) nếu khung này vừa nhảy
         self.eye_dy = 0.0                     # camera đi lên/xuống bao nhiêu mét trong khung này (cho quán tính súng)
         self.eye_height = params.eye_height_stand
         self.state = MoveState.IDLE
-        self._look = [0.0, 0.0]               # chuột đã quay (yaw phải, pitch lên) độ, từ lần lấy gần nhất
+        self._look = [0.0, 0.0]               # MÀN HÌNH đã quay (yaw phải, pitch lên) độ, từ lần lấy gần nhất: thân người và ống kính phản ứng theo số này
+        self._mouse = [0.0, 0.0]              # CHUỘT đã quay, từ lần lấy gần nhất
+        self.free_look = FreeLook(gun.free_aim)   # chuột điều khiển súng trước, màn hình quay sau
         self._dip = Spring(1, params.land_dip_omega, params.land_dip_zeta)   # camera nhún khi chạm đất
 
         self.camera_pivot = Entity(parent=self, y=self.eye_height)
@@ -79,23 +83,45 @@ class Player(Entity):
         Độ tản cộng thêm ở Combat."""
         return (self.x, self.y + self.camera_pivot.y, self.z), aim_direction(self.yaw, self.pitch)
 
+    def turn_rate(self, dt: float) -> float:
+        """Độ lớn tốc độ xoay chuột của khung này (độ/s). Gọi trước `sway_input` (hàm đó xoá số đã gom)."""
+        return math.hypot(self._mouse[0], self._mouse[1]) / dt if dt > 0 else 0.0
+
     def sway_input(self) -> SwayInput:
         """Chuyển động của khung hình này cho Sway. Lấy chuột xong thì xoá, nên mỗi khung chỉ gọi một lần."""
         look = (self._look[0], self._look[1])
         self._look = [0.0, 0.0]
-        return SwayInput(self.state, self.speed, self.ads_amount, self.sprint_amount, look, self.eye_dy, self.landed)
+        self._mouse = [0.0, 0.0]
+        return SwayInput(self.state, self.speed, self.ads_amount, self.sprint_amount, look, self.eye_dy, self.landed, self.jumped)
 
     # --- vòng lặp (Game.update gọi, để thứ tự cập nhật rõ ràng: người chơi -> bắn -> sway -> súng -> HUD) ---
     def tick(self):
+        before = tuple(self.free_look.offset)
         if mouse.locked:
             self.look(mouse.velocity[0], mouse.velocity[1])
-        self.step(min(time.dt, MAX_DT), **self.read_keys())
+        dt = min(time.dt, MAX_DT)
+        self.step(dt, **self.read_keys())
+        # vùng co lại / đầu đuổi theo súng: màn hình quay, súng giữ nguyên hướng trong thế giới
+        reloading = self.ads_blocked and not self.ads
+        cam_yaw, cam_up = self.free_look.step(dt, self.ads_amount, self.sprint_amount, reloading, self.speed > self.p.moving_speed_threshold)
+        self._turn_view(cam_yaw, cam_up)
+        self.free_look.track(before)
 
     def look(self, dx: float, dy: float):
+        """Chuột quay (đơn vị chiều cao cửa sổ): đi vào súng trước, phần còn lại mới quay màn hình (FreeLook)."""
         sens = self.p.mouse_sensitivity * (1.0 + (self.p.ads_look_multiplier - 1.0) * smoothstep(self.ads_amount))
-        self.yaw, self.pitch = apply_look(self.yaw, self.pitch, dx, dy, sens, self.p.pitch_limit)
-        self._look[0] += dx * sens
-        self._look[1] += dy * sens
+        self._mouse[0] += dx * sens
+        self._mouse[1] += dy * sens
+        cam_yaw, cam_up = self.free_look.apply(dx * sens, dy * sens)
+        self._turn_view(cam_yaw, cam_up)
+
+    def _turn_view(self, yaw: float, up: float):
+        """Quay màn hình (độ). `_look` gom số này cho thân người, sway và ống kính."""
+        if yaw == 0.0 and up == 0.0:
+            return
+        self.yaw, self.pitch = apply_look(self.yaw, self.pitch, yaw, up, 1.0, self.p.pitch_limit)
+        self._look[0] += yaw
+        self._look[1] += up
         self._apply_view()
 
     def kick_view(self, up: float, right: float):
@@ -115,12 +141,14 @@ class Player(Entity):
         eye_y0 = self.y + self.eye_height
         self.ads = ads
         self.landed = 0.0
+        self.jumped = 0.0
 
         if self.on_ground:
             self.sprinting = wants_sprint(sprint, forward, ads) and not (fire and p.sprint_blocks_fire)
             self.crouching = crouch and not self.sprinting
             if jump:
                 self.vy = p.jump_speed
+                self.jumped = p.jump_speed
                 self.on_ground = False
         # trên không: giữ nguyên tư thế, chỉ lái nhẹ
 

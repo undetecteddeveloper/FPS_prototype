@@ -131,6 +131,16 @@ class LampShadows:
         self.render_count += 1
         self._frames_left = 0                # khung này vẽ rồi; khung sau `update` tự tắt buffer (trừ khi lại có refresh)
 
+    def refresh_faces(self, faces: dict):
+        """Như `refresh_lamps` nhưng chỉ các mặt được kể tên: {chỉ số đèn: [mặt, ...]}."""
+        for i in range(len(self.lamps)):
+            wanted = faces.get(i, ())
+            for f, dr in enumerate(self.regions[i]):
+                dr.set_active(f in wanted)
+        self.buffer.set_active(True)
+        self.render_count += 1
+        self._frames_left = 0
+
     def render_lamps_now(self, indices):
         """Vẽ các đèn này NGAY (lúc dựng game), rồi tắt buffer: để vẽ bù những vật thêm vào atlas sau `render_now`."""
         self.refresh_lamps(indices)

@@ -126,11 +126,10 @@ class MeshBuilder:
         return Entity(model=mesh, **kwargs)
 
 
-def _stripe(z: float, width: float, tint) -> Entity:
+def _stripe(mb: MeshBuilder, z: float, width: float, tint):
     """Vạch ngang làn. Nằm sát mặt đất nên phải dùng độ lệch độ sâu thay vì nâng lên (nâng 1 cm sẽ vẫn nhấp nháy ở 200 m)."""
-    e = Entity(model='plane', position=(0, 0, z), scale=(2 * LANE_HALF_WIDTH, 1, width), color=tint)
-    e.set_depth_offset(1)
-    return e
+    x, h = LANE_HALF_WIDTH, width / 2.0
+    mb.quad([(-x, 0.0, z - h), (x, 0.0, z - h), (x, 0.0, z + h), (-x, 0.0, z + h)], (0.0, 1.0, 0.0), tint)
 
 
 def build_range(look: LookData = None) -> dict:
@@ -180,19 +179,28 @@ def build_range(look: LookData = None) -> dict:
     # vạch bắn và vạch khoảng cách
     # Vạch ở 100 m trở đi mảnh hơn một điểm ảnh nên luôn đứt nét (MSAA trên máy này chỉ còn ~20 FPS),
     # nên chỉ vạch tới STRIPE_MAX_DISTANCE; xa hơn dùng cột cao (và biển chữ ở G6).
-    world['stripes'] = [_stripe(0.0, 0.3, color.yellow)]
+    stripes = MeshBuilder()
+    _stripe(stripes, 0.0, 0.3, (1.0, 1.0, 0.0))
     for d in DISTANCE_MARKS:
         if d <= STRIPE_MAX_DISTANCE:
-            world['stripes'].append(_stripe(float(d), 0.25, color.white))
+            _stripe(stripes, float(d), 0.25, (1.0, 1.0, 1.0))
+    stripe_entity = stripes.entity()
+    stripe_entity.set_depth_offset(1)
+    world['stripes'] = [stripe_entity]
 
-    # cột đánh dấu hai bên làn: cao dần theo khoảng cách để nhìn thấy từ xa (không chạm trần)
-    world['posts'] = []
+    # cột đánh dấu hai bên làn: cao dần theo khoảng cách để nhìn thấy từ xa (không chạm trần). Gộp một mesh (12 cột = 1 lần vẽ)
+    posts = MeshBuilder()
+    world['post_spots'], world['post_boxes'] = [], []
     for i, d in enumerate(DISTANCE_MARKS):
         h = min(1.6 + d * 0.02, POST_MAX_HEIGHT)
+        tint = (1.0, 0.5, 0.0) if i % 2 == 0 else (1.0, 1.0, 1.0)
         for side in (-1, 1):
-            tint = color.orange if i % 2 == 0 else color.white
-            world['posts'].append(Entity(model='cube', color=tint, scale=(0.3, h, 0.3),
-                                         position=(side * (LANE_HALF_WIDTH + 0.5), h / 2, float(d))))
+            x = side * (LANE_HALF_WIDTH + 0.5)
+            lo, hi = (x - 0.15, 0.0, float(d) - 0.15), (x + 0.15, h, float(d) + 0.15)
+            posts.box(lo, hi, tint, skip=((1, -1),))
+            world['post_spots'].append((x, float(d)))
+            world['post_boxes'].append((lo, hi))
+    world['posts'] = [posts.entity()]
 
     # biển khoảng cách treo trần, một cặp (trái, phải) ở mỗi mốc, mặt chữ quay về phía người bắn. Một mesh có texture (atlas chữ) +
     # một mesh cột treo. Bố cục ở fps/core/signs.py, chữ ở fps/game/signs.py.

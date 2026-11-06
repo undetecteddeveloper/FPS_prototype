@@ -4,10 +4,7 @@ import pytest
 
 from fps.core.recoil import CameraRecoil, GunKick
 from fps.core.spring import burst_peak_ratio
-from fps.weapon_data import M4, M4_PATTERN, GunKickData, RecoilData
-
-PATTERN_UP = sum(u for u, _ in M4_PATTERN)
-PATTERN_RIGHT = sum(r for _, r in M4_PATTERN)
+from fps.weapon_data import GunKickData, RecoilData
 
 
 def spray(rec, shots=30, fps=60, settle=0.0):
@@ -33,90 +30,92 @@ def spray(rec, shots=30, fps=60, settle=0.0):
     return trace, at_shot
 
 
-def test_pattern_has_30_steps_mostly_up_and_drifting_right():
-    assert len(M4_PATTERN) == 30
-    assert all(u > 0 for u, _ in M4_PATTERN)
-    assert PATTERN_UP == pytest.approx(8.4, abs=0.6)
-    assert 0.5 < PATTERN_RIGHT < 3.0
-    assert max(abs(r) for _, r in M4_PATTERN) < min(u for u, _ in M4_PATTERN)     # chủ yếu lên, không chủ yếu ngang
+FIXED = dict(up_noise=0.0, right_noise=0.0, right_walk=0.0, right_bias=0.1, camera_share=1.0)      # không ngẫu nhiên, mọi cú giật vào camera
 
 
-def test_no_noise_no_recovery_total_equals_pattern():
-    d = RecoilData(pattern=M4_PATTERN, noise=0.0, recovery=0.0)
+def test_no_noise_no_recovery_total_is_shots_times_kick():
+    d = RecoilData(recovery=0.0, **FIXED)
     trace, _ = spray(CameraRecoil(d), settle=1.0)
-    assert trace[-1][0] == pytest.approx(PATTERN_UP, abs=1e-3)
-    assert trace[-1][1] == pytest.approx(PATTERN_RIGHT, abs=1e-3)
+    assert trace[-1][0] == pytest.approx(30 * d.up, abs=1e-3)
+    assert trace[-1][1] == pytest.approx(30 * d.right_bias, abs=1e-3)
 
 
-def test_each_shot_adds_its_own_pattern_step():
-    d = RecoilData(pattern=M4_PATTERN, noise=0.0, recovery=0.0)
-    _, at_shot = spray(CameraRecoil(d), settle=0.5)
-    # cú giật của phát k-1 đã áp gần hết lúc phát k nổ (cách 80 ms, hằng số thời gian 25 ms nên ~96%, cộng đuôi cú trước)
-    for k in range(2, 30):
-        step_up = at_shot[k][0] - at_shot[k - 1][0]
-        assert step_up == pytest.approx(M4_PATTERN[k - 1][0], rel=0.05)
+def test_recoil_has_no_fixed_pattern():
+    """Hai loạt khác hạt ngẫu nhiên phải đi khác đường rõ rệt: không học thuộc được như mẫu 30 bước của CoD."""
+    a = spray(CameraRecoil(RecoilData(camera_share=1.0, recovery=0.0), random.Random(1)), settle=0.2)[0][-1]
+    b = spray(CameraRecoil(RecoilData(camera_share=1.0, recovery=0.0), random.Random(2)), settle=0.2)[0][-1]
+    assert abs(a[1] - b[1]) > 0.3
+    assert abs(a[0] - b[0]) > 0.05
 
 
-def test_same_pattern_every_time_apart_from_noise():
-    runs = [spray(CameraRecoil(M4.recoil, random.Random(seed)), settle=0.0)[1] for seed in (1, 2, 3, 4)]
-    ups = [r[-1][0] for r in runs]
-    rights = [r[-1][1] for r in runs]
-    assert max(ups) - min(ups) > 1e-6                                      # có nhiễu thật
-    expected_up = PATTERN_UP * 0.96                                        # còn một chút cú giật chưa áp vào phát cuối
-    assert all(u == pytest.approx(expected_up, rel=0.06) for u in ups)     # nhiễu ±10% độc lập triệt tiêu dần
-    for r in runs:                                                         # mọi lần đều đi cùng hướng: lên đều, trôi phải
-        assert all(b[0] >= a[0] for a, b in zip(r, r[1:]))
-    assert all(x > 0 for x in rights)
+def test_recoil_is_mostly_up():
+    ups, rights = [], []
+    for seed in range(30):
+        last = spray(CameraRecoil(RecoilData(camera_share=1.0, recovery=0.0), random.Random(seed)), settle=0.2)[0][-1]
+        ups.append(last[0])
+        rights.append(last[1])
+    assert sum(ups) / 30 == pytest.approx(30 * RecoilData().up, rel=0.05)
+    assert abs(sum(rights) / 30) < 0.35 * sum(ups) / 30
+    assert sum(rights) / 30 > 0                                             # xu hướng trung bình lệch phải
 
 
-def test_noise_stays_within_ten_percent_per_step():
-    rec = CameraRecoil(RecoilData(pattern=((1.0, 1.0),), noise=0.10, recovery=0.0), random.Random(7))
+def test_each_shot_stays_within_its_random_range():
+    d = RecoilData(camera_share=1.0, recovery=0.0)
+    rec = CameraRecoil(d, random.Random(7))
     seen = []
     for _ in range(300):
         rec.pending = [0.0, 0.0]
         rec.on_shot()
         seen.append(tuple(rec.pending))
         rec.step(1.0)
-    ups = [s[0] for s in seen]
-    assert min(ups) >= 0.9 - 1e-9 and max(ups) <= 1.1 + 1e-9
-    assert max(ups) - min(ups) > 0.15                                      # thật sự phân bố gần hết biên
-    assert sum(ups) / len(ups) == pytest.approx(1.0, abs=0.02)
+    ups = [u for u, _ in seen]
+    assert min(ups) >= d.up - d.up_noise - 1e-9 and max(ups) <= d.up + d.up_noise + 1e-9
+    assert max(ups) - min(ups) > d.up_noise                                 # thật sự phân bố rộng
+    limit = d.right_bias + d.right_noise + d.right_walk_max
+    assert all(abs(r) <= limit + 1e-9 for _, r in seen)
 
 
-def test_pattern_restarts_after_a_pause_but_not_in_a_burst():
-    d = RecoilData(pattern=((1.0, 0.0), (2.0, 0.0), (3.0, 0.0)), noise=0.0, recovery=0.0)
+def test_camera_share_splits_the_kick_between_camera_and_gun():
+    d = RecoilData(recovery=0.0, up_noise=0.0, right_noise=0.0, right_walk=0.0, right_bias=0.2, camera_share=0.25)
     rec = CameraRecoil(d)
-    for _ in range(2):
-        rec.on_shot()
-        rec.step(0.1)                                                      # 0,1 s: còn trong loạt
-    assert rec.index == 2
-    rec.step(0.5)                                                          # nghỉ 0,5 s > 0,35 s
-    rec.on_shot()
-    assert rec.index == 1 and rec.pending[0] == pytest.approx(1.0)         # lại từ bước đầu
+    gun_up, gun_right = rec.on_shot()
+    assert rec.pending[0] == pytest.approx(d.up * 0.25) and rec.pending[1] == pytest.approx(0.2 * 0.25)
+    assert gun_up == pytest.approx(d.up * 0.75) and gun_right == pytest.approx(0.2 * 0.75)
 
 
-def test_past_the_end_of_the_pattern_holds_the_last_step():
-    d = RecoilData(pattern=((1.0, 0.0), (2.0, 0.5)), noise=0.0)
+def test_posture_reduces_the_kick():
+    d = RecoilData()
     rec = CameraRecoil(d)
-    for _ in range(5):
+    assert rec.posture_scale(0.0, False) == 1.0
+    assert rec.posture_scale(1.0, False) == pytest.approx(d.ads_scale)
+    assert rec.posture_scale(0.0, True) == pytest.approx(d.crouch_scale)
+    assert rec.posture_scale(1.0, True) == pytest.approx(d.ads_scale * d.crouch_scale)
+
+
+def test_horizontal_trend_restarts_after_a_pause_but_not_in_a_burst():
+    d = RecoilData()
+    rec = CameraRecoil(d, random.Random(3))
+    for _ in range(6):
         rec.on_shot()
-        rec.step(0.05)
-    assert rec.index == 5
-    rec.pending = [0.0, 0.0]
-    rec.on_shot()
-    assert rec.pending == [2.0, 0.5]
+        rec.step(0.08)
+    assert rec.walk != 0.0
+    during = rec.walk
+    rec.on_shot()                                                           # còn trong loạt: chỉ đi tiếp một bước
+    assert abs(rec.walk - during) <= d.right_walk + 1e-9
+    rec.step(d.burst_reset_time + 0.1)
+    rec.on_shot()                                                           # nghỉ đủ lâu: làm lại từ 0, nên chỉ cách 0 một bước
+    assert abs(rec.walk) <= d.right_walk + 1e-9
 
 
 def test_recovery_gives_back_the_configured_fraction():
     for fraction in (0.0, 0.3, 0.5, 1.0):
-        d = RecoilData(pattern=M4_PATTERN, noise=0.0, recovery=fraction)
+        d = RecoilData(recovery=fraction, **FIXED)
         trace, _ = spray(CameraRecoil(d), settle=3.0)
-        assert trace[-1][0] == pytest.approx(PATTERN_UP * (1 - fraction), abs=0.02), fraction
-        assert trace[-1][1] == pytest.approx(PATTERN_RIGHT * (1 - fraction), abs=0.02), fraction
+        assert trace[-1][0] == pytest.approx(30 * d.up * (1 - fraction), abs=0.02), fraction
 
 
 def test_recovery_only_starts_after_the_delay_and_is_gradual():
-    d = RecoilData(pattern=M4_PATTERN, noise=0.0, recovery=0.3)
+    d = RecoilData(recovery=0.3, **FIXED)
     rec = CameraRecoil(d)
     for _ in range(10):
         rec.on_shot()
@@ -132,7 +131,7 @@ def test_recovery_only_starts_after_the_delay_and_is_gradual():
 
 
 def test_firing_again_cancels_the_recovery():
-    d = RecoilData(pattern=M4_PATTERN, noise=0.0, recovery=0.5)
+    d = RecoilData(recovery=0.5, **FIXED)
     rec = CameraRecoil(d)
     for _ in range(5):
         rec.on_shot()
@@ -146,9 +145,9 @@ def test_firing_again_cancels_the_recovery():
 
 @pytest.mark.parametrize('fps', [30, 60, 144, 500])
 def test_total_recoil_does_not_depend_on_fps(fps):
-    d = RecoilData(pattern=M4_PATTERN, noise=0.0, recovery=0.3)
+    d = RecoilData(recovery=0.3, **FIXED)
     trace, _ = spray(CameraRecoil(d), fps=fps, settle=3.0)
-    assert trace[-1][0] == pytest.approx(PATTERN_UP * 0.7, abs=0.03)
+    assert trace[-1][0] == pytest.approx(30 * d.up * 0.7, abs=0.03)
 
 
 def test_gun_kick_returns_to_rest_and_peaks_near_the_setting():
@@ -169,7 +168,7 @@ def test_gun_kick_returns_to_rest_and_peaks_near_the_setting():
 
 def test_gun_kick_is_smaller_and_faster_than_camera_recoil():
     d = GunKickData()
-    assert abs(d.back_peak) < 0.05 and d.peak[3] < M4_PATTERN[0][0] * 6
+    assert abs(d.back_peak) < 0.05 and d.peak[3] < 3.0
     kick = GunKick(d, random.Random(1))
     kick.on_shot()
     t = 0.0

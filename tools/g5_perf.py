@@ -26,7 +26,7 @@ from ursina import Entity, mouse  # noqa: E402
 from fps.core.handling import Phase  # noqa: E402
 
 variant = sys.argv[1] if len(sys.argv) > 1 else 'base'
-game = create_game(vsync=False, sound=False, draw=True, look=(variant != 'nolook'), effects=(variant != 'nofx'))
+game = create_game(vsync=False, sound=False, draw=True, look=(variant != 'nolook'), effects=(variant != 'nofx'), hud=True)
 mouse.locked = False
 combat, viewmodel, handling, weapon = game.combat, game.viewmodel, game.combat.handling, game.combat.weapon
 gun = game.params.gun
