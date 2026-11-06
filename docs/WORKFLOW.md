@@ -6,11 +6,18 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 
 | Nhóm | Luật | Cách kiểm |
 |---|---|---|
-| Ra lệnh | Người dùng prompt ngắn; agent hỏi đáp kỹ bằng AskUserQuestion (đủ lớp: định hướng + kỹ thuật, có ví dụ đời thường) trước khi làm | Mỗi phiên có bản chốt câu trả lời ở đầu `docs/sessions/Gx.md` |
+| Ra lệnh | Người dùng prompt ngắn; agent hỏi đáp bằng AskUserQuestion (hai lớp: định hướng + kỹ thuật, có ví dụ đời thường, đáp án ngang sức) theo CỠ VIỆC, xem mục 1b | Mỗi phiên có bản chốt câu trả lời ở đầu `docs/sessions/Gx.md` |
 | Mục tiêu | Mỗi phiên có 3-5 mục tiêu ĐO ĐƯỢC (selftest, pytest, FPS), viết trước khi code | Mục tiêu nào không có cách đo thì chưa được bắt đầu |
 | Chọn việc | 80/20: mỗi phiên ghi rõ "làm" và "cố ý KHÔNG làm"; việc lòi thêm giữa chừng đưa vào danh sách chờ, không làm lẫn | Phần "không làm" của bản kế hoạch |
 | Mã | Tìm trước khi viết: grep `fps/core` + `fps/game` xem đã có chưa; toán mới vào `fps/core` (không import ursina); mọi số vào `weapon_data.py` | Báo cáo cuối phiên nêu "đã tái dùng: ..." |
 | Cảm giác chơi | Agent chỉ dựng bảng chỉnh (F1) + selftest; NGƯỜI chơi và chỉnh; xong thì chốt vào mặc định | Mục 4 |
+
+## 1b. Mức hỏi theo cỡ việc (người dùng chốt 6/11/2026; luật của dự án này, thắng luật chung "tự quyết kỹ thuật")
+- Agent ghi một dòng "Cỡ: nhỏ / lớn, vì ..." ở đầu câu trả lời đầu tiên để người dùng sửa nếu xếp sai.
+- NHỎ (sửa một số, một lỗi, một chú thích; trong một file; người chơi không thấy hành vi đổi): hỏi tối đa MỘT vòng ngắn (1-2 câu), hoặc làm luôn rồi báo nếu yêu cầu đã rõ hoàn toàn.
+- LỚN (tính năng, phiên mới, tài nguyên mới, đụng từ 2 module trở lên, mọi thứ đổi cảm giác chơi, mọi việc tốn credit): LUÔN đủ hai vòng. Vòng 1 hỏi về Ý TƯỞNG (muốn cảm giác gì, giống ví dụ nào, ai chơi, đâu là thành công). Vòng 2 hỏi kỹ thuật.
+  Hỏi đến khi không còn giả định lớn nào chưa nói ra; không hỏi lại cái đã có trong tài liệu.
+- Mỗi vòng tối đa 4 câu. Chữ phải đơn giản, mỗi lựa chọn có một ví dụ đời thường, hậu quả nói bằng lời thường.
 
 ## 2. Một phiên (Gx) đi qua 7 bước
 1. Hỏi đáp (vòng định hướng rồi vòng kỹ thuật, tối đa 4 câu mỗi vòng, đáp án ngang sức).
@@ -46,7 +53,26 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 | Giọng nói | ElevenLabs V3 | Cần xác minh ID chính xác trước khi ghi cứng |
 | Model / texture 3D | 3D AI Studio (nối trực tiếp, không qua Composio): Prism 3.1 mặc định, Meshy 7.1 khi cần texture 4K/8K, P2 khi cần quad | Danh sách không có Tripo |
 - Phân loại: tài nguyên CHỦ CHỐT (súng, tiếng súng, tiếng nạp, tay) đi thẳng công cụ chính; ĐỒ PHỤ (đạo cụ, nền, tiếng nền, thử nghiệm) đi đường rẻ.
-- Cổng duyệt: người dùng duyệt TỪNG CÁI. Agent gom mỗi lô thành một bảng (ảnh lưới / danh sách nghe) để duyệt một lượt, mỗi mục kèm prompt + công cụ + chi phí.
+- Cổng duyệt: người dùng duyệt TỪNG CÁI, và CHƯA xem/nghe thì CHƯA được duyệt. Mỗi mục kèm prompt + công cụ + chi phí credit. Lô lớn gom thành một bảng để duyệt một lượt.
+- Xem/nghe thử (nghiên cứu 6/11/2026; chỉ phiên chạy trong CLAUDE DESKTOP mới thấy thẻ xem, phiên VS Code chưa kiểm):
+  - 3D AI Studio: ĐÃ XÁC NHẬN theo mô tả công cụ: ảnh và âm thanh tự hiện thẻ trong chat; model 3D gọi `show_generation` sau khi `get_generation` báo xong (khung xoay 3D, một lần cho mỗi bản).
+  - ElevenLabs (qua Composio) và Higgsfield (qua Composio): CHƯA XÁC NHẬN. Tài liệu chính thức không nói có phát/xem ngay trong chat (README ElevenLabs chỉ nói chế độ `resources` trả dữ liệu base64, không nói Desktop có phát). Cách chắc ăn: ở lần sinh đầu tiên mỗi nền tảng, thử MỘT bản rẻ nhất trong Claude Desktop và ghi kết quả vào đây.
+  - Phương án dự phòng khi không hiện: agent dựng trang xem thử (Artifact riêng tư, hoặc HTML mở trên máy: ảnh, nút nghe, video) rồi đưa link; model 3D xem bằng thẻ của 3D AI Studio hoặc ảnh chụp xoay.
+  - Việc phiên sinh tài nguyên (cần xem/nghe) nên mở ở Claude Desktop; phiên viết mã mở ở VS Code. Hai bên trao đổi qua file trong `assets/` và bản kế hoạch phiên.
+
+## 6b. Ngân sách credit (số dư người dùng khai 6/11/2026; chia theo phong bì, ĐỀ XUẤT, chỉnh được)
+| Nền tảng | Còn | Phong bì |
+|---|---|---|
+| 3D AI Studio | 864 | Chủ chốt (vũ khí, nhân vật/bot) 40% = 345 · Đạo cụ / cảnh 30% = 260 · Nháp, thử prompt 15% = 130 · Làm lại, dự phòng 15% = 129 |
+| Higgsfield | 860 | Ảnh chủ chốt (Nano Banana Pro) 45% = 387 · Video Seedance 35% = 301 · Dự phòng 20% = 172 |
+| ElevenLabs | 8144 | Tiếng hiệu ứng 50% = 4072 · Nhạc 30% = 2443 · Giọng nói 10% = 814 · Dự phòng 10% = 815 |
+- Giá tham khảo 3D AI Studio: Prism 3.1 35 credit/model (+ texture cao hơn), ảnh Qwen 2.1 từ 1-2 credit, Nano Banana 2.1 từ 6 credit. Chưa biết giá Seedance / ElevenLabs theo credit: GHI giá thật ngay sau lần sinh đầu của mỗi loại.
+- Sổ chi tiêu `docs/credits.md`: mỗi lần sinh một dòng (ngày, nền tảng, phong bì, mục đích, credit, số dư còn). Khoá API ElevenLabs không đọc được số dư: người dùng khai lại số dư đầu mỗi phiên sinh tài nguyên.
+- Hết phong bì thì DỪNG và hỏi (không tự lấy từ phong bì khác). Việc mới không thuộc phong bì nào: hỏi trước khi tạo phong bì mới. Mỗi lô tốn credit nói trước tổng ước tính.
+
+## 6c. Comment tiếng Anh (người dùng chốt 6/11/2026)
+- Mọi comment và docstring trong mã (`fps/`, `tests/`, `tools/`, `assets/shaders`) viết bằng TIẾNG ANH. Giữ nguyên TIẾNG VIỆT: chữ hiển thị cho người (HUD, bảng F1 và `param_meta`, tên mục của selftest, thông báo lỗi cho người dùng) và mọi file `.md` / `CREDITS.txt`.
+- Đợt dịch toàn bộ một lần cho mã hiện có (CHƯA LÀM): subagent model rẻ dịch theo nhóm file không chồng nhau; kiểm bằng cách so cây AST đã bỏ docstring trước/sau (phải trùng) cộng pytest; mã GLSL chỉ đổi phần comment. Các số đo nằm trong comment phải giữ nguyên chữ số và đơn vị.
 - Truy nguyên: mỗi tài nguyên giữ prompt, công cụ, model, seed trong `assets/source/` (hoặc `sounds/source/`) để làm lại được; ghi nguồn/giấy phép vào `CREDITS.txt`.
 
 ## 7. Hạ tầng và multiplayer
@@ -68,4 +94,6 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 - Xác minh ID model giọng nói của ElevenLabs V3 trước khi dùng.
 - Xác minh Cloudflare có đủ cho tần số cập nhật của FPS 4 người (đo thật, đừng đoán).
 - Tripo không có trong 3D AI Studio: hỏi người dùng muốn dùng đường khác hay thay bằng Prism/P2.
-- Ngân sách credit mỗi tháng chưa có; chưa có cách xem số dư ElevenLabs (khoá thiếu quyền).
+- Thử xem/nghe thử trong Claude Desktop với ElevenLabs và Higgsfield (mục 6, mỗi nền tảng một bản rẻ nhất), ghi kết quả vào mục 6.
+- Đợt dịch comment sang tiếng Anh (mục 6c): chờ người dùng nói bắt đầu.
+- Chưa có cách tự đọc số dư ElevenLabs (khoá thiếu quyền) nên số dư do người dùng khai.

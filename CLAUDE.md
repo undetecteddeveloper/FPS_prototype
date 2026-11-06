@@ -39,6 +39,9 @@ backups/  shots/        file lưu cũ của bảng F1 / ảnh chụp của bài 
   Đừng để từng đối tượng tự `update` riêng (thứ tự Ursina không đảm bảo, bắn sẽ dùng hướng nhìn của khung trước).
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi trong console.
 - Commit trên nhánh `dev`. Chỉ push khi người dùng nói. `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
+- Comment và docstring trong mã viết bằng TIẾNG ANH (mã cũ còn tiếng Việt, sẽ dịch một lần, xem `docs/WORKFLOW.md` 6c). Chữ cho người dùng (HUD, bảng F1, tên mục selftest, thông báo) và file `.md` vẫn tiếng Việt.
+- Mức hỏi người dùng theo cỡ việc (nhỏ: tối đa 1 vòng ngắn; lớn: luôn 2 vòng ý tưởng + kỹ thuật): `docs/WORKFLOW.md` 1b. Luật này thắng luật chung "tự quyết kỹ thuật" khi làm dự án này.
+- Tài nguyên AI: xem/nghe xong mới được duyệt, chi tiêu theo phong bì và ghi `docs/credits.md` (`docs/WORKFLOW.md` 6, 6b).
 
 ## Nạp M4 (bẫy đã trả giá ở G0, đừng làm lại)
 - LUÔN `from fps.game import gltf_patch; gltf_patch.apply()` trước khi tạo `Ursina()` hay nạp glb (`fps/app.py` và các tools đã làm). `panda3d-gltf 1.3.0` nạp sai file này theo
