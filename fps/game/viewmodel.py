@@ -110,7 +110,6 @@ class Viewmodel:
         r.set_shader_input('vm_view_x', self.light.view_x)
         r.set_shader_input('vm_view_y', self.light.view_y)
         r.set_shader_input('vm_view_z', self.light.view_z)
-        r.set_shader_input('vm_flash_falloff', float(self.gun.flash.light_attenuation[2]))
         flat = Texture('flat_normal')
         flat.setup_2d_texture(1, 1, Texture.T_unsigned_byte, Texture.F_rgb)
         flat.set_ram_image(bytes((255, 128, 128)))                # BGR order: flat normal
@@ -138,6 +137,9 @@ class Viewmodel:
         self.root.set_shader_input('vm_mat', Vec4(light.specular, light.gloss, light.env, light.normal_strength))
         self.root.set_shader_input('vm_sleeve', Vec4(*light.sleeve_color, 0.0))
         self.root.set_shader_input('vm_albedo', float(light.albedo))
+        flash = self.gun.flash
+        self.root.set_shader_input('vm_flash_falloff', float(flash.gun_falloff))
+        self.root.set_shader_input('vm_flash_shape', Vec4(flash.gun_lift, flash.gun_back, flash.gun_wrap, 0.0))
         for name, nodes in self.material_nodes.items():
             sp, gl, en, al = self.materials.get(name, (1.0, 1.0, 1.0, 1.0))
             for np_ in nodes:

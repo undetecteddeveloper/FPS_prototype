@@ -313,8 +313,10 @@ class Game(Entity):
             self.look.apply_params()
         if 'gun.view_light' in paths:
             self.viewmodel.apply_light()
-        if 'gun.flash' in paths and self.look:
-            self.look.apply_params()
+        if 'gun.flash' in paths:
+            self.viewmodel.apply_light()
+            if self.look:
+                self.look.apply_params()
         if ('water' in paths or 'splash' in paths or 'look' in paths) and self.pool:
             self.pool.apply_params()
         if 'look' in paths and self.dust:
@@ -464,9 +466,9 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     loadPrcFileData('', f'sync-video {int(vsync)}')
     # Panda cleans its state cache with a job every frame (~0.5 ms here); when off, states are freed by reference counting instead
     loadPrcFileData('', 'garbage-collect-states 0')
+    loadPrcFileData('', f'audio-preload-threshold {AUDIO_PRELOAD_BYTES}')       # see AUDIO_PRELOAD_BYTES
     icon = Path(ursina.__file__).parent / 'textures' / 'ursina.ico'   # absolute path; otherwise Ursina looks in the game folder
     app = Ursina(title='FPS prototype', icon=Filename.from_os_specific(str(icon)), vsync=vsync, borderless=borderless, fullscreen=fullscreen, size=size,
-    loadPrcFileData('', f'audio-preload-threshold {AUDIO_PRELOAD_BYTES}')       # see AUDIO_PRELOAD_BYTES
                  development_mode=False)
     application.asset_folder = ROOT
     window.fps_counter.enabled = False
@@ -494,10 +496,8 @@ def main(argv=None):
     ap.add_argument('--defaults', action='store_true', help='bỏ qua user_params.json, chạy bằng thông số mặc định')
     ap.add_argument('--map', default='pool', choices=('pool', 'flat'), help='pool = phòng hồ bơi (mặc định); flat = nền trắng phẳng cũ (để so FPS)')
     ap.add_argument('--rebake', action='store_true', help='nướng lại ánh sáng và chụp lại phản chiếu của phòng hồ bơi (thường game tự làm khi cần)')
-    args = ap.parse_args(argv)
-    # default: a borderless window covering the whole screen. Exclusive fullscreen with vsync drops straight to 30 FPS whenever one frame is late; this does not
     ap.add_argument('--low-memory', action='store_true', help='ép chế độ giảm tải (tắt khử răng cưa, nạp súng thứ hai muộn); thường game tự chọn khi máy thiếu bộ nhớ ảo')
-    size = tuple(int(v) for v in args.size.lower().split('x')) if args.window else desktop_size()
+    args = ap.parse_args(argv)
     # BEFORE the window exists: how much virtual memory is free decides how much to build (fps/core/memplan.py), and a native crash from now on leaves logs/crash.log
     free_mb, limit_mb = sysmem.free_commit_mb(), sysmem.commit_limit_mb()
     mem = memory_plan(free_mb, force_reduced=args.low_memory)
@@ -505,6 +505,9 @@ def main(argv=None):
     if mem.mode == 'critical':
         sysmem.show_error('Không đủ bộ nhớ để mở game', mem.message)
         sys.exit(1)
+    # default: a borderless window covering the whole screen. Exclusive fullscreen with vsync drops straight to 30 FPS whenever one frame is late; this does not
+    size = tuple(int(v) for v in args.size.lower().split('x')) if args.window else desktop_size()
+    sysmem.start_watchdog(STARTUP_WATCHDOG_S)
     game = create_game(vsync=not args.novsync, size=size, borderless=not args.window,
                        quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake, low_memory=mem.low_memory)
     sysmem.stop_watchdog()
@@ -512,7 +515,6 @@ def main(argv=None):
         print(f'[bộ nhớ] {mem.message}')
         if mem.notice:
             game.notice.show(mem.notice, seconds=10.0)
-    sysmem.start_watchdog(STARTUP_WATCHDOG_S)
     game.app.run()
 
 

@@ -9,6 +9,7 @@ uniform vec3 vm_view_x;         // world camera's right / up / forward axes (cha
 uniform vec3 vm_view_y;
 uniform vec3 vm_view_z;
 uniform float vm_flash_falloff;
+uniform vec4 vm_flash_shape;    // x = how far the gun's flash light sits above the muzzle (m), y = how far back toward the camera (m), z = diffuse wrap (0 = plain Lambert)
 uniform float vm_albedo;
 uniform vec4 vm_env;            // x = 1: mirror the captured room on the metal (graphics level Mid / High, pool map); 0: the old guess from the ambient light
 
@@ -19,6 +20,16 @@ in vec3 v_pos;
 in vec3 v_normal;
 in vec2 v_uv;
 out vec4 frag_color;
+
+// Muzzle flash on the gun and hands. The world's flash sits just in front of the muzzle, so everything the player SEES of the gun (top, back, sides) faces away from it and stays black.
+// Here the light is moved up and back toward the camera (a flash really glows around the whole front of the weapon) and the diffuse term wraps past 90 degrees, so the top and sides catch it.
+vec3 gun_flash_light(vec3 p, vec3 n) {
+    vec3 lp = look_flash_pos + vm_view_y * vm_flash_shape.x - vm_view_z * vm_flash_shape.y;
+    vec3 f = lp - p;
+    float d2 = dot(f, f);
+    float ndl = clamp((dot(n, f * inversesqrt(max(d2, 1e-6))) + vm_flash_shape.z) / (1.0 + vm_flash_shape.z), 0.0, 1.0);
+    return look_flash_color * ndl * ndl / (1.0 + vm_flash_falloff * d2);
+}
 
 vec3 mapped_normal(vec3 n) {
     vec3 s = texture(vm_normal_tex, v_uv).xyz * 2.0 - 1.0;
@@ -66,7 +77,7 @@ void main() {
     if (vm_env.x < 0.5) lit += fres * vm_mat.z * ambient_at(r) * 6.0;
     lit += fres * vm_mat.z * sun_c * ndl * 0.35;
 
-    if (look_flash_color.r > 0.0) lit += base.rgb * flash_light(p, n_w, vm_flash_falloff);
+    if (look_flash_color.r > 0.0) lit += base.rgb * gun_flash_light(p, n_w);
 
     vec3 color = tonemap(lit);
     if (vm_env.x > 0.5) {                                             // the captured room is already tone-mapped: added after the curve. look_frame.z: darker where the room around is dark

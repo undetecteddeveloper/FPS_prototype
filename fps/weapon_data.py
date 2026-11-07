@@ -208,7 +208,11 @@ class FlashData:
     forward: float = 0.025                # m: the light sits this far in front of the muzzle
     light_color: tuple = (1.0, 0.62, 0.28)
     light_power: float = 1.5              # multiplies the light color at its brightest
-    light_attenuation: tuple = (1.0, 0.0, 40.0)   # constant, linear, and quadratic (per meter) terms: lit up to ~0.3 m around the muzzle
+    light_attenuation: tuple = (1.0, 0.0, 40.0)   # unused since the gun got its own flash light (gun_falloff below); kept so saved params still load
+    gun_lift: float = 0.14                # m: the flash light on the gun sits this far above the muzzle (the gun's visible faces look up / back, not forward)
+    gun_back: float = 0.22                # m: ... and this far back toward the camera
+    gun_wrap: float = 0.5                 # diffuse wrap: 0 = only faces turned to the light, larger = also the sides and the far side
+    gun_falloff: float = 7.0              # 1 / (1 + falloff * d^2) on the gun: half strength at ~0.38 m
     world_power: float = 3.5              # flash brightness on walls / floor (0 = only lights the gun)
     world_falloff: float = 0.22           # 1 / (1 + falloff * d^2): half strength at ~2 m
 
