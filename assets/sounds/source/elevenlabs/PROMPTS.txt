@@ -38,3 +38,7 @@
 38. [0.6s, influence 0.6] Pistol slid back into a leather holster: leather scrape and a soft click of a retention strap. Close microphone, dry, no music, no voices.  (pistol_holster)
 39. [0.5s, influence 0.75] Empty pistol dry fire: single small metallic striker click of a Glock trigger, no gunshot. Close microphone, dry, no music, no voices.  (pistol_dry)
 (30-39: model eleven_text_to_sound_v3, 6/11/2026)
+40. [0.8s, influence 0.7] A rifle bullet hitting the surface of a swimming pool: a short sharp plip-splash with a small spray of droplets, heard from several metres away in a tiled indoor swimming hall with a light echo. One impact, no gunshot, no music, no voices.  (water_splash_a)
+41. [1.0s, influence 0.65] A small hard object dropping into calm pool water: a quick bright splash followed by a soft slosh against tiled walls, indoor swimming hall acoustics. One splash, no music, no voices.  (water_splash_b)
+42. [0.7s, influence 0.7] A bullet striking water: a sharp zip-thwap and a tiny burst of droplets falling back onto the surface, dry and close, indoors. One impact, no gunshot, no music, no voices.  (water_bullet_c)
+(40-42: model eleven_text_to_sound_v3, 7/11/2026, G9; ba bản nháp ở assets/review/water/, CHƯA duyệt)

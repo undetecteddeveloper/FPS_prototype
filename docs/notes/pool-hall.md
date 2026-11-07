@@ -46,4 +46,4 @@ Khúc xạ / nhìn xuyên nước; phản chiếu vẽ lại mỗi khung (chưa 
 - Khói súng đi xuyên tường (chưa va); mặt đất khói vẫn ở y = 0.
 - Ảnh ánh sáng 8 bit gamma 2: chưa thấy vạch bậc, chưa đo.
 - Bầu trời chỉ là vòm màu + quầng mặt trời; ngoài cửa sổ không có mặt đất / biển.
-- Tiếng nước khi đạn trúng: CHƯA CÓ (chờ người dùng nghe duyệt bản nháp ở `assets/review/water/`); `WaterSurface.on_splash` là chỗ gắn.
+- Tiếng nước khi đạn trúng: CHƯA CÓ trong game. 3 bản nháp ElevenLabs V3 (7/11/2026, prompt mục 40-42 của `assets/sounds/source/elevenlabs/PROMPTS.txt`) nằm ở `assets/review/water/`: `water_splash_a` (đạn chạm mặt hồ trong sảnh gạch), `water_splash_b` (vật nhỏ rơi nước êm, có tiếng sóng vỗ vào gạch), `water_bullet_c` (đạn xé nước, khô, gần). Người dùng nghe và chọn; sau khi duyệt: dựng thành wav như các tiếng foley (`tools/build/prep_*.py`), thêm đường dẫn + âm lượng vào `AudioData`, gắn `Game.pool.water.on_splash = foley.on_water_impact` (nhớ trễ theo khoảng cách như `on_impact`). Chưa kiểm xem Claude Desktop có phát được mp3 trong chat hay không: nghe bằng cách mở file.
