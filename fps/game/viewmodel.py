@@ -171,10 +171,12 @@ class Viewmodel:
         return region
 
     def move_to_output(self, output):
-        """Draw the gun into another buffer (the lens draws the composited image of the world + gun)."""
+        """Draw the gun into another buffer (the lens draws the composited image of the world + gun). A parked gun's region stays switched off."""
+        active = self.region.is_active()
         self.output.remove_display_region(self.region)
         self.output = output
         self.region = self._make_region(output)
+        self.region.set_active(active)
 
     @property
     def current_fov(self) -> float:

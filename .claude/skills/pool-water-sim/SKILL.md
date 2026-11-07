@@ -61,4 +61,8 @@ Companion: `.claude/skills/interior-water-light/SKILL.md` (bake, box-projected c
   - Ursina Text ignores alpha 0 (the "invisible" warm-up text showed). Hide with `enabled = False`. verified-in-project.
   - Dust motes fully on the GPU: static mesh of seeds, position = wrap(seed * box + drift(t)) around the eye, glow = sun_visible(pos); quads of unlit motes collapsed in the vertex shader. ~0 CPU. verified-in-project.
   - Tests at uncapped FPS (400+): wait by TIME or event, never by frame count (a 1.2 m fall is 0.5 s, 60 frames were 0.15 s). verified-in-project.
+  - MSAA through FilterManager: `renderSceneInto(colortex=..., fbprops=FrameBufferProperties().set_multisamples(n))` gives a real multisample buffer resolved into the texture
+    (checked: `buffer.get_fb_properties().get_multisamples()` == 2 / 4). Changing it at runtime = cleanup the FilterManager and build a new one; first MSAA build ~400 ms hitch, later ~27 ms.
+    Cost here: 2x +1.5 ms, 4x +3.3 ms. Display regions moved to another output must keep their active flag (parked guns). verified-in-project (tools/measure/graphics_panel_check.py).
+  - Ursina `Text`: '<' starts a markup tag ("< Cao >" -> IndexError in align). verified-in-project.
   - First second after start sometimes ~30 FPS at Mid/High, ramping down to normal frame time (GPU clock ramp?). Not reproducible every run; dry-run warm frames did not reliably help. OPEN.

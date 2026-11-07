@@ -25,6 +25,40 @@ def test_low_is_the_g9_look_and_high_is_at_least_mid():
     assert level(GraphicsData().level).name == 'Cao'
 
 
+def test_presets_roundtrip_through_settings():
+    from fps.core.graphics import preset_of, resolve, settings_for
+    for i, g in enumerate(GRAPHICS_LEVELS):
+        s = settings_for(i)
+        assert preset_of(s) == i
+        r = resolve(s)
+        assert (r.sim_cols, r.sim_rows, r.refraction, r.caustics, r.glint, r.shaft_steps, r.splash, r.wet, r.gun_env, r.dust) == \
+               (g.sim_cols, g.sim_rows, g.refraction, g.caustics, g.glint, g.shaft_steps, g.splash, g.wet, g.gun_env, g.dust)
+
+
+def test_panel_cycling_changes_one_row_and_custom_is_detected():
+    from fps.core.graphics import GraphicsSettings, choice_text, cycle, preset_of, resolve
+    s = GraphicsSettings()                                         # = Cao
+    assert choice_text(s, 'preset') == 'Cao'
+    s2 = cycle(s, 'dust', 1)
+    assert s2.dust is False and s.dust is True                    # a copy; the original is untouched
+    assert preset_of(s2) is None and choice_text(s2, 'preset') == 'Tuỳ chỉnh' and resolve(s2).name == 'Tuỳ chỉnh'
+    s3 = cycle(s2, 'preset', 1)                                    # from custom, right = Cao
+    assert preset_of(s3) == 2
+    a = cycle(s, 'aa', 1)
+    assert a.aa == 2 and cycle(a, 'aa', 1).aa == 4 and cycle(cycle(a, 'aa', 1), 'aa', 1).aa == 0
+    assert preset_of(a) == 2                                       # anti-aliasing is not part of a preset
+    low = cycle(cycle(a, 'preset', 1), 'preset', 1)                # Cao -> Thấp -> Vừa ... keeps the anti-aliasing
+    assert low.aa == 2
+
+
+def test_settings_file_roundtrip_and_bad_values_fall_back():
+    from fps.core.graphics import GraphicsSettings, from_json, to_json
+    s = GraphicsSettings(sim=1, aa=4, dust=False, show_fps=True)
+    assert from_json(to_json(s)) == s
+    bad = from_json('{"graphics": {"aa": 3, "sim": "x", "dust": false, "nope": 1}}')
+    assert bad.aa == 0 and bad.sim == 2 and bad.dust is False
+
+
 def _unit(v):
     n = math.sqrt(sum(c * c for c in v))
     return tuple(c / n for c in v)

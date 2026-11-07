@@ -94,3 +94,13 @@ Kế hoạch + bản chốt: `docs/sessions/G10.md`. Skill kỹ thuật (nguồn
   Bẫy đo: không vsync game chạy 400+ FPS, nên bài kiểm phải chờ theo THỜI GIAN / sự kiện (rơi 1,2 m cần 0,5 s, không phải 60 khung); đọc sóng ngay sau bước mô phỏng đầu tiên.
   Công cụ chụp nhảy góc ngay sau một góc nhìn thẳng mặt trời có thể còn dư ảnh của ống kính (quầng sáng giữa khung): chụp lại / chờ lâu hơn.
 - `pool_shots.py`: góc `deck`, `prints`, `beam`, `beam2`; cờ `--prints`, `--ring-wait`, `--no-gun-env`, `--no-dust`. `g8_perf.py --at x,z,yaw` (vd `3,5,75` = giữa vệt nắng nhìn mặt trời).
+
+## G10: bảng đồ hoạ F2 + khử răng cưa (7/11/2026, yêu cầu người dùng)
+- F2 mở bảng (`game/graphics_panel.py`; dữ liệu + toán thuần `core/graphics.py`: `GraphicsSettings`, `OPTIONS`, `resolve`, `preset_of`, `cycle`). Dòng: Mức chung (Thấp / Vừa / Cao; đổi riêng một dòng thì thành "Tuỳ chỉnh"),
+  Khử răng cưa (Tắt / 2x / 4x), Sóng nước mô phỏng, Nước trong, Vệt sáng đáy hồ, Nắng lấp lánh, Tia nắng, Bụi, Giọt nước, Sàn ướt, Súng phản chiếu, Hiện FPS.
+  Phím mũi tên chọn / đổi, chuột trái = lựa chọn sau, chuột phải = lựa chọn trước, F2 / Esc đóng. Đổi là áp dụng ngay; đóng bảng thì lưu `user_graphics.json` (gitignore; `--defaults` bỏ qua file này). Mức chung không đổi khử răng cưa / hiện FPS.
+- Khử răng cưa = MSAA trên buffer cảnh của ống kính (`Lens(samples=)`, `FrameBufferProperties.set_multisamples`): thế giới và súng vẽ chung buffer đó nên cùng được khử. Đổi = dựng lại buffer ống kính (3-4 ms) và chuyển vùng vẽ của mọi khẩu sang buffer mới
+  (`Viewmodel.move_to_output` giữ trạng thái bật / tắt của khẩu đang cất). LẦN ĐẦU bật MSAA khựng một khung ~400 ms (driver), các lần sau ~27 ms. Chỉ khử cạnh hình học (MSAA), không khử nhiễu trong shader.
+  Chi phí (cùng tiến trình, mức Cao): 2x +1,5 ms, 4x +3,3 ms mỗi khung (4x vẫn 134-148 FPS trung bình).
+- Kiểm: `tools\measure\graphics_panel_check.py` (19 mục: buffer thật có 2 / 4 mẫu, súng sang buffer mới, mọi dòng đổi và quay vòng, lưu file); `tests/test_graphics.py` (mức chung qua lại, "Tuỳ chỉnh", file hỏng thì về mặc định).
+- Bẫy: `Text` của Ursina coi `<` là đầu thẻ định dạng: chuỗi "< Cao >" làm lỗi IndexError trong `align`; dùng "‹ ›".

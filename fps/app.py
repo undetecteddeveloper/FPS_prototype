@@ -28,7 +28,8 @@ from fps.game.foley import Foley  # noqa: E402
 from fps.game.frame_light import FrameLight  # noqa: E402
 from fps.game.gun_audio import GunAudio  # noqa: E402
 from fps.game.hud import Hud, Notice, setup_fonts  # noqa: E402
-from fps.core.graphics import clamp_level, level as graphics_level, next_level  # noqa: E402
+from fps.core.graphics import GraphicsSettings, clamp_level, from_json, preset_of, resolve, settings_for, to_json  # noqa: E402
+from fps.game.graphics_panel import GraphicsPanel  # noqa: E402
 from fps.game.lens import Lens  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
@@ -44,6 +45,7 @@ from fps.game.viewmodel import Viewmodel  # noqa: E402
 from fps.weapon_data import GUNS, M4, GameParams  # noqa: E402
 
 USER_PARAMS = ROOT / 'user_params.json'      # user parameters saved from the debug panel (F1); gitignored
+USER_GRAPHICS = ROOT / 'user_graphics.json'  # graphics settings saved by the F2 panel; gitignored
 
 
 def prune_scene_entities():
@@ -134,28 +136,64 @@ class Game(Entity):
         if self.pool:
             self.pool.prepare_reflection(self.light, force=rebake)       # needs the shader inputs WorldLook just put on render; before the lens takes over the screen
             self.pool.bind_reflection(self.viewmodel.root)               # the gun's metal mirrors the same captured room (G10)
-        self.lens = Lens(params.lens, self.viewmodel) if lens else None
+        # graphics settings (F2 panel): the user's file if there is one (and user params are wanted), else the default level
+        self.gfx = settings_for(params.graphics.level)
+        if user_params and USER_GRAPHICS.exists():
+            try:
+                self.gfx = from_json(USER_GRAPHICS.read_text(encoding='utf-8'))
+            except (OSError, ValueError) as e:
+                print(f'[đồ hoạ] không đọc được {USER_GRAPHICS.name}: {e}')
+        self.lens = Lens(params.lens, self.viewmodel, samples=self.gfx.aa) if lens else None
         self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.hud = Hud(params.gun.credit) if hud else None                    # Bodycam style: nothing on screen; only the selftest turns it on to read numbers
         self.debug = DebugPanel(self, self.params_store, USER_PARAMS)         # F1 panel: built lazily the first time it opens; costs nothing while closed
         self.params_store.subscribe(self._on_params_changed)
         self._kits = {gun_name: GunKit(params.gun, self.viewmodel, self.fx, self.audio, self.foley)}     # gun key -> GunKit; `preload_guns` adds the others
-        self.notice = Notice()                                                # "Đồ hoạ: Cao" for a moment after F2
+        self.notice = Notice()                                                # a short line top-centre (e.g. the settings saved)
         self.graphics_level = None
-        self.set_graphics(params.graphics.level, announce=False)
+        self.gfx_panel = GraphicsPanel(self)                                  # F2: graphics options, built the first time it opens
+        self.apply_graphics(self.gfx)
 
-    # --- graphics level (G10): F2 cycles Low / Mid / High while playing; switching changes uniforms and buffers only (no shader recompiles) ---
-    def set_graphics(self, i: int, announce: bool = True):
-        self.graphics_level = clamp_level(i)
-        g = graphics_level(self.graphics_level)
+    # --- graphics (G10): the F2 panel edits `self.gfx`; switching changes uniforms and buffers only (no shader recompiles); anti-aliasing rebuilds the lens buffer ---
+    def apply_graphics(self, s: GraphicsSettings, announce: bool = False):
+        self.gfx = s
+        g = resolve(s)
+        p = preset_of(s)
+        self.graphics_level = p if p is not None else -1                     # preset index, -1 = custom (tools read it)
         if self.pool:
             self.pool.set_level(g)
         for kit in self._kits.values():
             kit.viewmodel.set_env(g.gun_env and self.pool is not None)
         if self.dust:
             self.dust.set_enabled(g.dust)
+        self._set_aa(s.aa)
+        window.fps_counter.enabled = s.show_fps
         if announce:
-            self.notice.show(f'Đồ hoạ: {g.name}  (F2 đổi)')
+            self.notice.show(f'Đồ hoạ: {g.name}')
+
+    def set_graphics(self, i: int, announce: bool = True):
+        """Apply preset `i` (0 Thấp / 1 Vừa / 2 Cao), keeping anti-aliasing and the FPS counter (tools use this)."""
+        self.apply_graphics(settings_for(clamp_level(i), keep=self.gfx), announce)
+
+    def _set_aa(self, samples: int):
+        """Rebuild the lens buffer with `samples` MSAA samples (0 = off). The guns' drawing regions move to the new buffer (a parked gun stays switched off)."""
+        if self.lens is None or self.lens.samples == samples:
+            return
+        win = application.base.win
+        vms = [k.viewmodel for k in self._kits.values()]
+        for vm in vms:
+            vm.move_to_output(win)
+        data = self.lens.d
+        self.lens.destroy()
+        self.lens = Lens(data, None, samples=samples)
+        for vm in vms:
+            vm.move_to_output(self.lens.manager.buffers[-1])
+
+    def save_graphics(self):
+        try:
+            USER_GRAPHICS.write_text(to_json(self.gfx), encoding='utf-8')
+        except OSError as e:
+            print(f'[đồ hoạ] không lưu được {USER_GRAPHICS.name}: {e}')
 
     # --- weapon switch (keys 1 / 2): holster clip of the gun in hand -> rebuild the gun-dependent parts -> draw clip of the new gun ---
     def request_gun(self, name: str):
@@ -182,7 +220,7 @@ class Game(Entity):
         vm.hide_until_draw()                            # until its draw clip starts, the gun must not show its idle pose (a switch always draws)
         if self.pool:
             self.pool.bind_reflection(vm.root)
-            vm.set_env(graphics_level(self.graphics_level).gun_env)
+            vm.set_env(resolve(self.gfx).gun_env)
         fx = Effects(gun, vm, smoke=self.smoke) if self._effects else None
         if self.lens:
             vm.move_to_output(self.lens.manager.buffers[-1])
@@ -360,10 +398,12 @@ class Game(Entity):
             application.quit()
 
     def input(self, key):
-        if key == 'f1':
+        if key == 'f2' and not self.debug.is_open:
+            self.gfx_panel.toggle()
+        elif self.gfx_panel.is_open:              # graphics panel open: keys and the mouse belong to it
+            self.gfx_panel.on_input(key)
+        elif key == 'f1':
             self.debug.toggle()
-        elif key == 'f2':
-            self.set_graphics(next_level(self.graphics_level))
         elif self.debug.is_open:                  # debug panel open: the mouse belongs to the panel: no firing / reloading / mode change
             if key == 'escape':
                 self.debug.hide()

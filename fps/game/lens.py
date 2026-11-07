@@ -4,7 +4,7 @@ Because the lens is applied to the COMPOSITED image, the gun and the world disto
 Not using Ursina's `camera.shader` (FXAA on that path breaks the image when the gun has its own drawing region); the gun's drawing region is moved to the same buffer here.
 """
 from direct.filter.FilterManager import FilterManager
-from panda3d.core import PTA_LVecBase3f, SamplerState, Texture, Vec3, Vec4
+from panda3d.core import FrameBufferProperties, PTA_LVecBase3f, SamplerState, Texture, Vec3, Vec4
 from ursina import application, window
 
 from fps.core.movement import smoothstep
@@ -13,12 +13,18 @@ from fps.weapon_data import LensData
 
 
 class Lens:
-    def __init__(self, data: LensData, viewmodel=None):
+    def __init__(self, data: LensData, viewmodel=None, samples: int = 0):
+        """`samples` = MSAA samples of the scene buffer (0 / 2 / 4; graphics panel F2): world AND gun are drawn into it, so both get the anti-aliasing."""
         self.d = data
+        self.samples = samples
         base = application.base
         self.manager = FilterManager(base.win, base.cam)
         self.scene = Texture('lens_scene')
-        self.quad = self.manager.renderSceneInto(colortex=self.scene)
+        fbprops = None
+        if samples > 0:
+            fbprops = FrameBufferProperties()
+            fbprops.set_multisamples(samples)
+        self.quad = self.manager.renderSceneInto(colortex=self.scene, fbprops=fbprops)
         if self.quad is None:
             raise RuntimeError('không tạo được buffer cho ống kính')
         self.scene.set_wrap_u(SamplerState.WM_clamp)
