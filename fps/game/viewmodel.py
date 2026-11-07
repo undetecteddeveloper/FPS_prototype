@@ -53,6 +53,7 @@ class Viewmodel:
 
         self.clip_key = None                          # clip currently playing (key of GunData.clips) or None
         self._fire_left = 0.0                         # s left of the running shot clip (not driven by Handling: firing blocks nothing)
+        self._tail_left = None                        # s left of the draw clip's tail after Handling's 'ready' (the gun can already fire; a shot / reload cuts the tail); None = no tail
         self.materials = gun.materials or MATERIAL_SCALE      # material name -> shading multipliers
         self.mag_groups = None                        # guns with GunData.mag_nodes: ([nodes seated in the ready pose], [nodes seated in the locked pose]); set in _hide_reload_props
         self._mags_state = None
@@ -244,7 +245,7 @@ class Viewmodel:
     def hold_ready_pose(self):
         """Stand still in the ready pose, bolt closed. Blending off: each pose that is set is the only pose."""
         self.clip_key, self._fade, self._empty = None, None, 0.0
-        self._fire_left = 0.0
+        self._fire_left, self._tail_left = 0.0, None
         self.actor.disableBlend()
         self.actor.pose(*self._ready_frame())
         self._bundle.force_update()
@@ -261,6 +262,19 @@ class Viewmodel:
         if self._hidden:
             self._hidden = False
             self.sway.show()
+
+    def park(self):
+        """Weapon switch: this gun is put away but stays built, so switching back costs nothing (building one takes 0.5-1.7 s: glb skeleton, normal maps).
+        Its display region is switched off (not culled, not drawn) and it waits hidden in the ready pose until its next draw clip starts."""
+        self.actor.stop()
+        self.hold_ready_pose()
+        self._view = 0.0
+        self.hide_until_draw()
+        self.region.set_active(False)
+
+    def unpark(self):
+        """Back in hand (still hidden: the draw clip's 'start' event reveals it)."""
+        self.region.set_active(True)
 
     def prewarm(self, frames: int = 2):
         """Render a few frames with every magazine visible so its draw state reaches the GPU now, not in the first frame of the first reload (a 45 ms hitch).
@@ -314,6 +328,8 @@ class Viewmodel:
             self._play(event[1], event[2])
         elif name == 'done':
             self.hold_ready_pose()
+        elif name == 'ready':
+            self._tail_left = event[2]                   # the draw clip keeps playing its tail; `animate` ends it, a shot / reload cuts it
         elif name == 'cancel':
             self._begin_fade(event[1])
 
@@ -328,7 +344,8 @@ class Viewmodel:
     def on_shot(self, last_round: bool):
         """Every shot: play the slide cycle clip (guns with GunData.fire_clips). Not while drawing / reloading (those clips own the pose).
         The last round leaves the slide locked back: the clip ends exactly on the locked pose."""
-        if not self.gun.fire_clips or (self.clip_key and self.clip_key not in self.gun.fire_clips) or self._fade:
+        busy = self.clip_key and self.clip_key not in self.gun.fire_clips and self._tail_left is None      # the draw tail is not busy: the shot cuts it
+        if not self.gun.fire_clips or busy or self._fade:
             return
         key = self.gun.fire_clips[1 if last_round and len(self.gun.fire_clips) > 1 else 0]
         clip = self.gun.clips[key]
@@ -376,7 +393,12 @@ class Viewmodel:
             if w >= 1.0:
                 self.hold_ready_pose()
             return
-        if self.clip_key in self.gun.fire_clips:
+        if self._tail_left is not None:                  # tail of the draw clip (the gun can already fire): ends by itself, then the bolt logic below runs
+            self._tail_left -= dt
+            if self._tail_left > 0.0:
+                return
+            self.hold_ready_pose()
+        elif self.clip_key in self.gun.fire_clips:
             self._fire_left -= dt
             if self._fire_left > 0.0:
                 return

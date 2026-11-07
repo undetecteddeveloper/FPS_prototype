@@ -41,11 +41,17 @@ class Clip:
     start: int
     end: int       # LAST valid frame (frame N of a clip with N frames is wrapped to 0, so N itself is not used)
     swap: int = None   # frame where the new magazine seats (measured with tools/measure/g5_reload_probe.py); reload clips only
-    settle: int = None  # frame where the gun, magazine and bolt are back in place: the rest of the clip is only the hand re-folding its fingers (the reload view is switched off at this frame)
+    settle: int = None  # frame where the gun, magazine and bolt are back in place: the rest of the clip is only the hand re-folding its fingers (the reload view is switched off at this frame).
+                        # Draw clips: the gun is up and still (measured: joints move < 0.5 cm per frame after it); firing / aiming are allowed from here while the tail plays on
 
     @property
     def duration(self) -> float:
         return (self.end - self.start) / 30.0
+
+    @property
+    def settle_time(self) -> float:
+        """Seconds (clip time at speed 1) from the clip start to `settle`; None if there is none."""
+        return None if self.settle is None else (self.settle - self.start) / 30.0
 
     @property
     def swap_time(self) -> float:
@@ -493,7 +499,7 @@ M4 = GunData(
         'reload_empty': Clip('Reload_Empty', 111, 224, swap=172, settle=206),
         'fire': Clip('Fire', 226, 249),
         'holster': Clip('Holster', 251, 268),
-        'draw': Clip('Draw', 269, 299),
+        'draw': Clip('Draw', 269, 299, settle=291),
     },
     # measured from the model's peaks (tools/measure/g4_ads_align.py): center of the rear aperture and top of the front post
     ads_sights=((0.0678, -0.0074, 0.1556), (0.0678, -0.0069, 0.5622)),
@@ -684,7 +690,7 @@ GLOCK = GunData(
         'reload_empty': Clip('ReloadEmpty', 107, 197, swap=151, settle=180),
         'fire': Clip('Fire', 86, 105),
         'holster': Clip('Holster', 198, 211),
-        'draw': Clip('Draw', 212, 245),
+        'draw': Clip('Draw', 212, 245, settle=233),
     },
     eye_joint='FPS_Camera_j_02',
     ready_pose=('Draw', 245),

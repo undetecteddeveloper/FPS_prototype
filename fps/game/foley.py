@@ -71,6 +71,12 @@ class Foley:
         loader = application.base.loader
         return _Bank([[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(max(1, self.audio.pool))] for f in files])
 
+    def resume(self):
+        """Weapon switch: this gun's Foley (kept built while another gun was in hand) takes over again. The player moved meanwhile: that is not a step."""
+        self._px, self._pz = self.player.x, self.player.z
+        self.pending = []
+        self.schedule = CueSchedule()
+
     # --- playback ---
     def play(self, name: str, volume: float, pitch: float = 1.0, pan: float = 0.0, fit_hz: float = 0.0):
         """`fit_hz` > 0: stretch the sound to fit one period of 1 / fit_hz seconds (only within 0.85-1.2x)."""

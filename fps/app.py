@@ -51,6 +51,15 @@ def prune_scene_entities():
     scene.entities = [e for e in scene.entities if keep(e)]
 
 
+class GunKit:
+    """Everything built per gun: its data, viewmodel (glb + skeleton + shaders), effects, shot sound and Foley. Game keeps one per gun and parks the ones not in hand,
+    so a weapon switch rebuilds nothing (rebuilding froze the game 0.5-1.7 s per switch: Python skeleton build in gltf_patch, normal-map decoding, sounds)."""
+    __slots__ = ('gun', 'viewmodel', 'fx', 'audio', 'foley')
+
+    def __init__(self, gun, viewmodel, fx, audio, foley):
+        self.gun, self.viewmodel, self.fx, self.audio, self.foley = gun, viewmodel, fx, audio, foley
+
+
 class Game(Entity):
     """Gathers the parts and runs the per-frame loop."""
 
@@ -114,11 +123,13 @@ class Game(Entity):
         self.hud = Hud(params.gun.credit) if hud else None                    # Bodycam style: nothing on screen; only the selftest turns it on to read numbers
         self.debug = DebugPanel(self, self.params_store, USER_PARAMS)         # F1 panel: built lazily the first time it opens; costs nothing while closed
         self.params_store.subscribe(self._on_params_changed)
+        self._kits = {gun_name: GunKit(params.gun, self.viewmodel, self.fx, self.audio, self.foley)}     # gun key -> GunKit; `preload_guns` adds the others
 
     # --- weapon switch (keys 1 / 2): holster clip of the gun in hand -> rebuild the gun-dependent parts -> draw clip of the new gun ---
     def request_gun(self, name: str):
         h = self.combat.handling
-        if name == self.gun_name or name not in GUNS or self._pending_gun or h.busy:
+        # `_draw_pending`: the gun in hand has not been drawn yet (game start / a gun built during the switch): putting it away now would holster a gun never shown
+        if name == self.gun_name or name not in GUNS or self._pending_gun or self._draw_pending or h.busy:
             return
         self._pending_gun = name
         h.start_holster()
@@ -129,40 +140,74 @@ class Game(Entity):
         a.cues = dict(gun.sound_cues) if gun.sound_cues is not None else dict(cues)
         a.sound_files = {**files, **(gun.sound_files or {})}
 
-    def _apply_gun(self, name: str):
-        """Swap the gun in hand. Rounds are remembered per gun; world, bullets in flight and holes stay. Loading the model takes ~1 s (one long frame): the draw clip waits for the next normal frame."""
-        w = self.combat.weapon
-        self._ammo[self.gun_name] = (w.mag, w.reserve, w.auto)
+    def _build_kit(self, name: str) -> GunKit:
+        """Build a gun's parts (0.5-1.7 s: glb + skeleton, normal maps, sounds), warm its shaders on the GPU, and park it. Leaves `params.audio` merged for that gun."""
         gun = copy.deepcopy(GUNS[name])
         if not self._free_aim:
             gun.free_aim.barrel_aim = False
+        self._merge_audio(gun)                          # Foley loads the sound banks its gun's cues name
+        vm = Viewmodel(gun, ROOT, self.light)
+        vm.hide_until_draw()                            # until its draw clip starts, the gun must not show its idle pose (a switch always draws)
+        fx = Effects(gun, vm, smoke=self.smoke) if self._effects else None
+        if self.lens:
+            vm.move_to_output(self.lens.manager.buffers[-1])
+        audio = GunAudio(gun, ROOT) if self._sound and gun.shot_sound else None
+        foley = Foley(self.params.audio, gun, self.player, ROOT) if self._sound else None
+        vm.prewarm()                                    # compile its shaders and upload its textures now (window sits these frames out), not in the first frames of its draw
+        vm.park()
+        if fx:
+            fx.park()
+        kit = self._kits[name] = GunKit(gun, vm, fx, audio, foley)
+        return kit
+
+    def preload_guns(self):
+        """Build every other gun at start-up (create_game calls it; ~1.7 s for the Glock, 0.5 s for the M4), so no weapon switch ever loads anything."""
+        for name in GUNS:
+            if name not in self._kits:
+                self._build_kit(name)
+        self._merge_audio(self.params.gun)              # building merged the audio of the last kit: back to the gun in hand
+
+    def _apply_gun(self, name: str):
+        """Swap the gun in hand (the holster clip just finished) and start the new gun's draw clip in the same frame. Rounds are remembered per gun; world, bullets in flight
+        and holes stay. Each gun's parts are built once (`preload_guns`) and parked while another gun is in hand, so a switch costs well under a frame."""
+        w = self.combat.weapon
+        self._ammo[self.gun_name] = (w.mag, w.reserve, w.auto)
+        self.viewmodel.park()
+        if self.fx:
+            self.fx.park()
+        kit = self._kits.get(name)
+        built_now = kit is None
+        if built_now:                                   # not preloaded (a tool that built the game without create_game): one long frame
+            kit = self._build_kit(name)
+        gun = kit.gun
         self.params.gun = gun
         self._merge_audio(gun)
         self.player.set_gun(gun)
         self.light.gun = gun
-        old_vm, old_fx = self.viewmodel, self.fx
-        self.viewmodel = Viewmodel(gun, ROOT, self.light)
-        self.viewmodel.hide_until_draw()                # until the draw clip starts, the new gun must not show its idle pose (a switch always draws)
-        self.fx = Effects(gun, self.viewmodel, smoke=self.smoke) if self._effects else None
-        if self.lens:
-            self.viewmodel.move_to_output(self.lens.manager.buffers[-1])
+        kit.viewmodel.overscan = self.viewmodel.overscan     # this frame's value (Game.update set it on the old gun already): no one-frame FOV pop
+        self.viewmodel, self.fx, self.audio, self.foley = kit.viewmodel, kit.fx, kit.audio, kit.foley
+        self.viewmodel.unpark()
+        if self.foley:
+            self.foley.resume()
         if self.shake is not None:                      # keep the running shake / head state (rebuilding it would jolt the lens frame mid-switch): only swap the data
             self.shake.d = gun.shake
             self.head.d = self.head.gaze.d = gun.head
-        self.audio = GunAudio(gun, ROOT) if self._sound and gun.shot_sound else None
-        self.foley = Foley(self.params.audio, gun, self.player, ROOT) if self._sound else None
         self.combat.set_gun(gun, self.audio, self.fx, self.shake, self.viewmodel, self.foley, self._ammo.get(name))
         self.combat.aim_source = self._barrel_direction
         self.sway.d = gun.sway                          # same for the sway state (lag, bob phase): the new gun comes up where the old one was going
         if hasattr(self.sway.lag, 'd'):
             self.sway.lag.d = gun.sway
         self.sway.ads_target = ads_target_for(gun)
-        old_vm.destroy()
-        if old_fx:
-            old_fx.destroy()
-        self.viewmodel.prewarm()                        # compile the new gun's shaders now, not in the first frames of the draw
         self.gun_name, self._pending_gun = name, None
-        self._draw_pending = True
+        if built_now:
+            self._draw_pending = True                   # the build frame was long: the draw waits for the next normal frame so it is not skipped
+        else:
+            self.combat.handling.start_draw()           # no gap where the new gun is "ready" but not drawn (a click there fired a hidden gun, a key holstered it)
+
+    def _on_handling_event(self, event: tuple):
+        self.viewmodel.on_event(event)
+        if self.foley:
+            self.foley.on_handling_event(event)
 
     def _on_params_changed(self, specs):
         """Numbers just changed on the debug panel. Most modules read the dataclass directly on each use, so they need nothing; anything that pushed numbers to the GPU / a buffer at build time
@@ -205,11 +250,11 @@ class Game(Entity):
             if not self.combat.handling.start_draw():
                 self.viewmodel.reveal()              # the draw could not start (a clip is running): never leave the gun hidden
         for event in self.combat.handling.drain():
-            self.viewmodel.on_event(event)
-            if self.foley:
-                self.foley.on_handling_event(event)
+            self._on_handling_event(event)
             if event[0] == 'done' and event[1] == 'holster' and self._pending_gun:
                 self._apply_gun(self._pending_gun)
+                for e in self.combat.handling.drain():       # the new gun's draw 'start': posed this same frame
+                    self._on_handling_event(e)
                 break
         self.viewmodel.animate(dt, self.combat.weapon.mag == 0, self.player.ads_amount)
         step = min(dt, 0.05)
@@ -299,6 +344,7 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     prune_scene_entities()
     # dry-run renders at build time: compiling shaders (lens, gun) and uploading normal maps to the GPU do not land in the game's first frame. Without it the first frame takes ~1 s and the 1 s draw clip is skipped entirely
     game.viewmodel.prewarm()
+    game.preload_guns()             # the other gun too: a weapon switch then loads nothing (it used to freeze the game 0.5-1.7 s)
     return game
 
 

@@ -44,8 +44,20 @@ Viết cho: người dùng và agent mở phiên sau. Thay thế phần phòng b
 - Sửa: `Viewmodel.hide_until_draw()` (gọi trong `Game.__init__` khi `draw=True` và trong `_apply_gun`) ẩn nhánh `sway` (tia lửa / cửa nhả vỏ cũng treo ở đó); `on_event('start', ...)` gọi `reveal()` NGAY khung tạo tư thế đầu của clip rút súng.
   `prewarm` vẫn vẽ súng (tạm `show`) nhưng khi ống kính vẽ súng vào buffer riêng thì CỬA SỔ NGHỈ các khung đó (`win.set_active(False)`), nên không khung nào ra màn hình. Không có ống kính (`lens=False`, chỉ công cụ) thì vẫn vẽ lên cửa sổ như cũ.
   Nếu `start_draw()` trả False (đang bận) thì `Game` gọi `reveal()` để súng không bị ẩn mãi. Mặc định Viewmodel KHÔNG ẩn (công cụ / selftest `draw=False` thấy súng ngay).
-- Đứng hình khi đổi súng VẪN CÒN (không đổi): đo ở máy này `_apply_gun` ~1,0-1,5 s lần đầu nạp một khẩu (`Viewmodel()` ~1,1 s: nạp glb + dựng xương hoạt ảnh bằng Python trong `gltf_patch`), lần sau 0,05-0,5 s. Hết chỗ người chơi thấy súng sai, chỉ còn thế giới đứng yên.
-  Muốn bỏ hẳn: nạp sẵn súng kia lúc mở game (tốn thêm ~1,3 s mở game và RAM) hoặc lưu cache xương hoạt ảnh; chưa làm, chờ người dùng chọn.
+- Đứng hình khi đổi súng: ĐÃ BỎ HẲN (6/11/2026, xem mục dưới).
+
+## Đổi súng không đứng hình, bắn được khi súng đã đứng yên (6/11/2026)
+- Nguyên nhân đo bằng cProfile: mỗi lần đổi, `_apply_gun` DỰNG LẠI mọi thứ của súng. Lần đầu sang Glock 1 694 ms (1 250 ms là `build_animation_skeleton` bằng Python trong `gltf_patch`, 150 ms giải nén texture),
+  mỗi lần về M4 520 ms (400 ms `read_normal_maps` giải nén PNG + `quick_filter_from` lại từ glb), cộng ~100 ms âm thanh, ảnh lóe nòng vẽ từng điểm ảnh, 2 khung vẽ thử.
+- Sửa: `GunKit` (app.py) giữ một bộ (dữ liệu súng, Viewmodel, Effects, GunAudio, Foley) cho MỖI khẩu. `create_game` gọi `preload_guns()` dựng sẵn khẩu kia lúc mở game (+~1,7 s mở game),
+  khẩu không cầm thì `park()` (tắt display region, ẩn, tư thế sẵn sàng; Effects tắt lóe + thu tracer; Foley `resume()` khi lấy lại). Đổi súng giờ ~1 ms, không khung nào > 25 ms.
+  Hệ quả: số chỉnh bằng F1 cho một khẩu được GIỮ khi đổi đi rồi đổi lại (trước đây mỗi lần đổi chép lại bản gốc từ `GUNS`).
+- Clip rút súng bắt đầu NGAY trong khung clip cất súng xong (không còn khung trống mà `Handling` ở READY lúc súng mới chưa rút: trước đây bấm chuột trái ở khung đó thì Glock bắn khi súng còn ẩn, bấm phím đổi súng thì súng mới bị cất khi chưa rút).
+  `request_gun` cũng bỏ qua khi súng chưa rút (`_draw_pending`).
+- Bắn / ngắm được từ `Clip.settle` của clip rút súng (M4 khung 291 = 0,73 s, Glock 233 = 0,70 s; trước đây chờ hết clip 1,0 / 1,1 s). Đo bằng độ dời lớn nhất của khớp giữa hai khung:
+  sau mốc đó < 0,5 cm/khung (chỉ tay ổn định lại). `Handling` phát ('ready', key, tail) thay cho 'done'; Viewmodel chạy tiếp phần đuôi (`_tail_left`), phát súng đầu tiên cắt ngang đuôi.
+  Đổi mốc: sửa `settle=` trong `weapon_data.py` (bỏ `settle` thì quay về chờ hết clip).
+- Kiểm: `tools\measure\swap_check.py` (đứng hình 0 ms, khung đầu hiện súng là clip rút), `tests/test_handling.py` (mốc 'ready').
 - Kiểm: `tools\measure\swap_check.py` (mở game + 3 lần đổi súng; khung đầu tiên hiện súng trên màn hình phải chạy clip `draw`; trên mã cũ trượt cả 4 lần).
 
 ## Sửa lần 2 (7/11/2026, tối)

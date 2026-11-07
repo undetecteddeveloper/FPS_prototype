@@ -228,8 +228,24 @@ class Effects:
         self._warm_up()
 
     def destroy(self):
-        """Weapon switch: the tracer pool lives under `render` (the muzzle flash goes away with the old viewmodel)."""
+        """The tracer pool lives under `render` (the muzzle flash goes away with the viewmodel)."""
         self.tracers.root.remove_node()
+
+    def park(self):
+        """Weapon switch: this gun's effects are put away with it but stay built (Game keeps one set per gun). Tracers still in flight vanish, the muzzle light goes out."""
+        if self._warm:
+            self._warm = 0
+            self._end_warm_up()
+        t = self.tracers
+        for s in t.active:
+            s.node.hide()
+            s.glow.hide()
+            t.free.append((s.node, s.glow))
+        t.active = []
+        if self.flash.active:
+            self.flash.age = None
+            self.vm.set_flash_light((0.0, 0.0, 0.0), (0, 0, 0))
+        self.burst, self._rest = 0, 1e9
 
     def _warm_up(self):
         """Draw every effect (tiny, nearly transparent) for the first few frames so textures and draw state reach the GPU as the game starts.

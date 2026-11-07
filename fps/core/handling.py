@@ -9,6 +9,8 @@ The visual part (playing the clip, blending the pose on cancel) is in `game/view
   ('start', key, speed)   start playing clip `key` (key of GunData.clips)
   ('swap', key)           new magazine seated (rounds updated)
   ('done', key)           clip finished
+  ('ready', key, tail)    draw clip reached `Clip.settle`: the gun is up and still, it can fire / aim from now on; the clip's last `tail` real seconds
+                          (only the hands settling) still play on the viewmodel. Comes INSTEAD of 'done' for a draw clip with `settle`
   ('cancel', key, frame)  cancelled mid-way at frame `frame` of the clip
 """
 from enum import Enum
@@ -123,7 +125,10 @@ class Handling:
             self.swapped = True
             self.loaded = self.weapon.load_magazine()
             self.events.append(('swap', self.key))
-        if self.t >= clip.duration:
+        if self.phase is Phase.DRAW and clip.settle is not None and self.t >= clip.settle_time:
+            self.events.append(('ready', self.key, max(clip.duration - self.t, 0.0) / self.speed))
+            self._finish()
+        elif self.t >= clip.duration:
             self.events.append(('done', self.key))
             self._finish()
 

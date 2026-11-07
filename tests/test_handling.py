@@ -114,15 +114,40 @@ def test_cancel_event_carries_the_frame_it_stopped_at():
     assert frame == pytest.approx(M4.clips['reload'].start + 30.0, abs=1.0)
 
 
-def test_draw_cannot_be_cancelled_and_blocks_fire_then_releases():
+def test_draw_cannot_be_cancelled_and_blocks_fire_until_the_gun_is_still():
     h, w = make()
     h.start_draw()
     assert not h.can_fire and not h.cancel()
-    run(h, M4.clips['draw'].duration - 0.05)
+    clip = M4.clips['draw']
+    run(h, clip.settle_time - 0.05)
     assert not h.can_fire
     run(h, 0.1)
-    assert h.can_fire
+    assert h.can_fire                                       # the gun is up and still: it fires although the clip's tail (hands settling) still plays
     assert (w.mag, w.reserve) == (30, 150)                  # drawing the gun does not touch the ammo
+
+
+@pytest.mark.parametrize('gun_key', ['m4', 'glock'])
+def test_draw_ends_with_ready_and_hands_the_tail_to_the_viewmodel(gun_key):
+    from fps.weapon_data import GUNS
+    gun = dataclasses.replace(GUNS[gun_key], reload=ReloadData(draw_speed=1.25))
+    h = Handling(gun, Weapon(gun))
+    clip = gun.clips['draw']
+    assert clip.start < clip.settle < clip.end
+    h.start_draw()
+    run(h, 3.0)
+    events = h.drain()
+    assert [e[0] for e in events] == ['start', 'ready']      # 'ready' replaces 'done': nothing waits for the tail
+    ready = events[1]
+    assert ready[1] == 'draw'
+    assert ready[2] == pytest.approx((clip.duration - clip.settle_time) / 1.25, abs=1 / 60)    # tail in real seconds, at the draw speed
+    assert h.can_fire
+
+
+def test_holster_and_reload_still_end_with_done():
+    h, w = make(mag=12)
+    h.start_holster()
+    run(h, 2.0)
+    assert [e[0] for e in h.drain()] == ['start', 'done']
 
 
 def test_speed_scales_the_time_but_not_the_swap_frame():
