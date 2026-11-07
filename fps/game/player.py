@@ -9,6 +9,7 @@ import math
 
 from ursina import Entity, camera, held_keys, mouse, time
 
+from fps.core.lens import overscan_fov
 from fps.core.movement import (MoveState, aim_direction, apply_look, clamp_to_bounds, resolve_state, smoothstep,
                       step_horizontal_velocity, step_toward, step_vertical, target_speed, wants_sprint, wish_direction)
 from fps.core.freeaim import FreeLook
@@ -54,6 +55,8 @@ class Player(Entity):
         camera.parent = self.camera_pivot
         camera.position = (0, 0, 0)
         camera.rotation = (0, 0, 0)
+        self.overscan = 0.0                   # the lens draws the view this much wider and crops it (Game sets it); camera.fov is the RENDERED fov
+        self.view_fov = params.fov            # the SHOWN horizontal fov (before overscan)
         camera.fov = params.fov
         mouse.locked = True
 
@@ -199,5 +202,7 @@ class Player(Entity):
         self.camera_pivot.y = self.eye_height + self._dip.x[0]
 
         fov = p.fov + (self.gun.ads_fov - p.fov) * smoothstep(self.ads_amount)
+        self.view_fov = fov
+        fov = overscan_fov(fov, self.overscan)
         if abs(camera.fov - fov) > 1e-4:
             camera.fov = fov

@@ -42,7 +42,7 @@ class Lens:
     def apply_params(self):
         d, q = self.d, self.quad
         q.set_shader_input('lens_warp', Vec4(window.aspect_ratio, d.chroma, d.smear, d.smear_start))
-        q.set_shader_input('lens_motion', Vec4(d.smear_motion, d.rolling_shutter, 1.15, 0.0))
+        q.set_shader_input('lens_motion', Vec4(d.smear_motion, d.rolling_shutter, 1.15, 1.0 + max(d.overscan, 0.0)))
         q.set_shader_input('lens_vig', Vec4(d.vignette_start, d.vignette_end, d.fringe, d.noise))
         q.set_shader_input('lens_grade', Vec4(d.contrast, d.saturation, d.bloom, d.bloom_threshold))
         q.set_shader_input('lens_tint', Vec3(*d.tint))

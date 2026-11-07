@@ -3,7 +3,7 @@
 // colour grading, corner darkening + orange halo, sensor noise. The centre costs only 3 samples; edge blur takes extra samples only where needed.
 uniform sampler2D lens_scene;
 uniform vec4 lens_warp;         // frame aspect, colour fringe, edge blur, blur start
-uniform vec4 lens_motion;       // extra blur per deg/s, rolling shutter per deg/s, outer edge-blur radius boundary, 0
+uniform vec4 lens_motion;       // extra blur per deg/s, rolling shutter per deg/s, outer edge-blur radius boundary, 1 + overscan (the scene is drawn that much wider)
 uniform vec4 lens_vig;          // darkening starts, fully dark, orange halo, noise
 uniform vec4 lens_grade;        // contrast, saturation, flare, flare threshold
 uniform vec3 lens_tint;
@@ -35,6 +35,7 @@ void main() {
     float turn = lens_frame.z;
     vec2 src = p * f;
     src.x += lens_motion.y * turn * p.y;                 // rolling shutter: the top and bottom rows are read at two different times
+    src /= lens_motion.w;                                // overscan: the scene texture covers a wider view, the shown frame is its middle
     vec2 uv_g = src * 0.5 + 0.5;
     float ca = lens_warp.y * r2;
     vec2 uv_r = (src * (1.0 + ca)) * 0.5 + 0.5;

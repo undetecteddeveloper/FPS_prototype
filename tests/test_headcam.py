@@ -114,8 +114,9 @@ def test_steps_bob_in_step_with_the_gun_phase():
 
 def test_walking_is_clearly_visible_but_not_dizzy():
     poses = walk_samples(HeadCamData(), MoveState.WALK, WALK)
-    assert 0.025 < spread(poses, 1) < 0.06                 # bob 2.5-6 cm peak to peak
-    assert 1.5 < spread(poses, 5) < 4.0                     # tilt ±~1 degree
+    # 7/11/2026 the user cut walking shake by 40 %: the old 2.5-6 cm / 1.5-4 deg bounds x 0.6
+    assert 0.015 < spread(poses, 1) < 0.036                # bob 1.5-3.6 cm peak to peak
+    assert 0.9 < spread(poses, 5) < 2.4                     # tilt ±~0.6 degree
     assert spread(poses, 3) < 3.5
 
 
@@ -124,7 +125,7 @@ def test_sprinting_shakes_harder_than_walking_and_leans_forward():
     run = walk_samples(HeadCamData(), MoveState.SPRINT, SPRINT)
     assert spread(run, 5) > 1.8 * spread(walk, 5)          # leans left and right with the footsteps
     assert spread(run, 1) > 1.3 * spread(walk, 1)
-    assert 4.0 < spread(run, 5) < 7.5                       # ~ ±2.6 degrees
+    assert 2.8 < spread(run, 5) < 5.25                      # ~ ±1.8 degrees (sprint shake cut by 30 %, user 7/11/2026)
     mean_pitch = sum(p[3] for p in run) / len(run)
     assert mean_pitch < -0.8 * HeadCamData().sprint_lean   # pitches forward
 

@@ -1,9 +1,9 @@
 """Where the head camera looks while reloading (pure math, no ursina import).
 
-A person reloading does not tilt the head down on a fixed curve: the gaze jumps between the things the hands work on (the old magazine leaving, the new one
-coming up, the magazine well, the slide) and rests on each for a moment. `ReloadGaze` models that as a chain of SACCADES:
-  - a saccade is a quick move from the current gaze to a new fixation point, on a minimum-jerk curve (slow start, fast middle, soft stop), slightly overshooting;
-    its duration grows with its amplitude (`gaze_time` + `gaze_time_per_deg` x degrees), so a small re-glance is quick and the first dip / the final look-up are slower;
+A person reloading does not tilt the head down on a fixed curve: the gaze moves between the things the hands work on (the old magazine leaving, the new one
+coming up, the magazine well, the slide) and rests on each for a while. `ReloadGaze` models that as a chain of HEAD glances (slow: a head moves 3-4x slower than an eye):
+  - a glance moves from the current gaze to a new fixation point along a cubic-bezier curve (core/easing.py, like CSS cubic-bezier): `gaze_enter_ease` for the first dip,
+    `gaze_glance_ease` between points (small settle overshoot), `gaze_leave_ease` for the look back up; its duration grows with its amplitude (`gaze_time` + `gaze_time_per_deg` x degrees);
   - between saccades the gaze HOLDS: it creeps slowly toward the moving target (`gaze_pursuit`, eyes following the hand) and drifts a little;
   - a new saccade starts once the target has moved more than `gaze_threshold` degrees away from the fixation AND the gaze has rested at least a random
     dwell time (`gaze_dwell_min` .. `gaze_dwell_max`);
@@ -13,6 +13,8 @@ Angles are (pitch up, yaw right) in degrees relative to the straight-ahead view;
 """
 import math
 import random
+
+from fps.core.easing import bezier
 
 SUBSTEP = 1.0 / 240.0          # s: the gaze is integrated in steps no longer than this, so 30 and 240 FPS trace the same path
 DEPTH_JITTER = 0.6             # the per-reload depth varies by this share of gaze_jitter (the tempo by the full gaze_jitter)
@@ -53,6 +55,7 @@ class ReloadGaze:
         self._side = 0.0                      # per-reload side offset (deg)
         self._speed = 1.0                     # per-reload duration scale
         self.saccades = 0                     # number of saccades started (for tests)
+        self._curve = bezier(data.gaze_glance_ease)
 
     @property
     def moving(self) -> bool:
@@ -74,8 +77,9 @@ class ReloadGaze:
         yaw = math.copysign(_soft(abs(yaw), 0.6 * d.gaze_max_yaw, d.gaze_max_yaw), yaw)
         return pitch, yaw
 
-    def _saccade(self, goal: tuple, duration: float = None, overshoot: bool = True):
+    def _saccade(self, goal: tuple, duration: float = None, overshoot: bool = True, ease: tuple = None):
         d = self.d
+        self._curve = bezier(ease if ease is not None else d.gaze_glance_ease)
         err = (goal[0] - self.pitch, goal[1] - self.yaw)
         amp = math.hypot(*err)
         over = d.gaze_overshoot * self.rng.uniform(0.3, 1.0) if overshoot else 0.0
@@ -104,11 +108,11 @@ class ReloadGaze:
             self._side = self.rng.uniform(-1.0, 1.0) * d.gaze_jitter * 8.0
             self._speed = 1.0 + self._jitter()
             self._active = True
-            self._saccade(self._aim(target), None if enter_time is None else enter_time * self._speed)
+            self._saccade(self._aim(target), enter_time, overshoot=False, ease=d.gaze_enter_ease)
             self._move_t = -lead
         elif not active and self._active:                     # finished or cancelled: one look straight back up, landing exactly on 0
             self._active = False
-            self._saccade((0.0, 0.0), leave_time, overshoot=False)
+            self._saccade((0.0, 0.0), leave_time, overshoot=False, ease=d.gaze_leave_ease)
             self._move_t = -lead
         aim = self._aim(target) if self._active else (0.0, 0.0)
         n = max(1, math.ceil(dt / SUBSTEP - 1e-9))
@@ -122,7 +126,7 @@ class ReloadGaze:
         if self.moving:
             self._move_t += h
             u = self._move_t / self._move_T
-            k = min_jerk(u)
+            k = self._curve(u)
             self.pitch = self._from[0] + (self._goal[0] - self._from[0]) * k
             self.yaw = self._from[1] + (self._goal[1] - self._from[1]) * k
             if u >= 1.0:

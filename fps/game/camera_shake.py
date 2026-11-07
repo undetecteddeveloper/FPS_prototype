@@ -6,7 +6,7 @@ body, steps, jump / landing, idle drift, the reload gaze) is summed here and con
 image (world AND gun) inside assets/shaders/lens.frag. The gun is part of that image, so it moves with the frame: it gets no separate follow pose any more.
 """
 from fps.core.headcam import HeadCam
-from fps.core.lens import frame_shake
+from fps.core.lens import frame_shake, soft_limit
 from fps.core.shake import Shake
 from fps.weapon_data import LensData
 
@@ -27,8 +27,9 @@ class ShakeView:
         return tuple(c * d.shake_scale for c in total)
 
     def frame_offset(self, ads: float, hfov: float, aspect: float, fisheye: float = 0.0) -> tuple:
-        """(dx, dy, roll) for Lens.update. The old camera shake was seen through the fisheye, which magnifies the centre (1 + fisheye) times:
-        the shift is multiplied by that so the centre of the frame swims as much as before."""
+        """(dx, dy, roll) for Lens.update. `hfov` = the SHOWN horizontal FOV (not the overscanned one). The old camera shake was seen through the fisheye, which
+        magnifies the centre (1 + fisheye) times: the shift is multiplied by that so the centre of the frame swims as much as before; then it is softly limited to the overscan margin."""
         dx, dy, roll = frame_shake(self.pose(ads), hfov, aspect, self.lens.shake_pos_ref)
         k = 1.0 + fisheye
-        return dx * k, dy * k, roll
+        margin = 0.9 * self.lens.overscan                     # never shift past the extra image drawn around the frame: no black band (only the round rim)
+        return soft_limit(dx * k, margin), soft_limit(dy * k, margin), roll

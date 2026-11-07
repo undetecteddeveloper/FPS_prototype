@@ -171,6 +171,8 @@ class Game(Entity):
         return view_to_world(p.yaw, p.pitch, barrel_view_dir(self.viewmodel.barrel_pose, gun.ads_sights, self.viewmodel.current_fov, camera.fov))
 
     def update(self):
+        over = max(self.params.lens.overscan, 0.0) if self.lens else 0.0      # world and gun are drawn this much wider; the lens crops the middle (no black band when the frame swims)
+        self.player.overscan = self.viewmodel.overscan = over
         # fixed order: player (look/move) -> fire + reload (uses the view direction just updated) -> hand animation -> sway -> head + shake (-> lens frame) -> gun -> light, lens
         dt = time.dt
         self.player.tick()
@@ -202,7 +204,7 @@ class Game(Entity):
             # after combat (this frame's Handling.t) and after sway (footstep phase): reload gaze + bob / jump / landing
             self.head.update(step, inp, self.sway.phase, p.vx * cy - p.vz * sy, p.vx * sy + p.vz * cy, rs, gaze)
             if self.lens:
-                frame = self.shake_view.frame_offset(p.ads_amount, camera.fov, window.aspect_ratio, self.lens.current_fisheye(p.ads_amount))
+                frame = self.shake_view.frame_offset(p.ads_amount, p.view_fov, window.aspect_ratio, self.lens.current_fisheye(p.ads_amount))
         self.viewmodel.update(self.combat.gun_kick.pose, sway_pose, self.combat.free_aim.pose(self.player.ads_amount), self.player.free_look.pose())
         cam_pos, forward = camera.world_position, camera.forward
         self.light.set_camera(cam_pos, camera.right, camera.up, forward)

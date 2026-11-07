@@ -36,3 +36,11 @@ Viết cho: người dùng và agent mở phiên sau. Thay thế phần phòng b
   Tia lửa (hình ngôi sao + 2 mặt phẳng) đã bỏ; còn lại ánh lóe ngắn (đèn điểm ở nòng) chiếu súng, tay, đất.
 - Đổi súng: chỉ clip NẠP mới thu hẹp vùng súng tự do (`Player.reloading`); cất / rút không còn kéo súng về tâm. FreeLook, FreeAim, Sway, HeadCam, Shake được GIỮ khi đổi súng (chỉ thay dữ liệu), nên súng mới ra đúng chỗ súng cũ đang chĩa và khung không giật.
 - Bảng F1 thêm nhóm "Khói thuốc súng", "Ánh lóe đầu nòng", "Ống kính lắc", và các thanh `gun.head.gaze_*`.
+
+## Sửa lần 2 (7/11/2026, tối)
+- Dải đen ở mép khi khung trượt: VẼ DƯ MÉP (`lens.overscan` 0,22). Thế giới và súng được vẽ với tan(nửa FOV) x 1,22 (`core/lens.overscan_fov`; `camera.fov` và FOV súng là FOV VẼ,
+  `Player.view_fov` là FOV HIỆN), ống kính lấy phần giữa (`src /= lens_motion.w`). Độ trượt nén mềm tới 0,9 x overscan (`soft_limit`), nên chỉ còn viền bo tròn. Đổi lại ảnh mềm hơn ~20%.
+  Cúi nhìn băng vì vậy trượt tối đa ~1/10 chiều cao (thay vì 1/8). Tỉ lệ tan giữa súng và thế giới giữ nguyên nên hướng đạn theo nòng không đổi.
+- Ánh nhìn khi nạp: chuyển động theo cubic-bezier kiểu CSS (`core/easing.py`, skill `camera-easing-bezier`): cúi xuống `gaze_enter_ease`, liếc `gaze_glance_ease` (quá đà 4%), ngẩng `gaze_leave_ease`.
+  Nhịp của ĐẦU, không phải mắt: liếc 0,3 s + 0,012 s/độ, dừng 0,6-0,85 s, bám tay chậm 0,8/s, ngưỡng liếc 4°; đo mô phỏng: liếc cách nhau ~1,1 s (2-3 chỗ mỗi lần nạp). Ngẩng lên 0,7 s, bắt đầu 0,42 s trước `Clip.settle`.
+- Rung khi di chuyển: đi bộ -40% (`step_*`), chạy -30% (`sprint_*`, `jitter_angle/pos`), `jitter_walk` chỉnh để rung tay lúc đi cũng -40%.

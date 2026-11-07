@@ -410,7 +410,14 @@ META = {
     'gun.head.gaze_dwell_max': p('Nạp: dừng nhìn lâu nhất', 'giây', 0.02, 2, 0.01),
     'gun.head.gaze_pursuit': p('Nạp: dõi theo tay', '1/s khi đang dừng nhìn; lớn = bám tay sát hơn', 0, 10, 0.1, 'A'),
     'gun.head.gaze_jitter': p('Nạp: mỗi lần một khác', '± tỉ lệ độ sâu / nhịp; 0 = lần nào cũng như nhau', 0, 0.5, 0.01),
+    'gun.head.gaze_enter_ease': tuple(p(f'Cúi xuống: bezier {c}', h, lo, hi, 0.01, 'A') for c, h, lo, hi in (
+        ('x1', 'thời gian, điểm điều khiển 1', 0, 1), ('y1', 'tiến độ, điểm 1', -0.5, 1.5), ('x2', 'thời gian, điểm 2', 0, 1), ('y2', 'tiến độ, điểm 2; > 1 = quá đà', -0.5, 1.5))),
+    'gun.head.gaze_glance_ease': tuple(p(f'Liếc: bezier {c}', h, lo, hi, 0.01, 'A') for c, h, lo, hi in (
+        ('x1', 'thời gian, điểm điều khiển 1', 0, 1), ('y1', 'tiến độ, điểm 1', -0.5, 1.5), ('x2', 'thời gian, điểm 2', 0, 1), ('y2', 'tiến độ, điểm 2; > 1 = quá đà', -0.5, 1.5))),
+    'gun.head.gaze_leave_ease': tuple(p(f'Ngẩng lên: bezier {c}', h, lo, hi, 0.01, 'A') for c, h, lo, hi in (
+        ('x1', 'thời gian, điểm điều khiển 1', 0, 1), ('y1', 'tiến độ, điểm 1', -0.5, 1.5), ('x2', 'thời gian, điểm 2', 0, 1), ('y2', 'tiến độ, điểm 2; > 1 = quá đà', -0.5, 1.5))),
     'gun.head.gaze_max_yaw': p('Nạp: liếc ngang tối đa', 'độ', 0, 40, 0.5, 'A'),
+    'lens.overscan': p('Ống kính lắc: vẽ dư mép', 'phần ảnh vẽ thêm quanh khung để lắc không lộ đen; lớn = ảnh mềm hơn', 0, 0.4, 0.01, 'A'),
     'lens.shake_scale': p('Ống kính lắc: mức', '0 = khung đứng yên; nhân toàn bộ rung', 0, 3, 0.05),
     'lens.shake_pos_ref': p('Ống kính lắc: quy đổi nhấp nhô', 'mét; nhỏ = nhấp nhô đầu làm khung lắc nhiều hơn', 0.1, 3, 0.05, 'A'),
     'lens.shake_glance': p('Ống kính lắc: cúi nhìn băng đạn', 'phần của góc cúi thật', 0, 1, 0.05),
@@ -492,7 +499,8 @@ GROUPS = (
                                    'gun.head.glance_in_delay', 'gun.head.glance_in_time', 'gun.head.glance_out_lead', 'gun.head.glance_out_time',
                                    'gun.head.glance_cancel_time', 'gun.head.glance_drift', 'gun.head.glance_drift_freq', 'gun.head.glance_seat_nod',
                                    'gun.head.glance_follow', 'gun.head.gaze_hand_weight', 'gun.head.gaze_threshold', 'gun.head.gaze_time', 'gun.head.gaze_time_per_deg',
-                 'gun.head.gaze_overshoot', 'gun.head.gaze_dwell_min', 'gun.head.gaze_dwell_max', 'gun.head.gaze_pursuit', 'gun.head.gaze_jitter', 'gun.head.gaze_max_yaw')),
+                 'gun.head.gaze_overshoot', 'gun.head.gaze_dwell_min', 'gun.head.gaze_dwell_max', 'gun.head.gaze_pursuit', 'gun.head.gaze_jitter', 'gun.head.gaze_max_yaw',
+                 'gun.head.gaze_enter_ease', 'gun.head.gaze_glance_ease', 'gun.head.gaze_leave_ease')),
         ('Ngắm và súng đi theo', ('gun.head.ads_multiplier', 'gun.head.gun_follow')),
     )),
     ('lens', 'Ống kính', (
@@ -500,7 +508,7 @@ GROUPS = (
         ('Góc khung và nhiễu', ('lens.vignette_start', 'lens.vignette_end', 'lens.fringe', 'lens.noise')),
         ('Màu và loé sáng', ('lens.bloom', 'lens.bloom_threshold', 'lens.contrast', 'lens.saturation', 'lens.tint')),
         ('Phơi sáng tự động', ('lens.auto_exposure', 'lens.exposure_key', 'lens.exposure_min', 'lens.exposure_max')),
-        ('Ống kính lắc (rung của camera)', ('lens.shake_scale', 'lens.shake_pos_ref', 'lens.shake_glance')),
+        ('Ống kính lắc (rung của camera)', ('lens.shake_scale', 'lens.shake_pos_ref', 'lens.shake_glance', 'lens.overscan')),
     )),
     ('shake', 'Rung', (
         ('Giật mỗi phát', ('gun.shake.fire_scale', 'gun.shake.fire_bias', 'gun.shake.fire_spread', 'gun.shake.strength_var',

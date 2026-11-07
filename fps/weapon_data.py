@@ -315,27 +315,27 @@ class HeadCamData:
     body_omega: float = 7.0               # rad/s: body spring: smaller = the body arrives later
     body_zeta: float = 0.75
     # footsteps when WALKING (same phase as Sway.phase, i.e. same rhythm as the footstep sounds). Bodycam-style sway: visible but not nauseating
-    step_y: float = 0.020                 # m: bob (the -2 cm trough lands exactly when the foot touches the ground; the peak is lower because the trough is sharp)
-    step_x: float = 0.010                 # m: sideways sway with the supporting leg
-    step_roll: float = 1.1                # deg: left-right roll with the step rhythm
-    step_pitch: float = 0.7               # deg: nod with each step
-    step_yaw: float = 0.4                 # deg: head turns with the shoulders
+    step_y: float = 0.012                 # m: bob (-40 % for walking, user 7/11/2026) (the -2 cm trough lands exactly when the foot touches the ground; the peak is lower because the trough is sharp)
+    step_x: float = 0.006                 # m: sideways sway with the supporting leg
+    step_roll: float = 0.66               # deg: left-right roll with the step rhythm
+    step_pitch: float = 0.42              # deg: nod with each step
+    step_yaw: float = 0.24                # deg: head turns with the shoulders
     step_sharp: float = 0.6               # 0 = sine bob; 1 = sharp trough like a stomp
     step_crouch: float = 0.55             # crouch-walking: multiplies the step amplitude + hand shake
     step_min_speed: float = 1.5           # m/s: below this the amplitude shrinks to 0
     step_blend: float = 8.0               # 1/s: amplitude slides to the new level
     # sprinting: its own amplitude set (blended smoothly with the walk set by `sprint_blend`)
-    sprint_y: float = 0.030
-    sprint_x: float = 0.016
-    sprint_roll: float = 2.6              # deg: strong left-right roll with the step rhythm
-    sprint_pitch: float = 1.3
-    sprint_yaw: float = 0.9
+    sprint_y: float = 0.021               # sprint set: -30 % (user 7/11/2026)
+    sprint_x: float = 0.0112
+    sprint_roll: float = 1.82             # deg: strong left-right roll with the step rhythm
+    sprint_pitch: float = 0.91
+    sprint_yaw: float = 0.63
     sprint_lean: float = 1.5              # deg: extra forward lean (added to move_pitch by speed)
     sprint_blend: float = 5.0             # 1/s
     # high-frequency hand / machine vibration: smooth noise, grows with speed, strongest when sprinting
-    jitter_angle: float = 0.5             # deg (pitch; yaw x0.8; roll x1.2) when sprinting
-    jitter_pos: float = 0.0015            # m
-    jitter_walk: float = 0.3              # walking: this much remains
+    jitter_angle: float = 0.35            # deg (pitch; yaw x0.8; roll x1.2) when sprinting (-30 %)
+    jitter_pos: float = 0.00105           # m
+    jitter_walk: float = 0.257            # walking: this much remains (keeps walking at -40 %: 0.35 x 0.257 = 0.6 x 0.5 x 0.3)
     jitter_freq: float = 12.0             # Hz when sprinting
     jitter_freq_walk: float = 7.0         # Hz when walking
     idle_pitch: float = 0.22              # deg: head drifts slowly while standing still
@@ -366,9 +366,9 @@ class HeadCamData:
     glance_y: float = -0.015              # m: when the head tilts down the eye drops
     glance_z: float = 0.015               # m: and moves forward
     glance_in_delay: float = 0.06         # s after pressing reload before the head starts to tilt down
-    glance_in_time: float = 0.32          # s to fully tilt down
-    glance_out_lead: float = 0.25         # s BEFORE Clip.settle the head starts to come up (at the same time the reload view fades out)
-    glance_out_time: float = 0.38         # s to fully come up: back to 0 about 0.5 s before the gun is ready to fire
+    glance_in_time: float = 0.45          # s to fully tilt down (eased by gaze_enter_ease)
+    glance_out_lead: float = 0.42         # s BEFORE Clip.settle the head starts to come up (so the slow look-up ends before the clip does)
+    glance_out_time: float = 0.70         # s to fully come up (eased by gaze_leave_ease; user choice 0.7 s)
     glance_cancel_time: float = 0.2       # s: when reloading is cancelled the head comes back within this time
     glance_drift: float = 1.0             # deg: the eye drifts slightly while looking
     glance_drift_freq: float = 0.5        # Hz
@@ -376,13 +376,18 @@ class HeadCamData:
     glance_follow: float = 1.0            # the gun follows the glance part (sign flipped): 1 = the gun stays still relative to the body and moves up to the middle of the frame on screen
     # GAZE while reloading (core/gaze.py): the look jumps between what the hands work on (saccades), rests, follows the hand slowly; each reload a little different
     gaze_hand_weight: float = 0.65        # 0 = look at the gun, 1 = look at the left hand (it carries the magazine); the target is the point in between
-    gaze_threshold: float = 2.5           # deg: the target must move this far from where the gaze rests before the next glance
-    gaze_time: float = 0.10               # s: base duration of a glance
-    gaze_time_per_deg: float = 0.008      # s per degree of glance amplitude (a 15 deg glance takes ~0.22 s)
-    gaze_overshoot: float = 0.07          # a glance overshoots its point by up to this share, then settles back
-    gaze_dwell_min: float = 0.18          # s: the gaze rests at least this long on a point ...
-    gaze_dwell_max: float = 0.45          # s: ... and at most this long before it may jump again
-    gaze_pursuit: float = 2.5             # 1/s: while resting, the gaze creeps toward the moving hand at this rate
+    gaze_threshold: float = 4.0           # deg: the target must move this far from where the gaze rests before the next glance
+    # a HEAD glance is slow (eye saccades are 3-4x faster; see .claude/skills/camera-easing-bezier): 0.3 s + 0.012 s per degree, i.e. ~0.4 s for 8 deg
+    gaze_time: float = 0.30               # s: base duration of a glance
+    gaze_time_per_deg: float = 0.012      # s per degree of glance amplitude
+    gaze_overshoot: float = 0.0           # extra overshoot of the glance target (the settle now lives in gaze_glance_ease)
+    gaze_dwell_min: float = 0.60          # s: the gaze rests at least this long on a point ... (user choice: 2-3 points per reload, ~0.7 s each)
+    gaze_dwell_max: float = 0.85          # s: ... and at most this long before it may jump again
+    gaze_pursuit: float = 0.8             # 1/s: while resting, the gaze creeps toward the moving hand at this rate (slow: a rest must look like a rest)
+    # cubic-bezier (x1, y1, x2, y2) like CSS: x = time, y = progress; x1, x2 in [0, 1], y may leave [0, 1] to overshoot (core/easing.py)
+    gaze_enter_ease: tuple = (0.45, 0.0, 0.20, 1.0)     # the first dip: slow start, firm middle, soft landing
+    gaze_glance_ease: tuple = (0.40, 0.0, 0.30, 1.04)   # glance between two points: eases in and settles with a 4% overshoot
+    gaze_leave_ease: tuple = (0.45, 0.0, 0.15, 1.0)     # looking back up: slow start, long soft landing
     gaze_jitter: float = 0.15             # +- share: each reload draws its own depth, tempo and a side offset (x8 deg)
     gaze_max_yaw: float = 14.0            # deg: the gaze never turns further sideways than this
 
@@ -548,6 +553,7 @@ class LensData:
     # ALL camera shake (head bob, steps, jump / landing, shots, reload beats, idle drift, the reload glance) moves the WHOLE lens frame (image + dark rim + distortion
     # centre) instead of the world camera: the rotation part becomes a shift / tilt of the frame, the position part is turned into an angle at `shake_pos_ref`.
     shake_scale: float = 1.0              # multiplies the whole frame motion (0 = steady frame)
+    overscan: float = 0.22                # the world + gun are drawn this much wider than shown and the lens crops the middle: the frame can shift this far (x0.9, soft) without showing black. Larger = softer image
     shake_pos_ref: float = 0.5            # m: a head shift of x metres moves the frame like a turn of atan(x / shake_pos_ref)
     shake_glance: float = 0.45            # the reload glance (~18 deg down on the M4) moves the frame by this share of a real turn: ~1/8 of the frame height (user choice 'medium')
 

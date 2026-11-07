@@ -16,6 +16,7 @@ from direct.actor.Actor import Actor
 from panda3d.core import (Camera, Filename, NodePath, PerspectiveLens, PNMImage, Point3, SamplerState, ShaderAttrib, Texture, Vec3, Vec4)
 from ursina import application, window
 
+from fps.core.lens import overscan_fov
 from fps.core.movement import smoothstep, step_toward
 from fps.game.frame_light import FrameLight
 from fps.game.gltf_maps import read_normal_maps
@@ -56,6 +57,7 @@ class Viewmodel:
         self._empty = 0.0                             # 0 bolt closed .. 1 bolt locked back (empty magazine)
         self._view = 0.0                              # 0 .. 1 separate view for the reload clip (wide FOV, gun raised)
         self._fov = None
+        self.overscan = 0.0                           # drawn wider by this much (same as the world camera) when the lens crops; Game sets it
 
         # the file is in cm and faces -z: convert to metres and turn 180 degrees so it looks toward +z
         self.rig.set_scale(gun.model_scale)
@@ -160,13 +162,13 @@ class Viewmodel:
 
     @property
     def current_fov(self) -> float:
-        """Horizontal FOV the gun camera currently uses (changes when reloading)."""
+        """Horizontal FOV the gun camera currently renders with (changes when reloading; includes the lens overscan, like camera.fov)."""
         return self._fov
 
     def _sync_lens(self):
         g, r = self.gun, self.gun.reload
         base_fov = g.view_fov + (g.ads_view_fov - g.view_fov) * smoothstep(self.ads)
-        fov = base_fov + (r.view_fov - base_fov) * smoothstep(self._view)
+        fov = overscan_fov(base_fov + (r.view_fov - base_fov) * smoothstep(self._view), self.overscan)
         aspect = window.aspect_ratio
         if aspect != self._aspect or fov != self._fov:
             self._aspect, self._fov = aspect, fov

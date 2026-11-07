@@ -34,6 +34,21 @@ def vignette(r: float, start: float, end: float) -> float:
     return 1.0 - t * t * (3.0 - 2.0 * t)
 
 
+def overscan_fov(fov_deg: float, overscan: float) -> float:
+    """FOV actually rendered when the image is drawn `overscan` wider than shown (tan of the half angle x (1 + overscan)); the lens then crops the middle back out,
+    so a frame shake up to `overscan` (shader p units) reveals real image instead of black."""
+    if overscan <= 0.0:
+        return fov_deg
+    return math.degrees(2.0 * math.atan(math.tan(math.radians(fov_deg) / 2.0) * (1.0 + overscan)))
+
+
+def soft_limit(v: float, limit: float) -> float:
+    """Smoothly compresses |v| so it approaches `limit` but never passes it (unchanged for small v)."""
+    if limit <= 0.0:
+        return 0.0
+    return limit * math.tanh(v / limit)
+
+
 def frame_shake(pose: tuple, hfov_deg: float, aspect: float, pos_ref: float) -> tuple:
     """Turns a camera shake pose into a move of the whole lens frame (image + vignette + distortion centre), for `lens_shake` in lens.frag.
 
