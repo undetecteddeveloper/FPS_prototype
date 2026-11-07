@@ -14,14 +14,16 @@ class FrameLight:
         self.look, self.gun = look, gun
         self.nodes = []
         self.camera_pos = PTA_LVecBase3f.empty_array(1)
-        self.frame = PTA_LVecBase3f.empty_array(1)                 # x = exposure
+        self.frame = PTA_LVecBase3f.empty_array(1)                 # x = exposure, y = share of the sun reaching the player, z = ambient scale (the gun's shade; the world is baked)
         self.view_x = PTA_LVecBase3f.empty_array(1)
         self.view_y = PTA_LVecBase3f.empty_array(1)
         self.view_z = PTA_LVecBase3f.empty_array(1)
         self.flash_pos = PTA_LVecBase3f.empty_array(1)
         self.flash_color = PTA_LVecBase3f.empty_array(1)
         self.camera_pos.set_element(0, Vec3(0, 1.68, 0))
-        self.frame.set_element(0, Vec3(1, 0, 0))
+        self.frame.set_element(0, Vec3(1, 1, 1))
+        self.sun_visibility = 1.0
+        self.ambient_scale = 1.0
         self.view_x.set_element(0, Vec3(1, 0, 0))
         self.view_y.set_element(0, Vec3(0, 1, 0))
         self.view_z.set_element(0, Vec3(0, 0, 1))
@@ -66,7 +68,15 @@ class FrameLight:
 
     def set_exposure(self, value: float):
         self.exposure = value
-        self.frame.set_element(0, Vec3(value * self.look.exposure, 0, 0))
+        self._push_frame()
+
+    def set_local_light(self, sun_visibility: float, ambient_scale: float = 1.0):
+        """How much of the sun reaches the player and how bright the ambient light is around him: the gun and hands are lit by this (the world's own light is baked)."""
+        self.sun_visibility, self.ambient_scale = sun_visibility, ambient_scale
+        self._push_frame()
+
+    def _push_frame(self):
+        self.frame.set_element(0, Vec3(self.exposure * self.look.exposure, self.sun_visibility, self.ambient_scale))
 
     def set_flash(self, view_pos, color):
         """Muzzle flash: `view_pos` in camera space (x right, y up, z forward), `color` black = off. Shared by the gun and the world."""

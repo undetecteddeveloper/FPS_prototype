@@ -31,5 +31,9 @@ void main() {
         vec3 cloud = mix(vec3(1.0), vec3(0.74, 0.77, 0.83), thick * (1.0 - 0.6 * sun_side));
         sky = mix(sky, cloud, cover * 0.92);
     }
+    // the low sun: a warm glow around it and a pale hot core (seen through the pool hall windows)
+    float s = max(dot(d, normalize(look_sun_dir)), 0.0);
+    sky += vec3(1.0, 0.78, 0.45) * (pow(s, 24.0) * 0.32 + pow(s, 5.0) * 0.05);
+    sky = mix(sky, vec3(1.0, 0.95, 0.82), smoothstep(0.9993, 0.9998, s));
     frag_color = vec4(sky, 1.0);
 }

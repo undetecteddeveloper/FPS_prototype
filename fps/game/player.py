@@ -15,17 +15,21 @@ from fps.core.movement import (MoveState, aim_direction, apply_look, clamp_to_bo
 from fps.core.freeaim import FreeLook
 from fps.core.spring import Spring, impulse_gain
 from fps.core.sway import SwayInput
+from fps.core.terrain import resolve_move
 from fps.weapon_data import GunData, PlayerParams
 
 MAX_DT = 0.05   # after a hitch (reload, window drag) do not let the physics take one oversized step
 
 
 class Player(Entity):
-    def __init__(self, params: PlayerParams, walk_bounds: tuple, gun: GunData):
-        super().__init__(position=(0, 0, 0))
+    def __init__(self, params: PlayerParams, walk_bounds: tuple, gun: GunData, terrain=None, spawn: tuple = (0.0, 0.0, 0.0)):
+        """`terrain` (core.terrain.Terrain) gives a floor with steps and solid boxes; without it the floor is the plane y = 0 inside `walk_bounds` (the flat map, the test tools)."""
+        super().__init__(position=spawn)
         self.p = params
         self.gun = gun
         self.walk_bounds = walk_bounds
+        self.terrain = terrain
+        self.step_offset = 0.0                # camera height catching up after a step (m): negative after stepping up, positive after stepping down
 
         self.yaw = 0.0
         self.pitch = 0.0
@@ -147,11 +151,18 @@ class Player(Entity):
         self.rotation_y = self.yaw
         self.camera_pivot.rotation_x = self.pitch
 
+    def _ground(self) -> float:
+        """Height of the floor he can stand on at his position: the highest surface at most `step_up` above his feet (the plane y = 0 without a terrain)."""
+        if self.terrain is None:
+            return 0.0
+        g = self.terrain.floor_at(self.x, self.z, self.y + self.p.step_up)
+        return 0.0 if g is None else g
+
     def step(self, dt: float, forward: float, strafe: float, sprint: bool, crouch: bool, jump: bool,
              ads: bool = False, fire: bool = False):
         p = self.p
         has_input = forward != 0 or strafe != 0
-        eye_y0 = self.y + self.eye_height
+        eye_y0 = self.y + self.eye_height + self.step_offset
         self.ads = ads
         self.landed = 0.0
         self.jumped = 0.0
@@ -177,29 +188,46 @@ class Player(Entity):
         if self.on_ground or has_input:       # in the air with no key pressed: keep the momentum
             self.vx, self.vz = step_horizontal_velocity(self.vx, self.vz, wish, speed, accel, dt)
 
+        # sideways first, so the floor under the NEW position decides whether he steps, falls or lands
+        if self.terrain is None:
+            x, z = clamp_to_bounds(self.x + self.vx * dt, self.z + self.vz * dt, self.walk_bounds)
+            if x != self.x + self.vx * dt:
+                self.vx = 0.0
+            if z != self.z + self.vz * dt:
+                self.vz = 0.0
+        else:
+            x, z, self.vx, self.vz = resolve_move(self.terrain, self.x, self.z, self.y, self.vx, self.vz, dt, p.radius, p.step_up, p.body_height)
+        self.x, self.z = x, z
+
+        ground = self._ground()
+        if self.on_ground:
+            if ground > self.y + 1e-6:                                  # a step up: the body jumps, the camera catches up smoothly
+                self.step_offset -= ground - self.y
+                self.y = ground
+            elif ground < self.y - 1e-4:
+                if self.y - ground <= p.step_up:                        # a step down: stay on the ground (no fall, no landing thump)
+                    self.step_offset += self.y - ground
+                    self.y = ground
+                else:                                                   # a real drop (the pool edge): fall
+                    self.on_ground = False
         if not self.on_ground:
             vy_before = self.vy
-            self.y, self.vy, self.on_ground = step_vertical(self.y, self.vy, p.gravity, dt)
+            self.y, self.vy, self.on_ground = step_vertical(self.y, self.vy, p.gravity, dt, ground)
             if self.on_ground:
                 self.landed = max(0.0, p.gravity * dt - vy_before)     # fall speed just before touchdown
-        x, z = clamp_to_bounds(self.x + self.vx * dt, self.z + self.vz * dt, self.walk_bounds)
-        if x != self.x + self.vx * dt:
-            self.vx = 0.0
-        if z != self.z + self.vz * dt:
-            self.vz = 0.0
-        self.x, self.z = x, z
+        self.step_offset *= math.exp(-p.step_smooth * dt)
 
         self.state = resolve_state(self.on_ground, self.crouching, self.sprinting, self.speed > p.moving_speed_threshold)
 
         target_eye = p.eye_height_crouch if self.crouching else p.eye_height_stand
         self.eye_height = step_toward(self.eye_height, target_eye, p.eye_height_change_speed, dt)
-        self.eye_dy = (self.y + self.eye_height) - eye_y0
+        self.eye_dy = (self.y + self.eye_height + self.step_offset) - eye_y0
 
         self._dip.omega, self._dip.zeta = p.land_dip_omega, p.land_dip_zeta
         if self.landed > 0:
             self._dip.kick([-p.land_dip_per_speed * self.landed * impulse_gain(p.land_dip_omega, p.land_dip_zeta)])
         self._dip.step(dt)
-        self.camera_pivot.y = self.eye_height + self._dip.x[0]
+        self.camera_pivot.y = self.eye_height + self._dip.x[0] + self.step_offset
 
         fov = p.fov + (self.gun.ads_fov - p.fov) * smoothstep(self.ads_amount)
         self.view_fov = fov

@@ -24,6 +24,9 @@
   `tools\measure\room_shots.py` (chụp phòng tập), `tools\measure\g4_ads_align.py` (đo điểm ngắm của súng, in tư thế ADS),
   `tools\measure\g5_reload_probe.py` (đo từng khung của clip nạp: băng rời / vào chỗ, bolt), `tools\measure\g5_muzzle_align.py` (đo miệng nòng),
   `tools\measure\g5_perf.py <biến thể>` (FPS lúc đứng yên so với lúc nạp, tắt từng thứ để tìm thủ phạm: base / noblend / cpuskin / noview / nolook / nofx / nohud)
+- Map phòng hồ bơi (G9, chi tiết `docs/notes/pool-hall.md`; bọc `with_game_lock.py`): `tools\measure\pool_check.py` (23 mục bằng game thật: ngân sách tam giác, đạn trúng nước / tường / cửa sổ, xuống hồ, leo thang, nhảy lên bờ, ánh sáng súng; thoát mã = số mục trượt),
+  `tools\measure\pool_shots.py [--only spawn,east] [--ring] [--holes] [--exposure 4] [--gun]` (chụp `shots\g9_<góc>.png`: spawn, down, east, west, stairs, pool, ceiling, corner, water),
+  `tools\build\bake_pool.py` (ép nướng lại ánh sáng + chụp lại phản chiếu), `tools\measure\g8_perf.py --gun m4 --map pool|flat` (so FPS phòng với nền phẳng cũ).
 - Test (toán thuần + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest`
 - Công cụ G0: `tools\measure\g0_view.py` (chụp ảnh tư thế), `tools\measure\g0_timing.py` (đo clip + FPS), `tools\measure\g0_motion.py`
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15)

@@ -217,6 +217,9 @@ class Combat:
     def _on_hit(self, bullet: Bullet, hit):
         distance = distance_between(bullet.origin, hit.point)
         self.last_impact = Impact(hit.point, hit.normal, distance, hit.owner, bullet.origin)
+        if getattr(hit.owner, 'is_water', False):
+            hit.owner.splash(hit.point, distance)        # water: a ring spreads (and a splash sound if it has one); no bullet hole, no dust sound
+            return
         if self.foley:
             self.foley.on_impact(distance)
         self.decals.add(hit.point, hit.normal, distance, tint=DUST_TINT)

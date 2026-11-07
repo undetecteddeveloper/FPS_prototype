@@ -61,9 +61,11 @@ class WorldLook:
         self._push_grid(render)
         light.bind(render)
 
-        for e in (world['floor'], *decals.entities):
+        floor = world.get('floor')                      # the flat map has one slab; the pool hall brings its own shaders (room, water) and has none
+        for e in ((floor,) if floor is not None else ()) + tuple(decals.entities):
             e.shader = self.shader
-        world['floor'].set_shader_input('look_material', GROUND_MATERIAL)
+        if floor is not None:
+            floor.set_shader_input('look_material', GROUND_MATERIAL)
 
         window.color = color.rgb(*params.fog_color)        # the sky: the background behind the far edge of the ground gets the same colour as the haze
         application.base.graphicsEngine.render_frame()     # compile the world shader now, not in the first frame of the game
@@ -94,5 +96,6 @@ class WorldLook:
         self._push_flash(render)
         self._push_grid(render)
         self.light.apply_params()
-        self.world['floor'].color = color.rgb(*p.ground_color)
+        if self.world.get('floor') is not None:
+            self.world['floor'].color = color.rgb(*p.ground_color)
         window.color = color.rgb(*p.fog_color)

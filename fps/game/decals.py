@@ -48,6 +48,7 @@ class _Batch:
         self.entity = Entity(parent=parent, add_to_scene_entities=False)
         self.np = self.entity.attach_new_node(node)
         self.entity.texture = texture
+        self.np.set_texture(texture._texture)       # Ursina applies `Entity.texture` only to the entity's model; this mesh is a raw node, so without this the holes sampled a blank white texture
         self.entity.set_transparency(TransparencyAttrib.M_alpha)
         self.entity.set_depth_write(False)
         self.entity.set_depth_offset(2)

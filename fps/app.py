@@ -14,7 +14,7 @@ import ursina  # noqa: E402
 from panda3d.core import Filename, loadPrcFileData  # noqa: E402
 from ursina import Entity, Ursina, application, camera, mouse, scene, time, window  # noqa: E402
 
-from fps.core.exposure import target_exposure  # noqa: E402
+from fps.core.exposure import sun_vector, target_exposure  # noqa: E402
 from fps.core.freeaim import barrel_view_dir, view_to_world  # noqa: E402
 from fps.core.headcam import HeadCam, reload_state  # noqa: E402
 from fps.core.movement import aim_direction  # noqa: E402
@@ -33,6 +33,7 @@ from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
 from fps.game.smoke import GunSmoke  # noqa: E402
 from fps.game.ground import WALK_BOUNDS, build_ground  # noqa: E402
+from fps.game.pool import PoolHall  # noqa: E402
 from fps.core.sway import Sway, ads_target_for  # noqa: E402
 from fps.game.viewmodel import Viewmodel  # noqa: E402
 from fps.weapon_data import GUNS, M4, GameParams  # noqa: E402
@@ -55,9 +56,12 @@ class Game(Entity):
 
     def __init__(self, params: GameParams, quit_after: float = 0.0, sound: bool = True, draw: bool = True,
                  effects: bool = True, look: bool = True, shake: bool = True,
-                 user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True, gun_name: str = 'm4'):
+                 user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True, gun_name: str = 'm4',
+                 map_name: str = 'pool', rebake: bool = False):
         super().__init__()
         self.params = params
+        self.map_name = map_name                      # 'pool' = the pool hall (G9); 'flat' = the old white slab (kept to compare FPS)
+        look = look or map_name == 'pool'             # the pool hall is drawn by shaders that WorldLook feeds
         self.gun_name = gun_name                      # key in GUNS of the gun in hand
         self._audio_defaults = (dict(params.audio.cues), dict(params.audio.sound_files))     # M4 sound beats / files: restored when switching back to a gun without its own
         self._sound, self._effects, self._shake_on, self._free_aim = sound, effects, shake, free_aim
@@ -76,8 +80,15 @@ class Game(Entity):
         self.quit_after = quit_after
         self._age = 0.0
         self._draw_pending = draw         # draw the gun on the first frame (not during build: loading the model makes the first frame very long)
-        self.world = build_ground(params.look.ground_color)
-        self.player = Player(params.player, WALK_BOUNDS, params.gun)
+        self.pool = None
+        if map_name == 'pool':
+            self.pool = PoolHall(params, ROOT, force_bake=rebake)
+            self.world = self.pool.world
+            self.player = Player(params.player, WALK_BOUNDS, params.gun, self.pool.terrain(params.player.radius), self.pool.spawn)
+        else:
+            self.world = build_ground(params.look.ground_color)
+            self.player = Player(params.player, WALK_BOUNDS, params.gun)
+        self._sun_share = 1.0                         # smoothed share of the sun reaching the player (lights the gun); 1 on the open slab
         self.audio = GunAudio(params.gun, ROOT) if sound and params.gun.shot_sound else None
         self.foley = Foley(params.audio, params.gun, self.player, ROOT) if sound else None    # reload, footsteps (off with the sound flag / --mute)
         if not free_aim:
@@ -96,6 +107,8 @@ class Game(Entity):
         self.combat.foley = self.foley
         self.combat.viewmodel = self.viewmodel
         self.look = WorldLook(params.look, self.world, self.combat.decals, self.light) if look else None
+        if self.pool:
+            self.pool.prepare_reflection(self.light, force=rebake)       # needs the shader inputs WorldLook just put on render; before the lens takes over the screen
         self.lens = Lens(params.lens, self.viewmodel) if lens else None
         self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.hud = Hud(params.gun.credit) if hud else None                    # Bodycam style: nothing on screen; only the selftest turns it on to read numbers
@@ -161,6 +174,8 @@ class Game(Entity):
             self.viewmodel.apply_light()
         if 'gun.flash' in paths and self.look:
             self.look.apply_params()
+        if 'water' in paths and self.pool:
+            self.pool.apply_params()
         if 'lens' in paths and self.lens:
             self.lens.apply_params()
         if any(s.id == 'gun.ads_eye_relief' for s in specs):
@@ -181,6 +196,8 @@ class Game(Entity):
         self.player.tick()
         if self.look:
             self.look.update(dt)
+        if self.pool:
+            self.pool.update(dt)
         self.combat.update(min(dt, 0.05), dt)
         if self._draw_pending and dt < 0.1:          # wait for the first normal frame: the long build frame must not count toward the draw time
             self._draw_pending = False
@@ -212,6 +229,10 @@ class Game(Entity):
         self.viewmodel.update(self.combat.gun_kick.pose, sway_pose, self.combat.free_aim.pose(self.player.ads_amount), self.player.free_look.pose())
         cam_pos, forward = camera.world_position, camera.forward
         self.light.set_camera(cam_pos, camera.right, camera.up, forward)
+        if self.pool:                                    # the gun is lit by the sun only where the sun reaches the player; fades over ~0.15 s so stepping into a beam does not pop
+            target = 0.0 if self.pool.sun_blocked((cam_pos[0], cam_pos[1], cam_pos[2]), sun_vector(self.params.look)) else 1.0
+            self._sun_share += (target - self._sun_share) * min(1.0, dt * 6.0)
+            self.light.set_local_light(self._sun_share)
         self.light.set_exposure(target_exposure(self.params.lens, self.params.look))
         if self.smoke:
             self.smoke.update(min(dt, 0.1))                 # after set_camera: the puffs face this frame's camera
@@ -258,7 +279,7 @@ def desktop_size() -> tuple:
 def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, quit_after: float = 0.0,
                 sound: bool = True, draw: bool = True, effects: bool = True, look: bool = True, shake: bool = True,
                 user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True,
-                borderless: bool = False, gun: str = 'm4') -> Game:
+                borderless: bool = False, gun: str = 'm4', map_name: str = 'pool', rebake: bool = False) -> Game:
     # Ursina(vsync=False) alone does not turn vsync off; the Panda config must be set directly
     loadPrcFileData('', f'sync-video {int(vsync)}')
     # Panda cleans its state cache with a job every frame (~0.5 ms here); when off, states are freed by reference counting instead
@@ -271,7 +292,7 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     setup_fonts()
     # a copy of the gun: the debug panel writes straight into the gun data, so the shared GunData must not be dirtied (tests, measuring tools)
     game = Game(GameParams(gun=copy.deepcopy(GUNS[gun])), quit_after, sound, draw, effects, look, shake=shake,
-                user_params=user_params, hud=hud, lens=lens, free_aim=free_aim, gun_name=gun)
+                user_params=user_params, hud=hud, lens=lens, free_aim=free_aim, gun_name=gun, map_name=map_name, rebake=rebake)
     game.app = app
     prune_scene_entities()
     # dry-run renders at build time: compiling shaders (lens, gun) and uploading normal maps to the GPU do not land in the game's first frame. Without it the first frame takes ~1 s and the 1 s draw clip is skipped entirely
@@ -288,11 +309,13 @@ def main(argv=None):
     ap.add_argument('--mute', action='store_true', help='tắt tiếng súng')
     ap.add_argument('--gun', default='m4', choices=sorted(GUNS), help='súng dùng khi khởi động (m4 / glock)')
     ap.add_argument('--defaults', action='store_true', help='bỏ qua user_params.json, chạy bằng thông số mặc định')
+    ap.add_argument('--map', default='pool', choices=('pool', 'flat'), help='pool = phòng hồ bơi (mặc định); flat = nền trắng phẳng cũ (để so FPS)')
+    ap.add_argument('--rebake', action='store_true', help='nướng lại ánh sáng và chụp lại phản chiếu của phòng hồ bơi (thường game tự làm khi cần)')
     args = ap.parse_args(argv)
     # default: a borderless window covering the whole screen. Exclusive fullscreen with vsync drops straight to 30 FPS whenever one frame is late; this does not
     size = tuple(int(v) for v in args.size.lower().split('x')) if args.window else desktop_size()
     game = create_game(vsync=not args.novsync, size=size, borderless=not args.window,
-                       quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun)
+                       quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake)
     game.app.run()
 
 

@@ -4,10 +4,10 @@ Game bắn súng góc nhìn thứ nhất bằng Ursina/Panda3D. Từ G7 viewmode
 Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm việc (hỏi theo cỡ việc, phiên, subagent): `docs/WORKFLOW.md`, ĐỌC ĐẦU MỖI PHIÊN. Chi tiết từng giai đoạn: `docs/notes/` (danh sách cuối file).
 
 ## Lệnh
-- Chạy game: `run.bat` (hoặc `.venv\Scripts\python.exe main.py`; cửa sổ không viền phủ kín). Tuỳ chọn: `--novsync`, `--window --size 1280x720`, `--quit-after 5`, `--mute`, `--defaults` (bỏ `user_params.json`).
+- Chạy game: `run.bat` (hoặc `.venv\Scripts\python.exe main.py`; cửa sổ không viền phủ kín). Tuỳ chọn: `--novsync`, `--window --size 1280x720`, `--quit-after 5`, `--mute`, `--defaults` (bỏ `user_params.json`), `--map flat` (nền trắng phẳng cũ, để so FPS; mặc định là phòng hồ bơi), `--rebake` (nướng lại ánh sáng + chụp lại phản chiếu của phòng hồ).
 - Test thuần (toán + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest` (~30 s).
 - `tools\selftests\*` HIỆN KHÔNG CHẠY ĐƯỢC (dựng bằng bia và phòng bắn đã xoá 7/11/2026; người dùng bảo không cần). Cổng kiểm tra = pytest + chạy game thật. Nhiều game cùng lúc làm bài đo thời gian trượt oan: bọc `.venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh gốc>`.
-- Đo FPS: `tools\measure\g8_perf.py --gun glock|m4` (6 tình huống, ngưỡng 55; máy nóng/bận cho số thấp, đo lại một mình). Kiểm rút/đổi súng: `tools\measure\swap_check.py`. Chụp tư thế: `tools\measure\g8_shots.py`.
+- Đo FPS: `tools\measure\g8_perf.py --gun glock|m4 [--map flat]` (6 tình huống, ngưỡng 55; máy nóng/bận cho số thấp, đo lại một mình). Map hồ bơi: `tools\measure\pool_check.py` (23 mục bằng game thật), `pool_shots.py` (chụp ảnh các góc). Kiểm rút/đổi súng: `tools\measure\swap_check.py`. Chụp tư thế: `tools\measure\g8_shots.py`.
 - Công cụ đo/dựng: `tools\measure\`, `tools\build\` (dựng WAV). Danh mục + công tắc tắt để đo (`free_aim=False`, `lens=False`...): `docs/notes/tools.md`.
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15).
 
@@ -16,9 +16,9 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 main.py  run.bat  requirements.txt  pytest.ini  CLAUDE.md  CREDITS.txt    <- cửa vào, cấu hình, sổ luật
 fps/        app.py (Game, create_game() dựng tất cả, prune_scene_entities(), main()), weapon_data.py (MỌI thông số, dataclass)
   core/     toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, params + param_meta (bảng F1),
-            freeaim, headcam, gaze, smoke, lens, exposure, easing
-  game/     ghép Ursina/Panda: player, combat, viewmodel, ground, sky, smoke, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake, debug_panel (F1), frame_light, lens, decals, gltf_maps
-assets/     guns/ (glb), sounds/ (wav; source/ = gốc, mp3 ElevenLabs, candidates/), shaders/ (GLSL, light_common.glsl dùng chung)
+            freeaim, headcam, gaze, smoke, lens, exposure, easing, poolmap (map dựng từ hộp), lightbake (nướng ánh sáng, numpy), terrain (bậc thang + va chạm), waves (sóng nước), cubemap (ảnh phản chiếu 3×2)
+  game/     ghép Ursina/Panda: player, combat, viewmodel, ground, sky, smoke, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake, debug_panel (F1), frame_light, lens, decals, gltf_maps, pool (phòng hồ bơi), water, pool_capture
+assets/     guns/ (glb), sounds/ (wav; source/ = gốc, mp3 ElevenLabs, candidates/), shaders/ (GLSL, light_common.glsl dùng chung; room, water), maps/pool/ (ánh sáng nướng + ảnh phản chiếu, tự sinh)
 tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.md, notes/, sessions/, images/)  backups/ shots/ (gitignore)
 ```
 - `fps/game/__init__.py` để TRỐNG có chủ đích: `fps.game.gltf_patch` phải nạp được trước khi import ursina. `main.py` chỉ re-export `create_game`, `main` (tools gọi `from main import create_game`).
@@ -30,7 +30,8 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
   Đừng để từng đối tượng tự `update` riêng (thứ tự Ursina không đảm bảo, bắn sẽ dùng hướng nhìn của khung trước).
   Camera thế giới KHÔNG rung: mọi rung (bước, nhảy, bắn, nạp, ánh nhìn khi nạp) thành dịch + nghiêng cả khung ống kính (`game/camera_shake.py`, `core/lens.frame_shake`, `lens.frag`).
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi console.
-- Thế giới là MỘT khối đất phẳng trắng + lưới + bầu trời mây (không bia, phòng, bóng đổ); đừng dựng lại phòng bắn khi chưa được hỏi.
+- Thế giới mặc định là phòng hồ bơi trong nhà (G9, `docs/notes/pool-hall.md`): dựng từ hộp, ánh sáng NƯỚNG SẴN (mặt trời cố định), nước phản chiếu căn phòng chụp sẵn. `--map flat` còn khối đất phẳng trắng cũ để so FPS. Không bia, không bóng đổ động; đừng dựng lại phòng bắn / bia khi chưa được hỏi.
+  Sửa hình học map (`MapData`) hay nắng (`sun_dir`, `sun_color`, `sky_irradiance`) thì game tự nướng lại (~36 s). Numpy chỉ dùng lúc nướng và ở test.
 - Commit trên nhánh `dev`; chỉ push khi người dùng nói. `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
 - Comment và docstring trong mã viết bằng TIẾNG ANH (cả mã mới). Chữ cho người dùng (HUD, bảng F1, tên mục selftest, thông báo) và file `.md` vẫn tiếng Việt.
 - Mức hỏi người dùng theo cỡ việc: `docs/WORKFLOW.md` mục 2 (thắng luật chung "tự quyết kỹ thuật").
@@ -63,5 +64,6 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - `docs/notes/reload-fx-shaders.md` (G5): rút súng, nạp đạn, tia lửa, tracer, shader súng.
 - `docs/notes/ground-sky.md` (7/11/2026): nền, ánh sáng, bầu trời, Glock, `gltf_patch`, đổi súng / rút súng, những thứ đã xoá.
 - `docs/notes/range-lights-signs.md` (G6; phần phòng/đèn/bia/biển đã xoá, còn đúng: shake, bảng F1, foley, bước chân).
+- `docs/notes/pool-hall.md` (G9): map phòng hồ bơi, nước, ánh sáng nướng sẵn, phản chiếu, bậc thang / va chạm, số đo.
 - `docs/notes/bodycam.md` (G7): FreeLook / FreeAim, headcam, lens, exposure, ánh sáng thống nhất, âm thanh ElevenLabs.
 - `docs/notes/ai-assets.md`: sinh tài nguyên AI, credit, Blender, skill học trước, thư mục review. `docs/notes/multiplayer.md`: hướng multiplayer.

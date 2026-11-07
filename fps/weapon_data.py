@@ -28,6 +28,10 @@ class PlayerParams:
     land_dip_per_speed: float = 0.006     # m the camera dips per m/s of landing speed (falling at 6.4 m/s dips ~4 cm)
     land_dip_omega: float = 18.0          # rad/s
     land_dip_zeta: float = 0.5
+    radius: float = 0.30                  # body circle for walls and columns (m)
+    body_height: float = 1.70             # a solid box only pushes him while it overlaps the body from the feet up to here
+    step_up: float = 0.20                 # the highest ledge he walks onto without jumping (pool steps 0.155 m, stairs 0.17 m)
+    step_smooth: float = 14.0             # 1/s: after a step the camera catches up with the new height at this rate (no pop)
 
 
 @dataclass(frozen=True)
@@ -509,15 +513,17 @@ class FeedbackParams:
 
 @dataclass
 class LookData:
-    """Visual look of the world (shader assets/shaders/world.*) and the screen overlay. Directions are in world space (y up, z forward).
-    A flat slab of plain white ground under an open sky: one sun (no shadows) plus a flat ambient term; distant ground sinks into the fog."""
-    sun_dir: tuple = (0.35, 0.80, -0.30)      # direction TOWARD the sun (normalized in code)
-    sun_color: tuple = (1.45, 1.45, 1.45)     # sunlight colour x intensity (neutral white, so the white ground stays white)
-    ambient_up: tuple = (0.33, 0.34, 0.36)    # sky light on upward-facing surfaces (the ground)
-    ambient_down: tuple = (0.11, 0.11, 0.11)  # light bounced from the ground onto downward-facing surfaces
-    exposure: float = 1.0                     # multiplies the auto exposure (LensData); the ACES tone curve is shared by the world and the gun
-    fog_color: tuple = (0.50, 0.57, 0.66)     # haze, also the sky colour behind the far edge of the ground
-    fog_density: float = 0.0040               # exp: ~33% at 100 m, ~55% at 200 m
+    """Visual look of the world (shaders assets/shaders/room.*, water.*, world.*) and the screen overlay. Directions are in world space (y up, z forward).
+    The pool hall (G9) is lit by a LOW GOLDEN SUN through its windows: the hard-edged patches are baked once (core/lightbake.py) from `sun_dir` / `sun_color` / `sky_irradiance`,
+    so changing those three needs `tools/build/bake_pool.py` (the game re-bakes by itself when the stored hash differs). The ambient terms still light the gun, the bullet holes and the flat map."""
+    sun_dir: tuple = (0.93, 0.125, -0.30)     # direction TOWARD the sun (normalized in code): very low (~7 degrees) over the east windows, so the beams cross the 20 m room and reach the west wall and the columns
+    sun_color: tuple = (1.60, 1.10, 0.50)     # sunlight colour x intensity (golden hour: orange-gold, not white)
+    sky_irradiance: tuple = (0.74, 0.92, 1.18)    # light the open sky sends in through the windows (used only by the bake: rays that leave through a window)
+    ambient_up: tuple = (0.27, 0.27, 0.26)    # indoor ambient on upward-facing surfaces (gun, bullet holes, flat map)
+    ambient_down: tuple = (0.13, 0.11, 0.08)  # light bounced from the floor onto downward-facing surfaces
+    exposure: float = 1.7                     # multiplies the auto exposure (LensData); the ACES tone curve is shared by the world and the gun (G9: 1.0 -> 1.7, the baked hall is lit by low sun only)
+    fog_color: tuple = (0.62, 0.74, 0.86)     # haze, also the sky colour seen through the windows
+    fog_density: float = 0.0015               # exp: ~4% at 30 m (indoors the haze must stay faint)
     wind: tuple = (0.6, 0.0, 0.25)            # m/s: light steady wind (x right, y up, z forward of the spawn view); the gun smoke drifts with it
     ground_color: tuple = (1.0, 1.0, 1.0)     # pure white ground (decided by the user)
     detail_strength: float = 0.0              # strength of the noise on the ground (0 = plain, one flat colour)
@@ -526,6 +532,73 @@ class LookData:
     grid_spacing: float = 2.0                 # m between two thin lines
     grid_major: int = 5                       # every this many lines one is drawn heavier (5 x 2 m = a 10 m square)
     grid_width: float = 0.03                  # m: half the width of a thin line (a heavy line is twice as wide)
+
+
+@dataclass
+class WaterData:
+    """The pool water (assets/shaders/water.*, math in core/waves.py + core/cubemap.py): dark mirror, Fresnel, teal in the shallows, faint ripples, rings where a bullet lands.
+    The reflection is the room captured ONCE (box-projected cube), so smoke, tracers and the gun are not mirrored."""
+    deep_color: tuple = (0.004, 0.012, 0.014)     # body colour of deep water (linear light): nearly black, like the photo
+    shallow_color: tuple = (0.006, 0.085, 0.075)  # teal body colour in the shallows (near the steps and the pool wall)
+    shallow_width: float = 1.4                    # m: how far the teal reaches from the pool wall / steps
+    reflect_strength: float = 1.0                 # multiplies the mirrored room (1 = as captured)
+    fresnel_f0: float = 0.06                      # reflectivity looking straight down (real water 0.02); grazing view is always near 1
+    ripple_strength: float = 0.030                # tilt of the surface normal from the ambient ripples (0 = flat mirror)
+    ripple_scale: float = 1.0                     # multiplies the ripple wavelength
+    ripple_speed: float = 0.55                    # drift speed of the ripples
+    impact_strength: float = 0.20                 # tilt of the normal at the crest of a bullet ring
+    impact_speed: float = 1.7                     # m/s: the ring expands this fast
+    impact_wavelength: float = 0.34               # m between two crests of a ring
+    impact_width: float = 0.60                    # m: thickness of the packet of crests (the ring)
+    impact_life: float = 2.6                      # s: a ring fades out in about this time
+    impact_reach: float = 5.0                     # m: distance at which a ring has faded to 1/e (spreading out)
+    ripple_slots: int = 12                        # most rings alive at once (a burst reuses the oldest ring)
+
+
+@dataclass(frozen=True)
+class MapData:
+    """The pool hall (core/poolmap.py builds boxes from these numbers; NOT on the F1 panel: changing any of them means a re-bake).
+    Axes: y up, z forward. The player starts on the south bank at z = -(room_z / 2 - 2.5) looking north (+z) along the pool. Windows are holes in the EAST wall (+x)."""
+    room_x: float = 20.0              # interior width, west-east (m)
+    room_z: float = 30.0              # interior length, south-north (m)
+    ceiling: float = 4.2              # height of the ceiling underside above the deck (m)
+    wall: float = 0.4                 # thickness of walls, slab and ceiling (m)
+    pool_x: float = 12.0              # pool width (m); centred in the room
+    pool_z: float = 24.0              # pool length (m)
+    water_y: float = -0.12            # water surface (deck top is y = 0)
+    pool_floor: float = -0.62         # pool bottom: 0.5 m of water
+    steps: int = 3                    # steps down into the pool at the south end (full width); the rise is the pool depth / (steps + 1)
+    step_depth: float = 0.45          # tread depth of the south steps (m)
+    north_steps_x: tuple = (-3.0, -0.6)   # x range of the narrow steps at the north end (the ladder handrails stand on its two sides)
+    window_sill: float = 0.45         # window bottom above the deck (m)
+    window_top: float = 3.75          # window top above the deck (m)
+    window_z: tuple = (-10.0, -3.5, 3.5, 10.0)    # centres of the windows along the east wall (m)
+    window_width: float = 4.0         # m
+    column_x: float = -8.0            # centre of the columns on the west bank
+    column_z: tuple = (-6.0, 6.0)
+    column_size: float = 1.2          # square column, full height (m)
+    stair_x: tuple = (4.5, 9.5)       # x range of the flight of stairs on the north bank (rises toward +z, ends in a landing against the north wall)
+    stair_count: int = 4
+    stair_rise: float = 0.17
+    stair_tread: float = 0.35
+    rail_radius: float = 0.028        # handrail tube radius (m)
+    wall_albedo: tuple = (0.74, 0.66, 0.50)       # tile colour of walls, ceiling and columns (linear)
+    floor_albedo: tuple = (0.80, 0.75, 0.64)      # tile colour of the deck, steps and pool wall
+    rail_albedo: tuple = (0.62, 0.64, 0.66)       # stainless steel
+    wall_tile: float = 0.10           # mosaic tile size on walls and ceiling (m)
+    floor_tile: float = 0.30          # tile size on the deck (m)
+    # --- bake (core/lightbake.py) ---
+    texel: float = 0.08               # lightmap texel size (m)
+    coarse: float = 0.40              # texel size of the bounce light (it is smooth, so it is sampled sparsely and stretched)
+    sun_samples: int = 8              # shadow rays per texel over the sun disc (soft edge of the patches)
+    sun_radius: float = 0.012         # angular radius of the sun disc (rad); wider than the real 0.0047 so the penumbra shows
+    bounce_rays: int = 384            # cosine-weighted rays per coarse texel (a small bright patch is hit by few rays, so fewer rays show as blotches)
+    bounce_gain: float = 1.5          # extra for the bounces after the second (not simulated): a real tiled hall glows from its many bounces
+    fill: float = 0.04                # irradiance added everywhere (sky coloured): a corner no ray reaches light from is never pitch black in a real room
+    lightmap_max: float = 4.0         # irradiance that maps to 255 in the 8-bit lightmap (stored with gamma 2)
+    # --- reflection capture (game/pool_capture.py) ---
+    probe: tuple = (0.0, 1.3, 0.0)    # where the room is captured from (above the water, mid-room)
+    reflect_size: int = 512           # side of one cube face (px); the atlas is 3 x 2 faces
 
 
 @dataclass
@@ -541,12 +614,12 @@ class LensData:
     vignette_start: float = 0.78          # radius where darkening starts (unit 1 = horizontal edge)
     vignette_end: float = 1.14            # radius of full darkness; the frame corners go black like Bodycam photos
     fringe: float = 0.55                  # orange fringe at the edge of the corner darkening (light leaking past the lens rim)
-    noise: float = 0.030                  # sensor noise, stronger in dark areas
+    noise: float = 0.024                  # sensor noise, stronger in dark areas (G9: 0.030 -> 0.024)
     bloom: float = 0.45                   # bright areas bloom outward; 0 = off (cheaper)
     bloom_threshold: float = 0.72         # only brightness above this blooms
     contrast: float = 1.10                # > 1: darker darks, brighter brights
-    saturation: float = 0.70              # 1 = keep color, 0 = grayscale
-    tint: tuple = (1.0, 1.0, 0.93)        # the sickly yellow cast of cheap cameras
+    saturation: float = 0.88              # 1 = keep color, 0 = grayscale (G9: 0.70 -> 0.88, the pool hall is warm and rich: user chose 'between Bodycam and the photo')
+    tint: tuple = (1.0, 0.99, 0.95)       # the sickly yellow cast of cheap cameras (G9: eased from 0.93)
     auto_exposure: float = 0.55           # 0 = fixed exposure, 1 = fully compensated for the brightness of the scene
     exposure_key: float = 0.70            # local brightness that corresponds to exposure 1
     exposure_min: float = 0.55
@@ -701,3 +774,4 @@ class GameParams:
     look: LookData = field(default_factory=LookData)
     audio: AudioData = field(default_factory=AudioData)
     lens: LensData = field(default_factory=LensData)
+    water: WaterData = field(default_factory=WaterData)

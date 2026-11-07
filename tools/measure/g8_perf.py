@@ -16,8 +16,9 @@ from ursina import Entity, held_keys, mouse, time  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--gun', default='glock')
+ap.add_argument('--map', default='pool', choices=('pool', 'flat'), help='pool = phòng hồ bơi (G9); flat = nền phẳng cũ để so')
 args = ap.parse_args()
-game = create_game(vsync=False, size=(1366, 768), sound=False, draw=False, gun=args.gun)
+game = create_game(vsync=False, size=(1366, 768), sound=False, draw=False, gun=args.gun, map_name=args.map)
 mouse.locked = False
 game.combat.require_locked_mouse = False
 c = game.combat

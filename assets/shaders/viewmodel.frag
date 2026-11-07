@@ -52,15 +52,17 @@ void main() {
 
     float ndl = max(dot(n_w, look_sun_dir), 0.0);
     float spec = (ndl > 0.0 && vm_mat.y > 0.0) ? pow(max(dot(n_w, normalize(look_sun_dir + v_dir)), 0.0), vm_mat.y) : 0.0;
-    vec3 ambient = ambient_at(n_w);
-    vec3 lit = base.rgb * (ambient + look_sun_color * ndl);
-    lit += look_sun_color * spec * vm_mat.x * (0.35 + base.rgb);
+    // look_frame.y = share of the sun that reaches the player (0 in the shade of the pool hall, 1 on open ground); .z = scale of the ambient light there
+    vec3 sun_c = look_sun_color * look_frame.y;
+    vec3 ambient = ambient_at(n_w) * look_frame.z;
+    vec3 lit = base.rgb * (ambient + sun_c * ndl);
+    lit += sun_c * spec * vm_mat.x * (0.35 + base.rgb);
 
     // faint reflection: the metal edges pick up the sky and the sun
     float fres = pow(1.0 - max(dot(n_w, v_dir), 0.0), 4.0);
     vec3 r = reflect(-v_dir, n_w);
-    lit += fres * vm_mat.z * ambient_at(r) * 6.0
-         + fres * vm_mat.z * look_sun_color * ndl * 0.35;
+    lit += fres * vm_mat.z * ambient_at(r) * look_frame.z * 6.0
+         + fres * vm_mat.z * sun_c * ndl * 0.35;
 
     if (look_flash_color.r > 0.0) lit += base.rgb * flash_light(p, n_w, vm_flash_falloff);
 
