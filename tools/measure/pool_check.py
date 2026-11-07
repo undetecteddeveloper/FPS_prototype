@@ -73,6 +73,33 @@ def sight_gap_degrees() -> float:
     return math.degrees(math.atan2(math.sqrt(sum(c * c for c in cross)), a.x * b.x + a.y * b.y + a.z * b.z))      # atan2, not acos: acos of a float32 'almost 1' is off by ~0.02 degrees
 
 
+def read_sim(sim) -> list:
+    """The simulated heights (metres) read back from the GPU ([row][col])."""
+    import struct
+    from ursina import application
+    tex = sim.drawn_texture
+    base = application.base
+    base.graphicsEngine.extract_texture_data(tex, base.win.get_gsg())
+    raw = bytes(tex.get_ram_image_as('RG'))
+    vals = struct.unpack(f'<{2 * sim.cols * sim.rows}f', raw[:8 * sim.cols * sim.rows])
+    return [[vals[2 * (j * sim.cols + i)] for i in range(sim.cols)] for j in range(sim.rows)]
+
+
+def centre_contrast() -> float:
+    """Standard deviation of the brightness in the middle 30 % of the window (the picture after the lens: noise included)."""
+    from panda3d.core import PNMImage
+    from ursina import application
+    img = PNMImage()
+    application.base.win.get_screenshot(img)
+    w, h = img.get_x_size(), img.get_y_size()
+    vals = []
+    for y in range(int(h * 0.35), int(h * 0.65), 2):
+        for x in range(int(w * 0.35), int(w * 0.65), 2):
+            vals.append(img.get_bright(x, y))
+    m = sum(vals) / len(vals)
+    return math.sqrt(sum((v - m) ** 2 for v in vals) / len(vals))
+
+
 class Script(Entity):
     def __init__(self):
         super().__init__()
@@ -121,20 +148,26 @@ class Script(Entity):
         place(*sp, 0.0)
         walk(1, 0.0)
         check('spawn: standing on the deck', player.on_ground and abs(player.y) < 1e-9 and abs(player.z - sp[2]) < 1e-6)
-        walk(480, forward=1.0)                                            # 8 s at 4.5 m/s: from the south bank (z = -13.5) past the far end of the pool (z = 12)
-        pz = pool.data.pool_z / 2
-        check('walk north into the pool: down the steps onto the floor', player.on_ground and abs(player.y - pool.data.pool_floor) < 1e-6, f'y={player.y:.3f}')
-        check('... and stopped by the north wall of the pool', pz - 0.6 <= player.z <= pz + 1e-6, f'z={player.z:.2f}')
-        walk(25, strafe=-1.0)                                             # against the north wall, sliding sideways into the side of the stairs: the top step is 0.47 m up, a wall
-        check('the side of the north steps is a wall from the pool floor (no climbing sideways)', player.on_ground and abs(player.y - pool.data.pool_floor) < 1e-6 and player.x > pool.data.north_steps_x[1] - 1e-3, f'x={player.x:.2f}')
-        place(-1.8, pool.data.pool_floor, 8.0, 0.0)                       # in front of the steps, facing north
-        walk(150, forward=1.0)
-        check('walk up the north steps onto the deck (3 steps of 0.155 m)', player.on_ground and abs(player.y) < 1e-6 and player.z > pz, f'y={player.y:.3f} z={player.z:.2f} x={player.x:.2f}')
+        walk(480, forward=1.0)                                            # 8 s at 4.5 m/s: from the south bank down the steps, along the shallow end, down the slope
+        d = pool.data
+        wade_y = d.water_y - d.wade_depth
+        z_line = d.slope_z[0] + (d.slope_z[1] - d.slope_z[0]) * (d.pool_floor - wade_y) / (d.pool_floor - d.pool_deep)
+        check('walk north into the pool: down the steps and the slope, stopped where the water is chest-deep', player.on_ground and abs(player.y - wade_y) < 0.05 and abs(player.z - z_line) < 0.15,
+              f'y={player.y:.3f} (giới hạn {wade_y:.2f}) z={player.z:.2f} (vạch {z_line:.2f})')
+        check('... his eyes stay above the water', player.y + player.eye_height > d.water_y + 0.2, f'mắt {player.y + player.eye_height:.2f}')
+        place(0.0, 0.0, 13.5, 180.0)                                      # on the north deck, facing the deep end
+        walk(60, forward=1.0, jump=True)
+        walk(30)
+        check('the deep end cannot be entered from the deck either (no swimming yet): he stays on the deck edge', player.on_ground and abs(player.y) < 1e-6 and player.z >= d.pool_z / 2 - 1e-6,
+              f'y={player.y:.3f} z={player.z:.2f}')
+        place(0.0, wade_y, 9.0, 180.0)                                    # safety net: if he ever ends up in the deep end he stands at chest depth...
+        walk(300, forward=1.0)
+        check('... and wades back to the shallows', player.z < 0.0 and player.on_ground, f'z={player.z:.2f} y={player.y:.3f}')
 
-        place(-5.2, pool.data.pool_floor, 0.0, 270.0)                    # on the pool floor, 0.8 m from the west wall, facing west
+        place(-5.2, pool.data.pool_floor, -8.0, 270.0)                   # on the shallow floor, 0.8 m from the west wall, facing west
         walk(30, forward=1.0)
         check('a wall of the pool stops him on the floor', player.x >= -pool.data.pool_x / 2 - 1e-6 and abs(player.y - pool.data.pool_floor) < 1e-6, f'x={player.x:.2f}')
-        place(-5.2, pool.data.pool_floor, 0.0, 270.0)
+        place(-5.2, pool.data.pool_floor, -8.0, 270.0)
         walk(70, forward=1.0, jump=True)
         check('jump + run gets him out over the pool edge onto the west bank', player.x < -pool.data.pool_x / 2 - 0.3 and abs(player.y) < 1e-6, f'x={player.x:.2f} y={player.y:.3f}')
 
@@ -200,6 +233,52 @@ class Script(Entity):
         t0 = pool.water.clock
         pool.update(0.5)
         check('water clock advances', abs(pool.water.clock - t0 - 0.5) < 1e-9)
+        yield
+
+        # --- G10: wave simulation, clear water, F2
+        water = pool.water
+        game.set_graphics(2, announce=False)
+        for _ in range(5):
+            yield
+        check('graphics High builds the wave simulation', water.sim is not None and water.sim.enabled, f'{water.sim.cols}x{water.sim.rows}' if water.sim else 'none')
+        if water.sim is not None:
+            for _ in range(10):
+                yield
+            water.splash((1.0, water.y, 2.0), 10.0)
+            for _ in range(4):
+                yield
+            h = read_sim(water.sim)
+            check('a bullet on the water pushes the simulated surface down', min(min(r) for r in h) < -0.001, f'deepest {min(min(r) for r in h) * 1000:.2f} mm')
+            for _ in range(30):                                     # the readback stalls the GPU: let it pass before anything is timed
+                yield
+        # straight down at the water from inside the pool: Low (dark mirror) vs High (tiles of the bottom seen through the water)
+        vm_root = game.viewmodel.root
+        vm_root.hide()
+        contrast = {}
+        for lvl in (0, 2):
+            game.set_graphics(lvl, announce=False)
+            place(2.0, -0.62, -2.0, 0.0)
+            player.pitch = 80.0
+            player._apply_view()
+            for _ in range(20):
+                yield
+            contrast[lvl] = centre_contrast()
+        vm_root.show()
+        check('High: the pool bottom shows through the water (tile contrast well above the dark mirror of Low)', contrast[2] > 2.0 * contrast[0] and contrast[2] > 0.02,
+              f'contrast Low {contrast[0]:.4f}, High {contrast[2]:.4f}')
+        # F2 switching costs no hitch
+        import time as pytime
+        worst = 0.0
+        for lvl in (0, 1, 2, 1, 2):
+            game.set_graphics(lvl, announce=True)
+            last = pytime.perf_counter()
+            for _ in range(6):
+                yield
+                now = pytime.perf_counter()
+                worst = max(worst, now - last)
+                last = now
+        check('F2: switching graphics levels never makes a frame slower than 50 ms', worst < 0.05, f'worst frame {worst * 1000:.1f} ms')
+        game.set_graphics(game.params.graphics.level, announce=False)
         yield
 
 

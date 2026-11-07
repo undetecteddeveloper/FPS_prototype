@@ -538,6 +538,11 @@ class LookData:
     grid_spacing: float = 2.0                 # m between two thin lines
     grid_major: int = 5                       # every this many lines one is drawn heavier (5 x 2 m = a 10 m square)
     grid_width: float = 0.03                  # m: half the width of a thin line (a heavy line is twice as wide)
+    # --- G10: sun shafts seen in the air (assets/shaders/sun_window.glsl: every surface shader marches from the eye to its pixel and adds the sunlit air on the way) ---
+    shaft_density: float = 0.06               # 1/m: how much of the light the dusty air scatters toward the eye (0 = no shafts)
+    shaft_anisotropy: float = 0.55            # Henyey-Greenstein g: > 0 = brighter looking toward the sun
+    shaft_dust: float = 0.6                   # 0..1: how much slow-moving dust clouds modulate the shafts
+    shaft_range: float = 26.0                 # m: the march stops this far from the eye
 
 
 @dataclass
@@ -559,6 +564,47 @@ class WaterData:
     impact_life: float = 2.6                      # s: a ring fades out in about this time
     impact_reach: float = 5.0                     # m: distance at which a ring has faded to 1/e (spreading out)
     ripple_slots: int = 12                        # most rings alive at once (a burst reuses the oldest ring)
+    # --- G10: clear water, wave simulation (core/watersim.py, game/water_sim.py), see-through bottom, caustics; graphics level 'low' keeps the G9 dark mirror + rings above ---
+    sim_speed: float = 1.1                        # m/s: waves of the simulation travel this fast (real ripples 0.3-2 m/s)
+    sim_life: float = 2.5                         # s: a wave left alone loses 1/e of its height in this time
+    sim_slope: float = 1.0                        # multiplies the simulated slope on the normal (how strongly waves bend the picture)
+    bullet_push: float = -0.015                   # m: a bullet landing pushes the water down this much (Gaussian)
+    bullet_radius: float = 0.06                   # m: radius of that push
+    basin_color: tuple = (0.40, 0.62, 0.70)       # tile colour of the pool basin under the water (linear; pale pool blue). Only seen through the water: not baked
+    basin_tile: float = 0.15                      # m: tile size on the basin floor and walls
+    basin_light: float = 0.75                     # multiplies the baked room ambient (at gun height) to light the basin bottom
+    absorption: tuple = (0.42, 0.10, 0.07)        # 1/m per colour: water swallows red first (a deeper path turns teal-blue)
+    caustic_strength: float = 0.9                 # brightness of the sun's caustic net on the bottom
+    caustic_ambient: float = 0.25                 # how much the caustic pattern also shows where only sky light reaches (0 = only in the sun)
+    caustic_scale: float = 0.65                   # m: size of the caustic net
+    caustic_speed: float = 0.5                    # how fast the net drifts
+    caustic_waves: float = 6.0                    # how much simulated waves focus / spread the sunlight on the bottom (laplacian weight)
+    glint_strength: float = 2.5                   # the sun's sparkle on the waves (only where the sun reaches the water)
+    glint_power: float = 900.0                    # sharpness of the sparkle (larger = smaller, harder dots)
+
+
+@dataclass(frozen=True)
+class GraphicsLevel:
+    """One graphics level (F2 switches live, core/graphics.py). Every G10 effect reads its share from here; switching changes uniforms / enables buffers, never recompiles."""
+    name: str                     # shown on screen when switching
+    sim_cols: int                 # wave simulation grid (0 = no simulation: analytic bullet rings, as G9)
+    sim_rows: int
+    refraction: bool              # see the pool bottom through the water (False = the G9 dark mirror)
+    caustics: bool
+    glint: bool                   # the sun's sparkle on the waves
+    shaft_steps: int              # samples per pixel of the sun shafts (0 = no shafts)
+
+
+GRAPHICS_LEVELS = (
+    GraphicsLevel('Thấp', 0, 0, False, False, False, 0),
+    GraphicsLevel('Vừa', 128, 256, True, True, True, 8),
+    GraphicsLevel('Cao', 256, 512, True, True, True, 16),
+)
+
+
+@dataclass
+class GraphicsData:
+    level: int = 2                # index in GRAPHICS_LEVELS at start (F2 cycles while playing)
 
 
 @dataclass(frozen=True)
@@ -572,8 +618,12 @@ class MapData:
     pool_x: float = 12.0              # pool width (m); centred in the room
     pool_z: float = 24.0              # pool length (m)
     water_y: float = -0.12            # water surface (deck top is y = 0)
-    pool_floor: float = -0.62         # pool bottom: 0.5 m of water
-    steps: int = 3                    # steps down into the pool at the south end (full width); the rise is the pool depth / (steps + 1)
+    pool_floor: float = -0.62         # pool bottom of the SHALLOW end: 0.5 m of water
+    pool_deep: float = -2.12          # pool bottom of the DEEP end: 2.0 m of water (user 7/11/2026: "about 1.5 m deeper"; the bottom slopes, he wades until the water is chest-deep)
+    slope_z: tuple = (-4.0, 6.0)      # the bottom slopes from pool_floor at z0 down to pool_deep at z1 (flat before and after)
+    wade_depth: float = 1.25          # m of water at most where he can walk: deeper is blocked like a rope line (chest height; no swimming yet)
+    north_steps: bool = False         # the narrow steps at the north end (G9); off since the north end is 2 m deep: the two handrails stay as a pool ladder
+    steps: int = 3                    # steps down into the pool at the south end (full width); the rise is the SHALLOW depth / (steps + 1)
     step_depth: float = 0.45          # tread depth of the south steps (m)
     north_steps_x: tuple = (-3.0, -0.6)   # x range of the narrow steps at the north end (the ladder handrails stand on its two sides)
     window_sill: float = 0.45         # window bottom above the deck (m)
@@ -783,3 +833,4 @@ class GameParams:
     audio: AudioData = field(default_factory=AudioData)
     lens: LensData = field(default_factory=LensData)
     water: WaterData = field(default_factory=WaterData)
+    graphics: GraphicsData = field(default_factory=GraphicsData)

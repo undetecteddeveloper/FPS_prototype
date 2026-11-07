@@ -27,7 +27,8 @@ from fps.game.effects import Effects  # noqa: E402
 from fps.game.foley import Foley  # noqa: E402
 from fps.game.frame_light import FrameLight  # noqa: E402
 from fps.game.gun_audio import GunAudio  # noqa: E402
-from fps.game.hud import Hud, setup_fonts  # noqa: E402
+from fps.game.hud import Hud, Notice, setup_fonts  # noqa: E402
+from fps.core.graphics import clamp_level, level as graphics_level, next_level  # noqa: E402
 from fps.game.lens import Lens  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
@@ -124,6 +125,18 @@ class Game(Entity):
         self.debug = DebugPanel(self, self.params_store, USER_PARAMS)         # F1 panel: built lazily the first time it opens; costs nothing while closed
         self.params_store.subscribe(self._on_params_changed)
         self._kits = {gun_name: GunKit(params.gun, self.viewmodel, self.fx, self.audio, self.foley)}     # gun key -> GunKit; `preload_guns` adds the others
+        self.notice = Notice()                                                # "Đồ hoạ: Cao" for a moment after F2
+        self.graphics_level = None
+        self.set_graphics(params.graphics.level, announce=False)
+
+    # --- graphics level (G10): F2 cycles Low / Mid / High while playing; switching changes uniforms and buffers only (no shader recompiles) ---
+    def set_graphics(self, i: int, announce: bool = True):
+        self.graphics_level = clamp_level(i)
+        g = graphics_level(self.graphics_level)
+        if self.pool:
+            self.pool.set_level(g)
+        if announce:
+            self.notice.show(f'Đồ hoạ: {g.name}  (F2 đổi)')
 
     # --- weapon switch (keys 1 / 2): holster clip of the gun in hand -> rebuild the gun-dependent parts -> draw clip of the new gun ---
     def request_gun(self, name: str):
@@ -287,6 +300,7 @@ class Game(Entity):
             self.lens.update(dt, self.player.ads_amount, inp.look[0], frame)
         if self.hud:
             self.hud.update(dt, self.combat)
+        self.notice.update(dt)
         if self.debug.is_open:
             self.debug.update(dt)
         self._age += time.dt
@@ -296,6 +310,8 @@ class Game(Entity):
     def input(self, key):
         if key == 'f1':
             self.debug.toggle()
+        elif key == 'f2':
+            self.set_graphics(next_level(self.graphics_level))
         elif self.debug.is_open:                  # debug panel open: the mouse belongs to the panel: no firing / reloading / mode change
             if key == 'escape':
                 self.debug.hide()

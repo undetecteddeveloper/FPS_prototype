@@ -17,8 +17,15 @@ from ursina import Entity, held_keys, mouse, time  # noqa: E402
 ap = argparse.ArgumentParser()
 ap.add_argument('--gun', default='glock')
 ap.add_argument('--map', default='pool', choices=('pool', 'flat'), help='pool = phòng hồ bơi (G9); flat = nền phẳng cũ để so')
+ap.add_argument('--level', type=int, default=-1, help='mức đồ hoạ 0 Thấp / 1 Vừa / 2 Cao (mặc định: như game)')
+ap.add_argument('--trace', action='store_true', help='in thời gian từng khung của giây đầu (tìm chỗ giật lúc mở game)')
+ap.add_argument('--size', default='1366x768')
 args = ap.parse_args()
-game = create_game(vsync=False, size=(1366, 768), sound=False, draw=False, gun=args.gun, map_name=args.map)
+W, H = (int(v) for v in args.size.lower().split('x'))
+game = create_game(vsync=False, size=(W, H), sound=False, draw=False, gun=args.gun, map_name=args.map)
+if args.level >= 0:
+    game.set_graphics(args.level, announce=False)
+print(f'mức đồ hoạ: {game.graphics_level}, cửa sổ {W}x{H}')
 mouse.locked = False
 game.combat.require_locked_mouse = False
 c = game.combat
@@ -44,6 +51,8 @@ class Script(Entity):
         t0 = pytime.time()
         while pytime.time() - t0 < seconds:
             yield
+        if args.trace and name == 'khởi động':
+            print('   từng khung (ms):', [round(x * 1000) for x in dts])
         d = sorted(dts[5:])
         avg = len(d) / max(sum(d), 1e-9)
         worst = 1.0 / max(d) if d else 0

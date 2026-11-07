@@ -8,16 +8,18 @@ import json
 import time
 from pathlib import Path
 
-from panda3d.core import (Filename, Geom, GeomNode, GeomTriangles, GeomVertexArrayFormat, GeomVertexData, GeomVertexFormat, GeomVertexWriter, InternalName, Texture, Vec4)
+from panda3d.core import (Filename, Geom, GeomNode, GeomTriangles, GeomVertexArrayFormat, GeomVertexData, GeomVertexFormat, GeomVertexWriter, InternalName, PTA_LVecBase4f,
+                          Texture, Vec4)
 from PIL import Image
 from ursina import Entity
 
 from fps.core.exposure import target_exposure
-from fps.core.poolmap import AmbientGrid, PoolMap, bake_key, build_map, colliders, lightmap_uv, pack_atlas, probe_uv, rail_meshes, reflect_key, solid_boxes, walk_tops
+from fps.core.poolmap import (AmbientGrid, PoolMap, bake_key, build_map, colliders, lightmap_uv, pack_atlas, probe_uv, rail_meshes, pool_terrain, reflect_key,
+                              window_rects)
 from fps.core.terrain import Terrain
 from fps.game.shaders import load_glsl
 from fps.game.water import WaterSurface
-from fps.weapon_data import GameParams, MapData
+from fps.weapon_data import GameParams, GraphicsLevel, MapData
 
 ASSET_DIR = 'assets/maps/pool'
 
@@ -55,7 +57,8 @@ class PoolHall:
         self.node.set_shader(load_glsl('room'), 1)
         self.node.set_shader_input('room_lightmap', self.lightmap)
         self.node.set_shader_input('room_params', Vec4(self.e_max, 0, 0, 0))
-        self.water = WaterSurface(self.pm, params.water)
+        self.water = WaterSurface(self.pm, params.water, self.ambient)
+        self._bind_sun_windows()
         self.world = {'floor': None, 'colliders': colliders(self.pm) + [self.water.collider()], 'pool': self}
         self.reflection = None
 
@@ -162,8 +165,7 @@ class PoolHall:
 
     # ------------------------------------------------------------------ for the rest of the game
     def terrain(self, radius: float) -> Terrain:
-        hx, hz = self.data.room_x / 2.0, self.data.room_z / 2.0
-        return Terrain(walk_tops(self.pm), solid_boxes(self.pm), (-hx + radius, hx - radius, -hz + radius, hz - radius))
+        return pool_terrain(self.pm, radius)
 
     def sun_blocked(self, point, sun_dir) -> bool:
         """Whether the sun is hidden from `point` by the room (used for the light on the gun). Pure Python, ~40 boxes."""
@@ -175,8 +177,40 @@ class PoolHall:
         """((r, g, b) up, (r, g, b) down): the ambient light for the gun at floor position (x, z) (baked: `ambient.json`)."""
         return self.ambient.sample(x, z)
 
+    # ------------------------------------------------------------------ G10: sun through the windows, shafts, graphics level
+    def _bind_sun_windows(self):
+        """Inputs of sun_window.glsl on the room and the water: the window holes, and the shaft numbers (a PTA: its clock changes every frame)."""
+        rects, wall = window_rects(self.data)
+        wins = PTA_LVecBase4f.empty_array(4)
+        for i in range(4):
+            wins.set_element(i, Vec4(*rects[i]) if i < len(rects) else Vec4(0, 0, 0, 0))
+        self.shaft = PTA_LVecBase4f.empty_array(1)
+        self.shaft2 = PTA_LVecBase4f.empty_array(1)
+        self._shaft_steps = 0
+        self._clock = 0.0
+        for n in (self.node, self.water.node):
+            n.set_shader_input('look_windows', wins)
+            n.set_shader_input('look_window_wall', Vec4(wall[0], wall[1], min(len(rects), 4), 0.03))
+            n.set_shader_input('look_shaft', self.shaft)
+            n.set_shader_input('look_shaft2', self.shaft2)
+        self._push_shaft()
+
+    def _push_shaft(self):
+        look = self.params.look
+        self.shaft.set_element(0, Vec4(look.shaft_density, look.shaft_anisotropy, self._shaft_steps, look.shaft_dust))
+        self.shaft2.set_element(0, Vec4(look.shaft_range, self._clock, 0, 0))
+
+    def set_level(self, g: GraphicsLevel):
+        """Graphics level (F2): everything the map draws."""
+        self._shaft_steps = g.shaft_steps
+        self.water.set_level(g)
+        self._push_shaft()
+
     def update(self, dt: float):
+        self._clock += dt
+        self.shaft2.set_element(0, Vec4(self.params.look.shaft_range, self._clock, 0, 0))
         self.water.update(dt)
 
     def apply_params(self):
         self.water.apply_params()
+        self._push_shaft()

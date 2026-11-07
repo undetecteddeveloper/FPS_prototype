@@ -32,3 +32,10 @@
 - Công cụ G0: `tools\measure\g0_view.py` (chụp ảnh tư thế), `tools\measure\g0_timing.py` (đo clip + FPS), `tools\measure\g0_motion.py`
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15)
 
+
+# G10 (7/11/2026)
+- `tools\measure\g8_perf.py --level 0|1|2` (mức đồ hoạ), `--trace` (in từng khung của giây đầu), `--size WxH`.
+- `tools\measure\pool_shots.py --level 0|1|2 --set water.caustic_scale=0.6 [--set ...]` (so A/B một số mà không cần F1); góc mới `deep`, `slope`, `wade`.
+- `tools\measure\pool_check.py`: thêm mục sóng mô phỏng (đọc ngược texture từ GPU: dùng `WaterSim.drawn_texture`, KHÔNG `latest_texture` - pass của khung này chưa vẽ), nhìn thấy đáy, F2 không giật, vạch nước sâu.
+- Đọc ngược GPU (`extract_texture_data`) chặn GPU: khung KẾ TIẾP bị tính chậm 60-75 ms; đo thời gian thì chờ ~30 khung sau mỗi lần đọc.
+- Công tắc để đo: F2 / `game.set_graphics(0)` = tắt mọi hiệu ứng G10 (như G9).

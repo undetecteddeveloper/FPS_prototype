@@ -24,7 +24,7 @@ Người chơi chỉnh bằng F1 rồi bấm Lưu (`user_params.json`). Khi ngư
 
 ## 5. Subagent
 - Chỉ chia khi việc tách được, KHÔNG đụng chung file, và đủ lớn để bù chi phí khởi động nguội. Đáng song song: sinh tài nguyên, tra cứu.
-- KHÔNG chạy song song nhiều agent mở game / pytest / nạp model: máy 8 GB RAM + Intel UHD 620 dùng chung RAM đã ĐƠ CỨNG 7/11/2026. Người dùng chốt: TUẦN TỰ, mỗi lúc một tiến trình nặng; luôn bọc `tools\with_game_lock.py`.
+- KHÔNG chạy song song nhiều agent mở game / pytest / nạp model: máy (16 GB RAM, GPU Intel tích hợp dùng chung RAM; xem `CLAUDE.md` mục Ursina/Windows) đã ĐƠ CỨNG 7/11/2026. Người dùng chốt: TUẦN TỰ, mỗi lúc một tiến trình nặng; luôn bọc `tools\with_game_lock.py`.
 - Mỗi subagent nhận (a) danh sách file được sửa, (b) mục tiêu đo được, (c) mẫu báo cáo ngắn; không ai sửa ngoài danh sách; hai việc cần cùng file thì làm tuần tự. Agent chính ghép, chạy cổng kiểm tra, KHÔNG nói "xong" thay subagent (đọc kết quả, chạy lại kiểm tra).
 - Việc cơ học (đổi tên, dựng cắt âm, chạy lô tài nguyên) giao model rẻ; thiết kế và ghép giữ ở agent chính.
 

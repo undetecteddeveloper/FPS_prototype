@@ -1,0 +1,61 @@
+import math
+import random
+
+import pytest
+
+from fps.core.ballistics import first_hit
+from fps.core.graphics import clamp_level, level, next_level, water_flags
+from fps.core.poolmap import basin_boxes, build_map, colliders, sun_visible, window_rects
+from fps.weapon_data import GRAPHICS_LEVELS, GraphicsData, LookData, MapData
+
+
+def test_f2_cycles_low_mid_high_and_back():
+    seen = [0]
+    for _ in range(len(GRAPHICS_LEVELS)):
+        seen.append(next_level(seen[-1]))
+    assert seen == [0, 1, 2, 0]
+    assert clamp_level(9) == 2 and clamp_level(-3) == 0
+
+
+def test_low_is_the_g9_look_and_high_is_at_least_mid():
+    low, mid, high = GRAPHICS_LEVELS
+    assert water_flags(low) == (0.0, 0.0, 0.0, 0.0) and low.shaft_steps == 0
+    assert all(h >= m for h, m in zip(water_flags(high), water_flags(mid)))
+    assert high.sim_cols * high.sim_rows >= mid.sim_cols * mid.sim_rows and high.shaft_steps >= mid.shaft_steps
+    assert level(GraphicsData().level).name == 'Cao'
+
+
+def _unit(v):
+    n = math.sqrt(sum(c * c for c in v))
+    return tuple(c / n for c in v)
+
+
+def test_analytic_sun_test_agrees_with_a_ray_against_every_box():
+    """The shader's window test must match a real ray cast against the room's boxes (the bake's truth) at random points in the room and in the pool."""
+    d = MapData()
+    pm = build_map(d)
+    sun = _unit(LookData().sun_dir)
+    rects, wall = window_rects(d)
+    boxes = [(lo, hi, o) for lo, hi, o in colliders(pm)]                 # window gaps are not bullet boxes: rays leave through the holes
+    rng = random.Random(3)
+    agree = total = lit = 0
+    for _ in range(3000):
+        p = (rng.uniform(-9.9, 9.9), rng.uniform(-0.6, 4.1), rng.uniform(-14.9, 14.9))
+        if any(all(lo[i] < p[i] < hi[i] for i in range(3)) for lo, hi, _ in boxes):
+            continue
+        far = tuple(p[i] + sun[i] * 60.0 for i in range(3))
+        truth = first_hit(p, far, boxes, ground_y=None) is None
+        mine = sun_visible(p, sun, rects, wall) > 0.5
+        total += 1
+        agree += truth == mine
+        lit += truth
+    assert lit > 50                                                       # enough points in the beams for the check to mean something
+    assert agree / total > 0.995
+
+
+def test_basin_holds_the_steps_under_the_water():
+    pm = build_map(MapData())
+    (lo, hi), steps = basin_boxes(pm)
+    assert hi[1] == pytest.approx(MapData().water_y) and lo[1] == pytest.approx(MapData().pool_deep)
+    assert len(steps) == 1 + MapData().steps                                        # the shallow shelf + the south steps (no north steps: 2 m deep there)
+    assert all(s_hi[1] < hi[1] for _, s_hi in steps)

@@ -30,7 +30,8 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
   Đừng để từng đối tượng tự `update` riêng (thứ tự Ursina không đảm bảo, bắn sẽ dùng hướng nhìn của khung trước).
   Camera thế giới KHÔNG rung: mọi rung (bước, nhảy, bắn, nạp, ánh nhìn khi nạp) thành dịch + nghiêng cả khung ống kính (`game/camera_shake.py`, `core/lens.frame_shake`, `lens.frag`).
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi console.
-- Thế giới mặc định là phòng hồ bơi trong nhà (G9, `docs/notes/pool-hall.md`): dựng từ hộp, ánh sáng NƯỚNG SẴN (mặt trời cố định), nước phản chiếu căn phòng chụp sẵn. `--map flat` còn khối đất phẳng trắng cũ để so FPS. Không bia, không bóng đổ động; đừng dựng lại phòng bắn / bia khi chưa được hỏi.
+- Thế giới mặc định là phòng hồ bơi trong nhà (G9, `docs/notes/pool-hall.md`): dựng từ hộp, ánh sáng NƯỚNG SẴN (mặt trời cố định), nước phản chiếu căn phòng chụp sẵn.
+  G10: nước TRONG (thấy đáy bằng tia khúc xạ dò trong shader), sóng mô phỏng trên GPU, hồ dốc 0,5 → 2 m (lội tới ngực), tia nắng; **F2** đổi mức đồ hoạ Thấp / Vừa / Cao lúc chơi. Hiệu ứng mới nào cũng phải có mức trong `GRAPHICS_LEVELS` và đổi được ngay (không biên dịch lại shader). `--map flat` còn khối đất phẳng trắng cũ để so FPS. Không bia, không bóng đổ động; đừng dựng lại phòng bắn / bia khi chưa được hỏi.
   Sửa hình học map (`MapData`) hay nắng (`sun_dir`, `sun_color`, `sky_irradiance`) thì game tự nướng lại (~60 s). Numpy chỉ dùng lúc nướng và ở test.
 - Commit trên nhánh `dev`; chỉ push khi người dùng nói. `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
 - Comment và docstring trong mã viết bằng TIẾNG ANH (cả mã mới). Chữ cho người dùng (HUD, bảng F1, tên mục selftest, thông báo) và file `.md` vẫn tiếng Việt.
@@ -53,7 +54,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - `color.rgb(r,g,b)` của Ursina 8 nhận 0–1, không phải 0–255.
 - Console Windows mặc định cp1252: in tiếng Việt cần `PYTHONUTF8=1` hoặc `-X utf8` (cờ `-I` bỏ qua `PYTHONUTF8`).
 - Panda cache model ở `%LOCALAPPDATA%\Panda3D-1.10`; `gltf_patch.apply()` đã tắt cache đó. Nạp M4 ~1,5 s.
-- Màn hình máy này 1366×768: cửa sổ test dùng 1280×720.
+- Máy (kiểm 6/11/2026): ASUS Vivobook 15, Core 7 150U, GPU Intel Graphics (đời Iris Xe, 96 EU), 16 GB DDR5 hai kênh, màn 1920×1080 60 Hz (ghi chép cũ "UHD 620, 8 GB, 1366×768" là SAI). Cửa sổ test dùng 1280×720. Đo FPS khi CẮM SẠC (chạy pin bị hạ công suất).
 
 ## Tài liệu theo chủ đề (mở khi đụng tới, đừng đọc hết)
 - `docs/notes/tools.md`: danh mục công cụ, bài kiểm tra, công tắc tắt để đo.

@@ -26,6 +26,8 @@ ap.add_argument('--holes', action='store_true', help='bắn một chùm đạn v
 ap.add_argument('--gun-name', default='m4')
 ap.add_argument('--tag', default='')
 ap.add_argument('--exposure', type=float, default=0.0, help='nhân thêm vào phơi sáng (xem vùng tối); 0 = giữ mặc định')
+ap.add_argument('--level', type=int, default=-1, help='mức đồ hoạ 0 Thấp / 1 Vừa / 2 Cao (mặc định: như game)')
+ap.add_argument('--set', action='append', default=[], help='đổi một số trước khi chụp, vd --set water.caustic_scale=0.6 (lặp được)')
 args = ap.parse_args()
 W, H = (int(v) for v in args.size.lower().split('x'))
 only = set(filter(None, args.only.split(',')))
@@ -38,6 +40,18 @@ game.combat.require_locked_mouse = False
 player = game.player
 if args.exposure > 0:
     game.params.look.exposure = args.exposure
+for item in args.set:                                        # quick A/B of a number without the F1 panel
+    from fps.core.params import resolve
+    path, value = item.split('=')
+    obj_path, attr = path.rsplit('.', 1)
+    obj = resolve(game.params, obj_path)
+    old = getattr(obj, attr)
+    setattr(obj, attr, type(old)(tuple(float(v) for v in value.split(',')) if isinstance(old, tuple) else float(value)))
+    print(f'{path}: {old} -> {getattr(obj, attr)}')
+if args.set and game.pool:
+    game.pool.apply_params()
+if args.level >= 0:
+    game.set_graphics(args.level, announce=False)
 if not args.gun:
     game.viewmodel.root.hide()
 SHOTS = ROOT / 'shots'
@@ -54,6 +68,9 @@ VIEWS = {
     'ceiling': (-4.0, 0.0, -9.0, 20.0, -62.0),
     'corner': (8.0, 0.0, 12.0, 215.0, 0.0),
     'water': (-6.8, 0.0, -2.0, 70.0, 38.0),
+    'deep': (-6.8, 0.0, 9.0, 120.0, 40.0),                # G10: the deep end (2 m) from the west bank, looking down
+    'slope': (6.8, 0.0, -2.0, 300.0, 22.0),               # G10: along the slope from the east bank (shallow -> deep)
+    'wade': (0.0, -1.37, 0.8, 0.0, 10.0),                 # G10: standing at the chest-deep line, looking toward the deep end
     'dark_corner': (-9.5, 0.0, -14.5, 200.0, -50.0),      # the darkest spot of the room (SW corner, no beam reaches it), looking up at the tiles: the gun must not glow there
     'window_close': (9.35, 0.0, -3.5, 84.0, 3.0),         # at the east wall in front of a window, as close as the player can get (0.3 m body radius)
     'window_side': (9.35, 0.0, -0.4, 40.0, 4.0),          # beside a window, looking along the wall at the reveal (the wall thickness)

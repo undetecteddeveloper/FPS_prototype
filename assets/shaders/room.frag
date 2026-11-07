@@ -8,6 +8,7 @@ uniform vec4 room_params;           // x = irradiance that is 255 in the lightma
 uniform vec2 look_flash_world;      // multiplies the muzzle-flash brightness onto the world, falloff
 
 #include "light_common.glsl"
+#include "sun_window.glsl"
 
 in vec4 vertex_color;
 in vec2 metric;
@@ -48,6 +49,7 @@ void main() {
         if (dot(n, to_cam) < 0.0) n = -n;
         lit += albedo * flash_light(world_pos, n, look_flash_world.y) * look_flash_world.x;
     }
+    lit += sun_shaft(look_camera_pos, world_pos);                   // the sunlit dusty air between the eye and this pixel (G10; 0 samples on graphics level Low)
     float dist = length(look_camera_pos - world_pos);
     float fog = clamp(1.0 - exp(-look_fog.a * dist), 0.0, 1.0);
     frag_color = vec4(mix(tonemap(lit), look_fog.rgb, fog), 1.0);

@@ -34,6 +34,33 @@ def setup_fonts():
     Text.default_resolution = Text.size * window.size[1] * 2
 
 
+class Notice:
+    """A short line top-centre that fades out (the graphics level after F2). Game calls `update` every frame."""
+
+    WARM_TEXT = 'Đồ hoạ: Thấp Vừa Cao (F2 đổi)'      # every glyph the notices use
+
+    def __init__(self):
+        # shown INVISIBLE for the first frames: the font rasterizes these glyphs and the glyph page reaches the GPU now. Otherwise the first F2 froze one frame (62-75 ms).
+        self.text = UiText(self.WARM_TEXT, (0.0, 0.44), origin=(0, 0), scale=1.1)
+        self.text.set_alpha(0.0)
+        self.left = 0.4
+
+    def show(self, text: str, seconds: float = 2.0):
+        self.text.text = text
+        self.text.enabled = True
+        self.text.set_alpha(1.0)
+        self.left = seconds
+
+    def update(self, dt: float):
+        if self.left <= 0.0:
+            return
+        self.left -= dt
+        if self.left <= 0.0:
+            self.text.enabled = False
+        elif self.left < 0.5:
+            self.text.set_alpha(self.left / 0.5)
+
+
 class UiText:
     """Text with a shadow. `text` and `color` are set on both copies."""
 

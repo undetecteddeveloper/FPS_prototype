@@ -17,7 +17,7 @@ from fps.weapon_data import LookData, MapData
 EPS = 1e-6
 UV_AXES = {0: (2, 1), 1: (0, 2), 2: (0, 1)}      # normal axis -> (u axis, v axis) lying in the face
 BAKE_VERSION = 2                                  # bump when the bake / geometry code changes in a way the stored files cannot reflect (2: the window reveals are drawn)
-FLOOR = -1.5                                      # bottom of every slab (never visible)
+FLOOR = -2.6                                      # bottom of every slab (never visible; below the deep end of the pool)
 
 
 @dataclass(frozen=True)
@@ -70,6 +70,7 @@ class PoolMap:
     air: list                     # [(lo, hi)] volumes of air the player can see: the room interior and the window recesses
     interior: tuple               # (lo, hi) of the room interior
     water: tuple                  # (x0, x1, z0, z1, y) of the water surface
+    ramp: tuple = None            # (x0, x1, z0, z1, y0, y1): the sloping pool bottom between the shallow shelf and the deep end (not a box: walked on via core/terrain.py, drawn by water.frag)
 
     def exposed_faces(self) -> list:
         if not hasattr(self, '_faces'):
@@ -93,12 +94,15 @@ def build_map(d: MapData) -> PoolMap:
     xe, ze = hx + w, hz + w
     boxes += [_box('deck_s', (-xe, FLOOR, -ze), (xe, 0, -pz), **floor_kw), _box('deck_n', (-xe, FLOOR, pz), (xe, 0, ze), **floor_kw),
               _box('deck_w', (-xe, FLOOR, -pz), (-px, 0, pz), **floor_kw), _box('deck_e', (px, FLOOR, -pz), (xe, 0, pz), **floor_kw),
-              _box('pool_floor', (-px, FLOOR, -pz), (px, d.pool_floor, pz), **floor_kw)]
+              _box('pool_floor', (-px, FLOOR, -pz), (px, d.pool_deep, pz), **floor_kw),
+              _box('step_shelf', (-px, FLOOR, -pz), (px, d.pool_floor, d.slope_z[0]), **floor_kw)]        # the flat shallow end (a 'step_' box: water.frag traces it like a step)
     rise = -d.pool_floor / (d.steps + 1)
     for i in range(d.steps):
         t = -rise * (i + 1)
         boxes.append(_box(f'step_s{i}', (-px, FLOOR, -pz), (px, t, -pz + (i + 1) * d.step_depth), **floor_kw))
-        boxes.append(_box(f'step_n{i}', (d.north_steps_x[0], FLOOR, pz - (i + 1) * d.step_depth), (d.north_steps_x[1], t, pz), **floor_kw))
+        if d.north_steps:
+            boxes.append(_box(f'step_n{i}', (d.north_steps_x[0], FLOOR, pz - (i + 1) * d.step_depth), (d.north_steps_x[1], t, pz), **floor_kw))
+    ramp = (-px, px, d.slope_z[0], d.slope_z[1], d.pool_floor, d.pool_deep)
 
     # walls and ceiling; the east wall is cut by the windows
     boxes += [_box('wall_s', (-xe, FLOOR, -ze), (xe, top + w, -hz), **wall_kw), _box('wall_n', (-xe, FLOOR, hz), (xe, top + w, ze), **wall_kw),
@@ -129,7 +133,7 @@ def build_map(d: MapData) -> PoolMap:
         boxes.append(_box(f'stair{i}', (d.stair_x[0], 0, z_start + i * d.stair_tread), (d.stair_x[1], d.stair_rise * (i + 1), hz), **floor_kw))
 
     interior = ((-hx, FLOOR, -hz), (hx, top, hz))
-    return PoolMap(d, boxes, air, interior, (-px, px, -pz, pz, d.water_y))
+    return PoolMap(d, boxes, air, interior, (-px, px, -pz, pz, d.water_y), ramp)
 
 
 # ------------------------------------------------------------------ exposed faces
@@ -296,6 +300,60 @@ def reflect_key(d: MapData, look: LookData, lens) -> str:
     return hashlib.sha1(text.encode()).hexdigest()[:16]
 
 
+# ------------------------------------------------------------------ what the shaders need to know about the geometry (G10)
+def window_rects(d: MapData) -> tuple:
+    """((z0, z1, y0, y1) per window hole, (x of the inner wall face, x of the outer face)): the only openings the sun comes through (east wall)."""
+    rects = tuple((zc - d.window_width / 2.0, zc + d.window_width / 2.0, d.window_sill, d.window_top) for zc in d.window_z)
+    return rects, (d.room_x / 2.0, d.room_x / 2.0 + d.wall)
+
+
+def sun_visible(p, sun, rects, wall, soft: float = 0.0) -> float:
+    """Mirror of sun_window.glsl `sun_visible`: 1 if the ray from `p` toward the sun leaves the room through a window hole (it must pass inside the hole at BOTH the inner and
+    the outer wall face, so the reveal shades), else 0. `soft` (m) blurs the edges like the shader. Only the east wall has openings and nothing stands between it and the room
+    on the sun's side, so for this map that is the whole sun test."""
+    sx, sy, sz = sun
+    if sx <= 1e-4 or p[0] > wall[0]:
+        return 0.0
+    best = 0.0
+    for z0, z1, y0, y1 in rects:
+        k = 1.0
+        for x in wall:
+            t = (x - p[0]) / sx
+            z, y = p[2] + sz * t, p[1] + sy * t
+            k *= _inside(z, z0, z1, soft) * _inside(y, y0, y1, soft)
+        best = max(best, k)
+    return best
+
+
+def _inside(v: float, lo: float, hi: float, soft: float) -> float:
+    if soft <= 0.0:
+        return 1.0 if lo <= v <= hi else 0.0
+
+    def ss(a, b, x):
+        t = min(max((x - a) / (b - a), 0.0), 1.0)
+        return t * t * (3 - 2 * t)
+    return ss(lo - soft, lo + soft, v) * (1.0 - ss(hi - soft, hi + soft, v))
+
+
+def basin_boxes(pm: PoolMap) -> tuple:
+    """((lo, hi) of the water volume, [(lo, hi)] of the step boxes inside it): what the water shader traces a refracted ray against (a ray leaves the basin box from inside,
+    and enters a step box from outside)."""
+    x0, x1, z0, z1, wy = pm.water
+    d = pm.data
+    basin = ((x0, d.pool_deep, z0), (x1, wy, z1))
+    steps = [(b.lo, b.hi) for b in pm.boxes if b.name.startswith('step_')]
+    return basin, steps
+
+
+def pool_bottom_y(pm: PoolMap, x: float, z: float) -> float:
+    """Height of the pool bottom at (x, z) (shelf, ramp, deep floor, steps): what the water shader sees and what the feet stand on."""
+    tops = [b.hi[1] for b in pm.boxes if b.walk and b.lo[0] <= x <= b.hi[0] and b.lo[2] <= z <= b.hi[2] and b.hi[1] < pm.water[4]]
+    r = pm.ramp
+    if r and r[0] <= x <= r[1] and r[2] <= z <= r[3]:
+        tops.append(r[4] + (r[5] - r[4]) * (z - r[2]) / (r[3] - r[2]))
+    return max(tops)
+
+
 # ------------------------------------------------------------------ what bullets and feet see
 def colliders(pm: PoolMap) -> list:
     """[(lo, hi, owner)] for bullets (the owner is the Box)."""
@@ -305,6 +363,16 @@ def colliders(pm: PoolMap) -> list:
 def walk_tops(pm: PoolMap) -> list:
     """[(x0, x1, z0, z1, top)]: surfaces the player can stand on."""
     return [(b.lo[0], b.hi[0], b.lo[2], b.hi[2], b.hi[1]) for b in pm.boxes if b.walk]
+
+
+def pool_terrain(pm: PoolMap, radius: float):
+    """The walkable map for the player: box tops, the sloping pool bottom, the room walls (minus his radius), and the deep water he cannot wade into."""
+    from fps.core.terrain import Terrain
+    d = pm.data
+    hx, hz = d.room_x / 2.0, d.room_z / 2.0
+    x0, x1, z0, z1, wy = pm.water
+    return Terrain(walk_tops(pm), solid_boxes(pm), (-hx + radius, hx - radius, -hz + radius, hz - radius),
+                   ramps=[pm.ramp] if pm.ramp else [], wade=(x0, x1, z0, z1, wy - d.wade_depth))
 
 
 def solid_boxes(pm: PoolMap) -> list:
