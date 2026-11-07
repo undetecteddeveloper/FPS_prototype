@@ -539,10 +539,13 @@ class LookData:
     grid_major: int = 5                       # every this many lines one is drawn heavier (5 x 2 m = a 10 m square)
     grid_width: float = 0.03                  # m: half the width of a thin line (a heavy line is twice as wide)
     # --- G10: sun shafts seen in the air (assets/shaders/sun_window.glsl: every surface shader marches from the eye to its pixel and adds the sunlit air on the way) ---
-    shaft_density: float = 0.06               # 1/m: how much of the light the dusty air scatters toward the eye (0 = no shafts)
+    shaft_density: float = 0.045              # 1/m: how much of the light the dusty air scatters toward the eye (0 = no shafts)
     shaft_anisotropy: float = 0.55            # Henyey-Greenstein g: > 0 = brighter looking toward the sun
     shaft_dust: float = 0.6                   # 0..1: how much slow-moving dust clouds modulate the shafts
     shaft_range: float = 26.0                 # m: the march stops this far from the eye
+    dust_size: float = 0.005                  # m: radius of one dust mote (game/dust.py; graphics level High)
+    dust_brightness: float = 1.6              # how strongly a mote glints in a sun beam (it is invisible in the shade)
+    dust_box: float = 7.0                     # m: the motes fill a box this wide around the eye (it wraps as he walks)
 
 
 @dataclass
@@ -592,14 +595,50 @@ class GraphicsLevel:
     refraction: bool              # see the pool bottom through the water (False = the G9 dark mirror)
     caustics: bool
     glint: bool                   # the sun's sparkle on the waves
-    shaft_steps: int              # samples per pixel of the sun shafts (0 = no shafts)
+    shaft_steps: int              # sun shafts: dust noise samples per lit piece of a view ray (0 = no shafts; the lit length itself is exact, sun_window.glsl)
+    splash: float                 # share of the splash droplets drawn (0 = none)
+    wet: bool                     # wet deck: puddles mirroring the room, wet footprints
+    gun_env: bool                 # the room mirrored on the gun's metal (else the old ambient guess)
+    dust: bool                    # dust motes glinting in the sun beams
 
 
 GRAPHICS_LEVELS = (
-    GraphicsLevel('Thấp', 0, 0, False, False, False, 0),
-    GraphicsLevel('Vừa', 128, 256, True, True, True, 8),
-    GraphicsLevel('Cao', 256, 512, True, True, True, 16),
+    GraphicsLevel('Thấp', 0, 0, False, False, False, 0, 0.0, False, False, False),
+    GraphicsLevel('Vừa', 128, 256, True, True, True, 1, 0.6, True, True, False),
+    GraphicsLevel('Cao', 256, 512, True, True, True, 3, 1.0, True, True, True),
 )
+
+
+@dataclass
+class SplashData:
+    """G10: water droplets (core/splash.py, game/splash.py) and wading (slower legs, the body pushing the water). Droplet counts are multiplied by the graphics level."""
+    bullet_drops: int = 16                # drops thrown up by one bullet landing on the water
+    bullet_speed: float = 3.4             # m/s
+    bullet_cone: float = 16.0             # deg around straight up
+    land_drops: int = 46                  # drops when the player lands in the water (jump / fall)
+    land_speed: float = 2.4
+    land_cone: float = 50.0
+    land_push: float = -0.05              # m: the landing pushes the water down this much...
+    land_radius: float = 0.40             # ...over this radius
+    wade_drops: int = 3                   # drops kicked up per wading push (more when running)
+    speed_jitter: float = 0.45            # share of random speed change per drop
+    drop_size: float = 0.011              # m: radius of a drop
+    drop_life: float = 1.4                # s at most (most fall back into the water sooner)
+    gravity: float = 9.81
+    drag: float = 0.5                     # 1/s: air drag on a drop
+    wade_slow: float = 0.55               # walking speed multiplier in chest-deep water (1 on the deck; linear with depth between)
+    wake_spacing: float = 0.32            # m walked in the water between two pushes of the surface
+    wake_push: float = -0.012             # m: strength of one push (scaled by depth and speed)
+    wake_radius: float = 0.22             # m
+    # --- wet deck (room.frag) and wet footprints (core/footprints.py) ---
+    puddles: float = 0.55                 # 0..1: how much of the deck has standing water (more near the pool edge)
+    puddle_scale: float = 1.8             # m: size of the puddles
+    wet_reach: float = 1.4                # m: the deck is damp this far from the pool edge
+    wet_darken: float = 0.45              # how much darker a wet tile is (Lagarde: wet = darker diffuse, brighter reflection)
+    wet_reflect: float = 0.9              # strength of the room mirrored in the puddles
+    print_spacing: float = 0.62           # m walked between two wet footprints
+    print_life: float = 25.0              # s: a footprint dries out in this time
+    feet_dry: float = 12.0                # s out of the water until the feet leave no more prints
 
 
 @dataclass
@@ -834,3 +873,4 @@ class GameParams:
     lens: LensData = field(default_factory=LensData)
     water: WaterData = field(default_factory=WaterData)
     graphics: GraphicsData = field(default_factory=GraphicsData)
+    splash: SplashData = field(default_factory=SplashData)

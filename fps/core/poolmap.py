@@ -335,6 +335,47 @@ def _inside(v: float, lo: float, hi: float, soft: float) -> float:
     return ss(lo - soft, lo + soft, v) * (1.0 - ss(hi - soft, hi + soft, v))
 
 
+def _clip(t0: float, t1: float, a: float, b: float, lo: float, hi: float) -> tuple:
+    """Narrow [t0, t1] to the t where lo <= a + b t <= hi."""
+    if abs(b) < 1e-9:
+        return (t0, t1) if lo <= a <= hi else (1.0, 0.0)
+    ta, tb = (lo - a) / b, (hi - a) / b
+    if ta > tb:
+        ta, tb = tb, ta
+    return max(t0, ta), min(t1, tb)
+
+
+def sunlit_segments(eye, p, sun, rects, wall, max_len: float = 1e9) -> list:
+    """Mirror of sun_window.glsl `sun_shaft`: the exact pieces [t0, t1] (metres from the eye) of the segment eye -> p that lie in a sun beam. A beam is the window hole pushed
+    along the sun: the projection of a point along the sun onto a wall plane is LINEAR in the point, so along the ray every window gives one interval (both wall faces,
+    both axes of the hole, and inside the room)."""
+    d = [p[i] - eye[i] for i in range(3)]
+    length = math.sqrt(sum(c * c for c in d))
+    if length < 1e-6 or sun[0] <= 1e-4:
+        return []
+    d = [c / length for c in d]
+    length = min(length, max_len)
+    out = []
+    for z0, z1, y0, y1 in rects:
+        t0, t1 = 0.0, length
+        if abs(d[0]) > 1e-9:                                                     # inside the room: eye.x + d.x t <= inner wall face
+            if d[0] > 0:
+                t1 = min(t1, (wall[0] - eye[0]) / d[0])
+            else:
+                t0 = max(t0, (wall[0] - eye[0]) / d[0])
+        elif eye[0] > wall[0]:
+            continue
+        for x in wall:
+            k = (x - eye[0]) / sun[0]
+            az, ay = eye[2] + sun[2] * k, eye[1] + sun[1] * k                     # projection of the eye onto the wall plane along the sun
+            bz, by = d[2] - sun[2] * d[0] / sun[0], d[1] - sun[1] * d[0] / sun[0]   # ... and how it moves per metre along the ray
+            t0, t1 = _clip(t0, t1, az, bz, z0, z1)
+            t0, t1 = _clip(t0, t1, ay, by, y0, y1)
+        if t1 > t0:
+            out.append((t0, t1))
+    return out
+
+
 def basin_boxes(pm: PoolMap) -> tuple:
     """((lo, hi) of the water volume, [(lo, hi)] of the step boxes inside it): what the water shader traces a refracted ray against (a ray leaves the basin box from inside,
     and enters a step box from outside)."""

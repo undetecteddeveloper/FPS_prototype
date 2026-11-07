@@ -77,4 +77,20 @@ Kế hoạch + bản chốt: `docs/sessions/G10.md`. Skill kỹ thuật (nguồn
   Giây đầu sau khi mở game đôi khi ~30 FPS ở mức Vừa/Cao rồi nhanh dần về bình thường (giống GPU tăng xung; lúc có lúc không, chưa chứng minh do G10); đo lại khi cắm sạc.
 - Kiểm: `pool_check.py` (thêm: sóng mô phỏng có thật, đạn ấn mặt nước, nhìn thẳng xuống thấy gạch đáy [độ tương phản Cao 0,17-0,19 so với Thấp 0,004], đổi F2 không giật, lội dừng ở vạch sâu, không vào được chỗ sâu từ bờ),
   `tests/test_watersim.py`, `tests/test_graphics.py`, `tests/test_terrain.py`; ảnh: `pool_shots.py --only spawn,down,water,deep,slope,wade [--level 0|1|2] [--set water.caustic_scale=0.6]`.
-- Chưa làm (G10 các phần sau): lội tạo sóng + tiếng + đi chậm, tia nước / bọt khi đạn trúng, sàn ướt loang lổ + vết chân ướt, bụi lơ lửng thấy từng hạt, phản chiếu căn phòng lên súng, tiếng nước ElevenLabs.
+- Phần sau: xem mục G10 phần 2 bên dưới; còn lại tiếng nước ElevenLabs.
+
+## G10 phần 2: lội nước, giọt nước, sàn ướt, vết chân, bụi, phản chiếu lên súng, tia nắng chính xác (7/11/2026)
+- Lội (`core/splash.py`, `Player.water_depth`): đi chậm theo độ ngập (`splash.wade_slow` 0,55 ở ngang ngực, tuyến tính); đo trong game: bờ 4,31 m/s, nước tới gối 3,57, ngang ngực 2,45.
+  Chân đẩy mặt nước mỗi `wake_spacing` 0,32 m (sóng mô phỏng thật), văng vài giọt; nhảy / rơi xuống nước: lõm sâu + vương miện giọt (`land_*`). Lội thì tắt tiếng bước chân trên gạch (tiếng nước: phần âm thanh sau).
+- Giọt nước (`game/splash.py`, `splash.vert|frag`): một lần vẽ, vệt kéo dài theo vận tốc (như màn trập 25 ms), sáng vàng trong vệt nắng; giọt rơi lại tạo gợn nhỏ trong mô phỏng. Đạn trúng: 16 giọt; số giọt nhân theo mức đồ hoạ (Thấp 0, Vừa 0,6, Cao 1).
+- Sàn ướt (`room.frag`, mức Vừa/Cao): vũng nước loang lổ (nhiễu, nhiều hơn sát mép hồ), gạch ướt tối hơn (Lagarde), vũng phản chiếu căn phòng (cùng ảnh chụp của nước, `cube_reflect.glsl`, Fresnel).
+  Vết chân ướt (`core/footprints.py`): ra khỏi nước thì 12 s đầu để lại vết luân phiên trái / phải mỗi 0,62 m, nhạt dần theo độ khô của chân; vết khô sau 25 s. Vòng 24 vết trong uniform.
+- Súng (mức Vừa/Cao): kim loại phản chiếu căn phòng chụp sẵn thay cho ước lượng từ ánh nền (`vm_env`, `Viewmodel.set_env`); tối đi ở chỗ phòng tối.
+- Bụi (mức Cao, `game/dust.py`, `dust.vert|frag`): 600 hạt, vị trí tính hoàn toàn trên GPU từ hạt giống + đồng hồ, quấn trong hộp 7 m quanh mắt; chỉ hiện trong vệt nắng. Khu xuất phát phía nam KHÔNG có nắng (đúng vật lý); giữa phòng (−4; 0) ~25 % không khí có nắng.
+- Tia nắng giờ tính CHÍNH XÁC đoạn có nắng của tia nhìn (mỗi cửa sổ một khoảng [t0, t1] bằng toán tuyến tính; `core/poolmap.py sunlit_segments` khớp cách đi từng 1 cm, `tests/test_graphics.py`); chỉ bụi lấy mẫu (Vừa 1, Cao 3 mẫu mỗi đoạn).
+  Đo A/B trong cùng tiến trình: cách đi 16 bước tốn 7 ms/khung, cách mới ~1 ms. Cả mức Cao giờ 4,1-4,9 ms/khung (trước 8-10 ms); g8_perf mức Cao 145-310 FPS trung bình. Python mỗi khung ~0,7 ms.
+- Chi phí từng hiệu ứng (tắt từng cái, cùng tiến trình): sàn ướt, phản chiếu súng, bụi, caustics, khúc xạ đều < 0,5 ms (lẫn trong nhiễu).
+- Kiểm: `pool_check.py` thêm 5 mục (giọt khi đạn trúng, lội chậm theo độ sâu, lội đẩy sóng, rơi xuống nước té nước); `tests/test_splash.py`, `tests/test_footprints.py`.
+  Bẫy đo: không vsync game chạy 400+ FPS, nên bài kiểm phải chờ theo THỜI GIAN / sự kiện (rơi 1,2 m cần 0,5 s, không phải 60 khung); đọc sóng ngay sau bước mô phỏng đầu tiên.
+  Công cụ chụp nhảy góc ngay sau một góc nhìn thẳng mặt trời có thể còn dư ảnh của ống kính (quầng sáng giữa khung): chụp lại / chờ lâu hơn.
+- `pool_shots.py`: góc `deck`, `prints`, `beam`, `beam2`; cờ `--prints`, `--ring-wait`, `--no-gun-env`, `--no-dust`. `g8_perf.py --at x,z,yaw` (vd `3,5,75` = giữa vệt nắng nhìn mặt trời).

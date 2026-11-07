@@ -244,9 +244,11 @@ class Script(Entity):
         if water.sim is not None:
             for _ in range(10):
                 yield
+            steps0 = water.sim.clock.total
             water.splash((1.0, water.y, 2.0), 10.0)
-            for _ in range(4):
+            while water.sim.clock.total == steps0:                 # wait for the first step (frame count depends on the FPS: the wave spreads within a few steps)
                 yield
+            yield                                                   # ... and for it to be drawn
             h = read_sim(water.sim)
             check('a bullet on the water pushes the simulated surface down', min(min(r) for r in h) < -0.001, f'deepest {min(min(r) for r in h) * 1000:.2f} mm')
             for _ in range(30):                                     # the readback stalls the GPU: let it pass before anything is timed
@@ -279,6 +281,41 @@ class Script(Entity):
                 last = now
         check('F2: switching graphics levels never makes a frame slower than 50 ms', worst < 0.05, f'worst frame {worst * 1000:.1f} ms')
         game.set_graphics(game.params.graphics.level, announce=False)
+        yield
+
+        # --- G10 part 2: wading, splashes
+        sp = pool.splash
+        before = sp.sim.spawned
+        water.splash((2.0, water.y, -6.0), 10.0)
+        check('a bullet on the water throws up droplets', sp.sim.spawned - before >= 8, f'{sp.sim.spawned - before} giọt')
+        speeds = {}
+        for name, (x, y, z, yaw) in (('deck', (0.0, 0.0, -13.5, 90.0)), ('knee', (0.0, d.pool_floor, -7.0, 90.0)), ('chest', (0.0, wade_y + 0.02, 0.9, 90.0))):
+            place(x, y, z, yaw)                                     # walking east (across the pool): never toward the deep-water line
+            walk(1)
+            x0 = player.x
+            walk(60, forward=1.0)
+            speeds[name] = player.x - x0
+        check('wading: slower in knee-deep water, slower still at chest depth', speeds['deck'] > speeds['knee'] > speeds['chest'] > 0.0,
+              ', '.join(f'{k} {v:.2f} m/s' for k, v in speeds.items()))
+        q0 = water.sim.queue[:] if water.sim else []
+        place(0.0, d.pool_floor, -8.0, 0.0)
+        game._feet = (player.x, player.z)
+        pushes = 0
+        for _ in range(60):                                           # walk 1 s in the shallow end through the real Game.update path
+            held_keys['w'] = 1
+            yield
+            pushes += len(water.sim.queue) if water.sim else 0
+        held_keys['w'] = 0
+        check('wading pushes the water (waves around the legs)', pushes > 0, f'{pushes} lần đẩy chờ trong hàng')
+        before = sp.sim.spawned
+        place(-3.0, d.pool_floor + 1.2, -8.0, 0.0)                    # 1.2 m above the shallow floor: drops in
+        player.on_ground = False
+        import time as pytime
+        t_end = pytime.time() + 2.0
+        while not player.on_ground and pytime.time() < t_end:       # fall by TIME (at 400 FPS, 60 frames are only 0.15 s)
+            yield
+        yield
+        check('landing in the water splashes', sp.sim.spawned - before >= 15, f'{sp.sim.spawned - before} giọt')
         yield
 
 

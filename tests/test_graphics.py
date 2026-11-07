@@ -53,6 +53,26 @@ def test_analytic_sun_test_agrees_with_a_ray_against_every_box():
     assert agree / total > 0.995
 
 
+def test_exact_sunlit_segments_match_a_fine_march():
+    """The shader's shafts integrate the sunlit length of each view ray analytically; it must equal marching the ray in 1 cm steps with the point test."""
+    from fps.core.poolmap import sunlit_segments
+    d = MapData()
+    sun = _unit(LookData().sun_dir)
+    rects, wall = window_rects(d)
+    rng = random.Random(5)
+    checked = 0
+    for _ in range(60):
+        eye = (rng.uniform(-9, 9), rng.uniform(0.3, 3.5), rng.uniform(-14, 14))
+        p = (rng.uniform(-9.9, 9.9), rng.uniform(0.0, 4.1), rng.uniform(-14.9, 14.9))
+        exact = sum(t1 - t0 for t0, t1 in sunlit_segments(eye, p, sun, rects, wall))
+        length = math.dist(eye, p)
+        n = int(length / 0.01) + 1
+        marched = sum(sun_visible(tuple(eye[i] + (p[i] - eye[i]) * (k + 0.5) / n for i in range(3)), sun, rects, wall) for k in range(n)) * length / n
+        assert exact == pytest.approx(marched, abs=0.03)
+        checked += exact > 0.1
+    assert checked >= 5                                                    # enough rays actually cross a beam
+
+
 def test_basin_holds_the_steps_under_the_water():
     pm = build_map(MapData())
     (lo, hi), steps = basin_boxes(pm)

@@ -13,6 +13,7 @@ from fps.core.lens import overscan_fov
 from fps.core.movement import (MoveState, aim_direction, apply_look, clamp_to_bounds, resolve_state, smoothstep,
                       step_horizontal_velocity, step_toward, step_vertical, target_speed, wants_sprint, wish_direction)
 from fps.core.freeaim import FreeLook
+from fps.core.splash import wade_speed_factor, water_depth
 from fps.core.spring import Spring, impulse_gain
 from fps.core.sway import SwayInput
 from fps.core.terrain import resolve_move
@@ -49,6 +50,8 @@ class Player(Entity):
         self.jumped = 0.0                     # take-off speed (m/s) if the player jumped this frame
         self.eye_dy = 0.0                     # how many metres the camera moves up/down this frame (for gun inertia)
         self.eye_height = params.eye_height_stand
+        self.water = None                     # (x0, x1, z0, z1, surface y, chest depth) of the pool on the pool map (Game sets it); None = no water
+        self.splash = None                    # weapon_data.SplashData: how much the water slows the legs (Game sets it with `water`)
         self.state = MoveState.IDLE
         self._look = [0.0, 0.0]               # SCREEN turn (yaw right, pitch up) in degrees since the last read: body and lens react to this number
         self._mouse = [0.0, 0.0]              # MOUSE turn since the last read
@@ -151,6 +154,14 @@ class Player(Entity):
         self.rotation_y = self.yaw
         self.camera_pivot.rotation_x = self.pitch
 
+    @property
+    def water_depth(self) -> float:
+        """How deep his feet are in the pool (0 out of the water)."""
+        w = self.water
+        if w is None or not (w[0] <= self.x <= w[1] and w[2] <= self.z <= w[3]):
+            return 0.0
+        return water_depth(self.y, w[4])
+
     def _ground(self) -> float:
         """Height of the floor he can stand on at his position: the highest surface at most `step_up` above his feet (the plane y = 0 without a terrain)."""
         if self.terrain is None:
@@ -185,6 +196,8 @@ class Player(Entity):
         wish = wish_direction(forward, strafe, self.yaw)
         accel = p.accel_ground if self.on_ground else p.accel_air
         speed = target_speed(intent, p, smoothstep(self.ads_amount)) if has_input else 0.0
+        if self.water is not None and self.on_ground:                 # wading: the deeper the water, the slower the legs (G10)
+            speed *= wade_speed_factor(self.water_depth, self.water[5], self.splash.wade_slow)
         if self.on_ground or has_input:       # in the air with no key pressed: keep the momentum
             self.vx, self.vz = step_horizontal_velocity(self.vx, self.vz, wish, speed, accel, dt)
 

@@ -33,6 +33,10 @@ from fps.game.lens import Lens  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
 from fps.game.smoke import GunSmoke  # noqa: E402
+from fps.game.splash import WaterSplash  # noqa: E402
+from fps.core.splash import Wake  # noqa: E402
+from fps.core.footprints import FootprintTrail  # noqa: E402
+from fps.game.dust import DustMotes  # noqa: E402
 from fps.game.ground import WALK_BOUNDS, build_ground  # noqa: E402
 from fps.game.pool import PoolHall  # noqa: E402
 from fps.core.sway import Sway, ads_target_for  # noqa: E402
@@ -104,6 +108,16 @@ class Game(Entity):
         if not free_aim:
             params.gun.free_aim.barrel_aim = False
         self.light = FrameLight(params.look, params.gun)                       # one shared light source for the world and the gun
+        self.wake = Wake()                                                     # G10: the walking body pushes the water
+        self.trail = FootprintTrail()                                          # G10: wet footprints after leaving the pool
+        self._feet = (self.player.x, self.player.z)
+        self.dust = DustMotes(params.look, self.light, self.pool) if self.pool and effects else None    # G10: dust glinting in the sun beams
+        if self.pool:
+            x0, x1, z0, z1, wy = self.pool.pm.water
+            self.player.water = (x0, x1, z0, z1, wy, self.pool.data.wade_depth)
+            self.player.splash = params.splash
+            if effects:
+                self.pool.attach_splash(WaterSplash(params.splash, self.light, wy))
         self.viewmodel = Viewmodel(params.gun, ROOT, self.light)
         if draw:
             self.viewmodel.hide_until_draw()          # the first frames (window opening, shader warm-up) show no gun; it appears with the draw clip
@@ -119,6 +133,7 @@ class Game(Entity):
         self.look = WorldLook(params.look, self.world, self.combat.decals, self.light) if look else None
         if self.pool:
             self.pool.prepare_reflection(self.light, force=rebake)       # needs the shader inputs WorldLook just put on render; before the lens takes over the screen
+            self.pool.bind_reflection(self.viewmodel.root)               # the gun's metal mirrors the same captured room (G10)
         self.lens = Lens(params.lens, self.viewmodel) if lens else None
         self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.hud = Hud(params.gun.credit) if hud else None                    # Bodycam style: nothing on screen; only the selftest turns it on to read numbers
@@ -135,6 +150,10 @@ class Game(Entity):
         g = graphics_level(self.graphics_level)
         if self.pool:
             self.pool.set_level(g)
+        for kit in self._kits.values():
+            kit.viewmodel.set_env(g.gun_env and self.pool is not None)
+        if self.dust:
+            self.dust.set_enabled(g.dust)
         if announce:
             self.notice.show(f'Đồ hoạ: {g.name}  (F2 đổi)')
 
@@ -161,6 +180,9 @@ class Game(Entity):
         self._merge_audio(gun)                          # Foley loads the sound banks its gun's cues name
         vm = Viewmodel(gun, ROOT, self.light)
         vm.hide_until_draw()                            # until its draw clip starts, the gun must not show its idle pose (a switch always draws)
+        if self.pool:
+            self.pool.bind_reflection(vm.root)
+            vm.set_env(graphics_level(self.graphics_level).gun_env)
         fx = Effects(gun, vm, smoke=self.smoke) if self._effects else None
         if self.lens:
             vm.move_to_output(self.lens.manager.buffers[-1])
@@ -232,12 +254,38 @@ class Game(Entity):
             self.viewmodel.apply_light()
         if 'gun.flash' in paths and self.look:
             self.look.apply_params()
-        if 'water' in paths and self.pool:
+        if ('water' in paths or 'splash' in paths or 'look' in paths) and self.pool:
             self.pool.apply_params()
+        if 'look' in paths and self.dust:
+            self.dust.apply_params()
         if 'lens' in paths and self.lens:
             self.lens.apply_params()
         if any(s.id == 'gun.ads_eye_relief' for s in specs):
             self.sway.ads_target = ads_target_for(self.params.gun)
+
+    def _water_feet(self):
+        """G10, after the player moved: a landing in the water splashes, walking in it pushes waves (and kicks up a few drops)."""
+        p, water, splash, s = self.player, self.pool.water, self.pool.splash, self.params.splash
+        dx, dz = p.x - self._feet[0], p.z - self._feet[1]
+        moved = math.hypot(dx, dz)
+        self._feet = (p.x, p.z)
+        if moved > 3.0:                                   # a teleport (tools), not a walk
+            moved = dx = dz = 0.0
+        depth = p.water_depth
+        on_deck = p.on_ground and abs(p.y) < 0.01 and depth <= 0.0
+        if self.trail.update(self.pool._clock, p.x, p.z, dx, dz, depth > 0.05, on_deck, s.feet_dry, s.print_spacing):
+            slot = (self.trail.next - 1) % self.trail.slots
+            self.pool.add_print(slot, self.trail.prints[slot])
+        self.trail.dry(time.dt, s.feet_dry)
+        if p.landed > 0.0 and depth > 0.0:
+            k = min(p.landed / 4.0, 1.5)
+            water.push(p.x, p.z, s.land_radius, s.land_push * k)
+            if splash:
+                splash.land(p.x, p.z, k)
+        for x, z, radius, amount in self.wake.update(p.x, p.z, moved, depth if p.on_ground else 0.0, p.speed, s.wake_spacing, s.wake_push, s.wake_radius, p.water[5]):
+            water.push(x, z, radius, amount)
+            if splash and p.speed > 0.5:
+                splash.wade(x, z, p.sprinting)
 
     def _barrel_direction(self) -> tuple:
         """Bullet direction: follows the gun barrel as it points on screen. `barrel_pose` is from the previous frame (the gun is drawn after firing), so it is off by at most one spring frame, which is not visible."""
@@ -253,10 +301,14 @@ class Game(Entity):
         # fixed order: player (look/move) -> fire + reload (uses the view direction just updated) -> hand animation -> sway -> head + shake (-> lens frame) -> gun -> light, lens
         dt = time.dt
         self.player.tick()
+        if self.pool:
+            self._water_feet()
         if self.look:
             self.look.update(dt)
         if self.pool:
             self.pool.update(dt)
+        if self.dust:
+            self.dust.update(dt)
         self.combat.update(min(dt, 0.05), dt)
         if self._draw_pending and dt < 0.1:          # wait for the first normal frame: the long build frame must not count toward the draw time
             self._draw_pending = False

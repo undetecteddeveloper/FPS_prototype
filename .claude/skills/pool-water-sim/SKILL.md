@@ -53,4 +53,12 @@ Companion: `.claude/skills/interior-water-light/SKILL.md` (bake, box-projected c
   - The iterative caustic net TILES visibly (rows of identical scales). Product of two nets (second one rotated 37 deg, scaled 1.37) + a slow sine warp of the coordinates hides it. verified-in-project (shots g10b vs g10c).
   - Live quality switch by uniforms + `set_active` on buffers: <= 2 ms per switch, next frames <= 10 ms. Destroying the sim buffers is NOT needed for Low (keep them, stop the passes). verified-in-project (pool_check).
   - Cost (M4, 1366x768, vsync off, ON BATTERY): High (sim 256x512, refraction, caustics, glint, 16 shaft steps) standing 126 FPS vs Low 157 -> ~1.5 ms; worst firing scene 74.8 min. verified-in-project (g8_perf --level).
+  - SHAFTS: marching 16 steps x 4 windows per pixel cost 7 ms/frame (A/B in one process, all other effects < 0.5 ms each). Replaced by the EXACT lit length: the projection
+    along the sun onto a wall plane is linear in the point, so each window cuts one interval out of the view ray (4 x linear clips); only dust noise is sampled (1-3 per piece).
+    ~1 ms; matches a 1 cm march within 3 cm (tests/test_graphics.py). Whole High level 4.1-4.9 ms/frame. verified-in-project. GENERAL LESSON: if the light volume is analytic, integrate it, do not march.
+  - GLSL name clash: `noise2` is a BUILT-IN (returns vec2): defining `float noise2(vec2)` fails with "overloaded functions must have the same return type". verified-in-project.
+  - gl_FragCoord is fragment-only: a shared include used by vertex shaders must guard fragment-only functions (`#define SUN_WINDOW_VERTEX`). verified-in-project.
+  - Ursina Text ignores alpha 0 (the "invisible" warm-up text showed). Hide with `enabled = False`. verified-in-project.
+  - Dust motes fully on the GPU: static mesh of seeds, position = wrap(seed * box + drift(t)) around the eye, glow = sun_visible(pos); quads of unlit motes collapsed in the vertex shader. ~0 CPU. verified-in-project.
+  - Tests at uncapped FPS (400+): wait by TIME or event, never by frame count (a 1.2 m fall is 0.5 s, 60 frames were 0.15 s). verified-in-project.
   - First second after start sometimes ~30 FPS at Mid/High, ramping down to normal frame time (GPU clock ramp?). Not reproducible every run; dry-run warm frames did not reliably help. OPEN.

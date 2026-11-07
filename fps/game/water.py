@@ -42,6 +42,7 @@ class WaterSurface:
         self.clock = 0.0
         self.ripples = RippleBuffer(params.ripple_slots)
         self.on_splash = None                       # callable(point, distance) set by Game once the water has a sound
+        self.on_bullet = None                       # callable(point): the droplets thrown up (game/splash.py), set by PoolHall.attach_splash
         x0, x1, z0, z1, y = pm.water
         self.rect = (x0, x1, z0, z1)
         self.y = y
@@ -71,10 +72,11 @@ class WaterSurface:
         n.set_shader_input('water_box_lo', Vec4(lo[0], lo[1], lo[2], 0))
         n.set_shader_input('water_box_hi', Vec4(hi[0], hi[1], hi[2], 0))
         n.set_shader_input('water_probe', Vec4(d.probe[0], d.probe[1], d.probe[2], 0))
-        placeholder = Texture('water_reflect_placeholder')
-        placeholder.setup_2d_texture(1, 1, Texture.T_unsigned_byte, Texture.F_rgb)
-        placeholder.set_ram_image(bytes([60, 70, 80]))
-        n.set_shader_input('water_reflect', placeholder)
+        n.set_shader_input('cube_params', Vec4(TAN_HALF, 0, 0, 0))
+        self.placeholder = Texture('water_reflect_placeholder')
+        self.placeholder.setup_2d_texture(1, 1, Texture.T_unsigned_byte, Texture.F_rgb)
+        self.placeholder.set_ram_image(bytes([60, 70, 80]))
+        n.set_shader_input('water_reflect', self.placeholder)
         # G10: the basin the refracted ray is traced against, the baked ambient that lights its bottom, the simulation textures (placeholders until a level builds the sim)
         (blo, bhi), steps = basin_boxes(pm)
         n.set_shader_input('water_basin_lo', Vec4(*blo, 0))
@@ -184,6 +186,8 @@ class WaterSurface:
         for i, ring in enumerate(self.ripples.packed()):
             self.rings_pta.set_element(i, Vec4(*ring))
         self.push(point[0], point[2], self.p.bullet_radius, self.p.bullet_push * amp)
+        if self.on_bullet:
+            self.on_bullet(point)
         if self.on_splash:
             self.on_splash(point, distance)
 

@@ -5,12 +5,7 @@
 //     (its box from inside + the step boxes; core/poolmap.py `basin_boxes`) and the tiled bottom is shaded there: baked room ambient, sun caustics, absorption on the way.
 // The reflection is the room captured once into a 3 x 2 atlas (game/pool_capture.py), looked up with a box-projected ray (mirror of core/cubemap.py). Fresnel mixes the two.
 // RING_SLOTS and STEP_SLOTS are defined by the loader.
-uniform sampler2D water_reflect;
-uniform vec3 water_axes[18];        // per cube face f: [3f] forward, [3f + 1] right, [3f + 2] up
-uniform vec4 water_box_lo;          // the room box (xyz) the reflected ray is intersected with
-uniform vec4 water_box_hi;
-uniform vec4 water_probe;           // where the room was captured from (xyz)
-uniform vec4 water_look;            // x ripple strength, y ripple scale, z ripple speed, w reflection strength
+uniform vec4 water_look;           // x ripple strength, y ripple scale, z ripple speed, w reflection strength
 uniform vec4 water_deep;            // rgb deep body colour, a = Fresnel F0
 uniform vec4 water_shallow;         // rgb shallow body colour, a = how far the shallows reach (m)
 uniform vec4 water_rect;            // pool: x0, x1, z0, z1
@@ -39,6 +34,7 @@ uniform vec4 water_amb_grid;        // x0, z0, step (m), -
 
 #include "light_common.glsl"
 #include "sun_window.glsl"
+#include "cube_reflect.glsl"
 
 in vec3 world_pos;
 out vec4 frag_color;
@@ -94,25 +90,6 @@ vec3 sim_slope(vec2 xz) {
     float d = sim_h(uv - vec2(0.0, texel.y)), u = sim_h(uv + vec2(0.0, texel.y));
     vec2 cell = (water_rect.yw - water_rect.xz) * texel;
     return vec3((r - l) / (2.0 * cell.x), (u - d) / (2.0 * cell.y), (l + r + d + u - 4.0 * c) / (cell.x * cell.y));
-}
-
-// --- reflection ---
-vec3 box_project(vec3 p, vec3 r) {
-    r = mix(r, vec3(1e-5), lessThan(abs(r), vec3(1e-5)));
-    vec3 t = max((water_box_hi.xyz - p) / r, (water_box_lo.xyz - p) / r);       // per axis: the distance at which the ray leaves the box
-    return p + r * min(min(t.x, t.y), t.z) - water_probe.xyz;
-}
-
-vec2 cube_uv(vec3 d) {
-    int best = 0;
-    float best_dot = -2.0;
-    for (int f = 0; f < 6; f++) {
-        float x = dot(d, water_axes[f * 3]);
-        if (x > best_dot) { best_dot = x; best = f; }
-    }
-    vec3 fw = water_axes[best * 3], rt = water_axes[best * 3 + 1], up = water_axes[best * 3 + 2];
-    vec2 uv = 0.5 + 0.5 * vec2(dot(d, rt), dot(d, up)) / (dot(d, fw) * water_impact2.z);
-    return vec2((float(best % 3) + uv.x) / 3.0, (float(best / 3) + uv.y) / 2.0);
 }
 
 // --- the basin under the water ---
@@ -254,7 +231,7 @@ void main() {
 
     vec3 r = reflect(-v, n);
     r = normalize(vec3(r.x, max(r.y, 0.03), r.z));                                   // a ripple tilted past the horizon must not mirror the floor
-    vec3 mirrored = texture(water_reflect, cube_uv(box_project(world_pos, r))).rgb * water_look.w;
+    vec3 mirrored = room_reflection(world_pos, r) * water_look.w;
 
     float f0 = water_deep.a;
     float fresnel = f0 + (1.0 - f0) * pow(1.0 - max(dot(n, v), 0.0), 5.0);

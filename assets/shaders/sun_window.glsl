@@ -25,6 +25,7 @@ float sun_visible(vec3 p) {
     return best;
 }
 
+#ifndef SUN_WINDOW_VERTEX                // a vertex shader only needs sun_visible (gl_FragCoord below exists only in fragment shaders)
 float hash31(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.zyx + 31.32);
@@ -39,27 +40,53 @@ float value_noise(vec3 p) {
     return mix(a, b, f.z);
 }
 
+// narrow [t.x, t.y] to the t where lo <= a + b t <= hi (mirror of core/poolmap.py _clip)
+vec2 clip_span(vec2 t, float a, float b, float lo, float hi) {
+    if (abs(b) < 1e-6) return (a >= lo && a <= hi) ? t : vec2(1.0, 0.0);
+    float ta = (lo - a) / b, tb = (hi - a) / b;
+    return vec2(max(t.x, min(ta, tb)), min(t.y, max(ta, tb)));
+}
+
 // single scattering of the sun by the air on the segment eye -> p (linear light, before the tone curve). No transmittance: indoors the air is thin.
+// EXACT, not marched (mirror of core/poolmap.py `sunlit_segments`; tests/test_graphics.py): a beam is a window hole pushed along the sun, and the projection of a point along
+// the sun onto a wall plane is linear in the point, so each window cuts one interval [t0, t1] out of the ray. Only the dust needs samples: look_shaft.z per lit interval.
+// (Marching 16 steps x 4 windows per pixel cost 7 ms per frame here; this costs a few dozen instructions.)
 vec3 sun_shaft(vec3 eye, vec3 p) {
-    float n = look_shaft.z;
-    if (n < 0.5 || look_shaft.x <= 0.0) return vec3(0.0);
+    float samples = look_shaft.z;
+    vec3 s = look_sun_dir;
+    if (samples < 0.5 || look_shaft.x <= 0.0 || s.x <= 1e-4) return vec3(0.0);
     vec3 d = p - eye;
     float len = min(length(d), look_shaft2.x);
     vec3 dir = normalize(d);
     float g = look_shaft.y;
-    float c = dot(dir, look_sun_dir);
+    float c = dot(dir, s);
     float phase = (1.0 - g * g) / (12.566 * pow(max(1.0 + g * g - 2.0 * g * c, 1e-3), 1.5));
-    float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));      // interleaved gradient noise: the steps do not show as bands
     vec3 drift = vec3(0.07, 0.015, 0.05) * look_shaft2.y;
-    float sum = 0.0;
-    for (int i = 0; i < 32; i++) {
-        if (float(i) >= n) break;
-        vec3 q = eye + dir * (len * (float(i) + jitter) / n);
-        float lit = sun_visible(q);
-        if (lit > 0.0) {
-            float dust = mix(1.0, 0.25 + 1.5 * value_noise(q * 1.7 + drift), look_shaft.w);
-            sum += lit * dust;
+    vec2 bz = dir.zy - s.zy * (dir.x / s.x);                                  // how the projection moves per metre along the ray (same for both wall faces)
+    float lit = 0.0;
+    for (int i = 0; i < 4; i++) {
+        if (float(i) >= look_window_wall.z) break;
+        vec4 w = look_windows[i];
+        vec2 t = vec2(0.0, len);
+        if (abs(dir.x) > 1e-6) {
+            float tw = (look_window_wall.x - eye.x) / dir.x;                     // inside the room
+            t = dir.x > 0.0 ? vec2(t.x, min(t.y, tw)) : vec2(max(t.x, tw), t.y);
+        } else if (eye.x > look_window_wall.x) continue;
+        for (int k = 0; k < 2; k++) {
+            float x = k == 0 ? look_window_wall.x : look_window_wall.y;
+            vec2 a = eye.zy + s.zy * ((x - eye.x) / s.x);
+            t = clip_span(t, a.x, bz.x, w.x, w.y);
+            t = clip_span(t, a.y, bz.y, w.z, w.w);
         }
+        if (t.y <= t.x) continue;
+        float dust = 0.0;                                                      // the dusty air is uneven: a few noise samples inside the lit piece
+        for (int j = 0; j < 4; j++) {
+            if (float(j) >= samples) break;
+            vec3 q = eye + dir * mix(t.x, t.y, (float(j) + 0.5) / samples);
+            dust += mix(1.0, 0.25 + 1.5 * value_noise(q * 1.7 + drift), look_shaft.w);
+        }
+        lit += (t.y - t.x) * dust / samples;
     }
-    return look_sun_color * (look_shaft.x * phase * len * sum / n);
+    return look_sun_color * (look_shaft.x * phase * lit);
 }
+#endif

@@ -96,6 +96,8 @@ class Foley:
             self.play(name, volume * self.audio.reload_volume)
 
     def _play_foot(self, ev: FootEvent):
+        if ev.kind in ('step', 'land') and getattr(self.player, 'water_depth', 0.0) > 0.08:
+            return                                 # feet in the pool: no tile footstep / landing thump (the water sounds come with the G10 audio)
         name = {'step': 'step_run' if ev.run else 'step_walk', 'land': 'land', 'jump': 'jump'}[ev.kind]
         pan = 0.0 if ev.kind == 'land' else (self.audio.foot_pan if ev.foot else -self.audio.foot_pan)
         self.play(name, ev.gain, ev.pitch, pan)

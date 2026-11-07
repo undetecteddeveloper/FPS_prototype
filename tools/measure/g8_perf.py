@@ -20,12 +20,17 @@ ap.add_argument('--map', default='pool', choices=('pool', 'flat'), help='pool = 
 ap.add_argument('--level', type=int, default=-1, help='mức đồ hoạ 0 Thấp / 1 Vừa / 2 Cao (mặc định: như game)')
 ap.add_argument('--trace', action='store_true', help='in thời gian từng khung của giây đầu (tìm chỗ giật lúc mở game)')
 ap.add_argument('--size', default='1366x768')
+ap.add_argument('--at', default='', help='x,z,yaw: đứng chỗ khác chỗ xuất phát (vd 3,5,75 = giữa vệt nắng nhìn về mặt trời)')
 args = ap.parse_args()
 W, H = (int(v) for v in args.size.lower().split('x'))
 game = create_game(vsync=False, size=(W, H), sound=False, draw=False, gun=args.gun, map_name=args.map)
 if args.level >= 0:
     game.set_graphics(args.level, announce=False)
-print(f'mức đồ hoạ: {game.graphics_level}, cửa sổ {W}x{H}')
+if args.at:                                                   # e.g. --at 3,5,75: inside the sun beams looking at the sun (shafts + dust + water: the heaviest view)
+    ax, az, ayaw = (float(v) for v in args.at.split(','))
+    game.player.x, game.player.z, game.player.yaw = ax, az, ayaw
+    game.player._apply_view()
+print(f'mức đồ hoạ: {game.graphics_level}, cửa sổ {W}x{H}' + (f', đứng ở {args.at}' if args.at else ''))
 mouse.locked = False
 game.combat.require_locked_mouse = False
 c = game.combat

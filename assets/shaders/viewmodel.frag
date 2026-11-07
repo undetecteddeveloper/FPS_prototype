@@ -10,8 +10,10 @@ uniform vec3 vm_view_y;
 uniform vec3 vm_view_z;
 uniform float vm_flash_falloff;
 uniform float vm_albedo;
+uniform vec4 vm_env;            // x = 1: mirror the captured room on the metal (graphics level Mid / High, pool map); 0: the old guess from the ambient light
 
 #include "light_common.glsl"
+#include "cube_reflect.glsl"
 
 in vec3 v_pos;
 in vec3 v_normal;
@@ -58,13 +60,18 @@ void main() {
     vec3 lit = base.rgb * (ambient + sun_c * ndl);
     lit += sun_c * spec * vm_mat.x * (0.35 + base.rgb);
 
-    // faint reflection: the metal edges pick up the sky and the sun
+    // faint reflection: the metal edges pick up the room (the captured atlas, G10) or, without it, a guess from the ambient light; plus the sun
     float fres = pow(1.0 - max(dot(n_w, v_dir), 0.0), 4.0);
     vec3 r = reflect(-v_dir, n_w);
-    lit += fres * vm_mat.z * ambient_at(r) * 6.0
-         + fres * vm_mat.z * sun_c * ndl * 0.35;
+    if (vm_env.x < 0.5) lit += fres * vm_mat.z * ambient_at(r) * 6.0;
+    lit += fres * vm_mat.z * sun_c * ndl * 0.35;
 
     if (look_flash_color.r > 0.0) lit += base.rgb * flash_light(p, n_w, vm_flash_falloff);
 
-    frag_color = vec4(tonemap(lit), base.a);
+    vec3 color = tonemap(lit);
+    if (vm_env.x > 0.5) {                                             // the captured room is already tone-mapped: added after the curve. look_frame.z: darker where the room around is dark
+        float local = clamp(dot(look_ambient_up, vec3(0.333)) / 0.19, 0.25, 1.2);
+        color += fres * vm_mat.z * room_reflection(p, r) * vm_env.y * local;
+    }
+    frag_color = vec4(min(color, 1.0), base.a);
 }

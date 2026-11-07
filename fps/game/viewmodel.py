@@ -13,7 +13,8 @@ import re
 from pathlib import Path
 
 from direct.actor.Actor import Actor
-from panda3d.core import (Camera, Filename, NodePath, PerspectiveLens, PNMImage, Point3, SamplerState, ShaderAttrib, Texture, Vec3, Vec4)
+from panda3d.core import (Camera, Filename, NodePath, PerspectiveLens, PNMImage, Point3, PTA_LVecBase3f, PTA_LVecBase4f, SamplerState, ShaderAttrib, Texture, Vec3,
+                          Vec4)
 from ursina import application, window
 
 from fps.core.lens import overscan_fov
@@ -114,6 +115,15 @@ class Viewmodel:
         flat.setup_2d_texture(1, 1, Texture.T_unsigned_byte, Texture.F_rgb)
         flat.set_ram_image(bytes((255, 128, 128)))                # BGR order: flat normal
         r.set_shader_input('vm_normal_tex', flat)
+        # cube_reflect.glsl (G10): harmless defaults; on the pool map PoolHall.bind_reflection gives the real room atlas and Game turns vm_env on (graphics Mid / High)
+        r.set_shader_input('water_reflect', flat)
+        axes = PTA_LVecBase3f.empty_array(18)
+        r.set_shader_input('water_axes', axes)
+        for name in ('water_box_lo', 'water_box_hi', 'water_probe', 'cube_params'):
+            r.set_shader_input(name, Vec4(0, 0, 0, 0))
+        self.env = PTA_LVecBase4f.empty_array(1)
+        self.env.set_element(0, Vec4(0.0, 1.6, 0.0, 0.0))                     # y = strength of the mirrored room (the gun body has specular 0 in the file)
+        r.set_shader_input('vm_env', self.env)
         self.normal_maps = read_normal_maps(self.project_root / self.gun.glb)
         for name, nodes in self.material_nodes.items():
             tex = self.normal_maps.get(name)
@@ -257,6 +267,11 @@ class Viewmodel:
         `on_event('start', ...)` shows it again, in the same frame that poses the first frame of the clip. Muzzle flash and ejection port hang under `sway`, so they hide with it."""
         self._hidden = True
         self.sway.hide()
+
+    def set_env(self, on: bool):
+        """Graphics level: mirror the captured room on the metal (needs PoolHall.bind_reflection first) or the old ambient guess."""
+        e = self.env[0]
+        self.env.set_element(0, Vec4(1.0 if on else 0.0, e[1], e[2], e[3]))
 
     def reveal(self):
         if self._hidden:

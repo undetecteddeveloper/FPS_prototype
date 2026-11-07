@@ -61,6 +61,19 @@ class PoolHall:
         self._bind_sun_windows()
         self.world = {'floor': None, 'colliders': colliders(self.pm) + [self.water.collider()], 'pool': self}
         self.reflection = None
+        self._reflect_nodes = []
+        # G10 wet deck + wet footprints (room.frag): flags per graphics level, footprints in a PTA ring (Game adds them)
+        self.room_quality = PTA_LVecBase4f.empty_array(1)                 # all 0 until set_level: the reflection capture must not see a wet floor mirroring a placeholder
+        self.prints = PTA_LVecBase4f.empty_array(24)
+        for i in range(24):
+            self.prints.set_element(i, Vec4(0, 0, -1e6, 0))
+        x0, x1, z0, z1, _ = self.pm.water
+        n = self.node
+        n.set_shader_input('room_quality', self.room_quality)
+        n.set_shader_input('room_prints', self.prints)
+        n.set_shader_input('room_pool', Vec4(x0, x1, z0, z1))
+        self._push_wet()
+        self.bind_reflection(self.node)
 
     # ------------------------------------------------------------------ light and reflection files
     def _meta(self) -> dict:
@@ -124,6 +137,17 @@ class PoolHall:
             self._write_meta(reflect=key)
         self.reflection = self._read_texture(png, 'water_reflect')
         self.water.set_reflection(self.reflection)
+        for n in self._reflect_nodes:
+            n.set_shader_input('water_reflect', self.reflection)
+
+    def bind_reflection(self, node):
+        """Give a node the inputs of cube_reflect.glsl (the room's wet floor, the gun): the same atlas and box as the water. Nodes bound before the capture get it when it loads."""
+        w = self.water.node
+        for name in ('water_axes', 'water_box_lo', 'water_box_hi', 'water_probe', 'cube_params'):
+            node.set_shader_input(w.get_shader_input(name))
+        node.set_shader_input('water_reflect', self.reflection if self.reflection is not None else self.water.placeholder)
+        if node not in self._reflect_nodes:
+            self._reflect_nodes.append(node)
 
     # ------------------------------------------------------------------ mesh
     def _build_mesh(self) -> GeomNode:
@@ -188,29 +212,58 @@ class PoolHall:
         self.shaft2 = PTA_LVecBase4f.empty_array(1)
         self._shaft_steps = 0
         self._clock = 0.0
+        self._sun_inputs = (wins, Vec4(wall[0], wall[1], min(len(rects), 4), 0.03))
         for n in (self.node, self.water.node):
-            n.set_shader_input('look_windows', wins)
-            n.set_shader_input('look_window_wall', Vec4(wall[0], wall[1], min(len(rects), 4), 0.03))
-            n.set_shader_input('look_shaft', self.shaft)
-            n.set_shader_input('look_shaft2', self.shaft2)
+            self._bind_sun(n)
+        self.splash = None
         self._push_shaft()
+
+    def _bind_sun(self, n):
+        wins, wall = self._sun_inputs
+        n.set_shader_input('look_windows', wins)
+        n.set_shader_input('look_window_wall', wall)
+        n.set_shader_input('look_shaft', self.shaft)
+        n.set_shader_input('look_shaft2', self.shaft2)
+
+    def attach_splash(self, splash):
+        """Game builds the droplets once the shared light exists (game/splash.py)."""
+        self.splash = splash
+        splash.water = self.water
+        self._bind_sun(splash.root)
+        self.water.on_bullet = splash.bullet
 
     def _push_shaft(self):
         look = self.params.look
         self.shaft.set_element(0, Vec4(look.shaft_density, look.shaft_anisotropy, self._shaft_steps, look.shaft_dust))
         self.shaft2.set_element(0, Vec4(look.shaft_range, self._clock, 0, 0))
 
+    def _push_wet(self):
+        s = self.params.splash
+        self.node.set_shader_input('room_wet', Vec4(s.puddles, s.puddle_scale, s.wet_reach, s.wet_reflect))
+        self.node.set_shader_input('room_wet2', Vec4(s.wet_darken, s.print_life, 0, 0))
+
+    def add_print(self, slot: int, packed: tuple):
+        """A wet footprint (core/footprints.py pack) into ring slot `slot`; its t0 is on the shaft clock (look_shaft2.y), which the shader ages it by."""
+        x, z, _, w = packed
+        self.prints.set_element(slot, Vec4(x, z, self._clock, w))
+
     def set_level(self, g: GraphicsLevel):
         """Graphics level (F2): everything the map draws."""
+        self.room_quality.set_element(0, Vec4(1.0 if g.wet else 0.0, 0, 0, 0))
         self._shaft_steps = g.shaft_steps
         self.water.set_level(g)
+        if self.splash:
+            self.splash.share = g.splash
         self._push_shaft()
 
     def update(self, dt: float):
         self._clock += dt
         self.shaft2.set_element(0, Vec4(self.params.look.shaft_range, self._clock, 0, 0))
+        if self.splash:
+            self.splash.update(min(dt, 0.05))           # before the water: falling drops push the sim this frame
         self.water.update(dt)
 
     def apply_params(self):
         self.water.apply_params()
         self._push_shaft()
+        self._push_wet()

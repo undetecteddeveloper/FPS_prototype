@@ -40,10 +40,10 @@ class Notice:
     WARM_TEXT = 'Đồ hoạ: Thấp Vừa Cao (F2 đổi)'      # every glyph the notices use
 
     def __init__(self):
-        # shown INVISIBLE for the first frames: the font rasterizes these glyphs and the glyph page reaches the GPU now. Otherwise the first F2 froze one frame (62-75 ms).
+        # built with every glyph at start (the font rasterizes them now), then hidden. NOT shown at alpha 0: Ursina's Text ignored that alpha and the line was visible.
         self.text = UiText(self.WARM_TEXT, (0.0, 0.44), origin=(0, 0), scale=1.1)
-        self.text.set_alpha(0.0)
-        self.left = 0.4
+        self.text.enabled = False
+        self.left = 0.0
 
     def show(self, text: str, seconds: float = 2.0):
         self.text.text = text
