@@ -186,7 +186,8 @@ class Game(Entity):
         gun, p = self.params.gun, self.player
         if not gun.free_aim.barrel_aim or gun.ads_sights is None:
             return aim_direction(p.yaw, p.pitch)
-        return view_to_world(p.yaw, p.pitch, barrel_view_dir(self.viewmodel.barrel_pose, gun.ads_sights, self.viewmodel.current_fov, camera.fov))
+        vm = self.viewmodel
+        return view_to_world(p.yaw, p.pitch, barrel_view_dir(vm.base_pose, gun.ads_sights, vm.current_fov, camera.fov, then=vm.aim_pose))
 
     def update(self):
         over = max(self.params.lens.overscan, 0.0) if self.lens else 0.0      # world and gun are drawn this much wider; the lens crops the middle (no black band when the frame swims)
@@ -226,13 +227,14 @@ class Game(Entity):
             self.head.update(step, inp, self.sway.phase, p.vx * cy - p.vz * sy, p.vx * sy + p.vz * cy, rs, gaze)
             if self.lens:
                 frame = self.shake_view.frame_offset(p.ads_amount, p.view_fov, window.aspect_ratio, self.lens.current_fisheye(p.ads_amount))
-        self.viewmodel.update(self.combat.gun_kick.pose, sway_pose, self.combat.free_aim.pose(self.player.ads_amount), self.player.free_look.pose())
+        self.viewmodel.update(self.combat.gun_kick.pose, sway_pose, aim=(self.combat.free_aim.pose(self.player.ads_amount), self.player.free_look.pose()))
         cam_pos, forward = camera.world_position, camera.forward
         self.light.set_camera(cam_pos, camera.right, camera.up, forward)
         if self.pool:                                    # the gun is lit by the sun only where the sun reaches the player; fades over ~0.15 s so stepping into a beam does not pop
             target = 0.0 if self.pool.sun_blocked((cam_pos[0], cam_pos[1], cam_pos[2]), sun_vector(self.params.look)) else 1.0
             self._sun_share += (target - self._sun_share) * min(1.0, dt * 6.0)
-            self.light.set_local_light(self._sun_share)
+            up, down = self.pool.local_ambient(cam_pos[0], cam_pos[2])      # the room's baked ambient light at his spot: the gun goes dark where the room is dark
+            self.light.set_local_light(self._sun_share, up, down)
         self.light.set_exposure(target_exposure(self.params.lens, self.params.look))
         if self.smoke:
             self.smoke.update(min(dt, 0.1))                 # after set_camera: the puffs face this frame's camera

@@ -16,7 +16,7 @@ from fps.weapon_data import LookData, MapData
 
 EPS = 1e-6
 UV_AXES = {0: (2, 1), 1: (0, 2), 2: (0, 1)}      # normal axis -> (u axis, v axis) lying in the face
-BAKE_VERSION = 1                                  # bump when the bake / geometry code changes in a way the stored files cannot reflect
+BAKE_VERSION = 2                                  # bump when the bake / geometry code changes in a way the stored files cannot reflect (2: the window reveals are drawn)
 FLOOR = -1.5                                      # bottom of every slab (never visible)
 
 
@@ -158,10 +158,11 @@ def inside_box(b: Box, p, margin: float = 1e-4) -> bool:
 
 
 def is_air(pm: PoolMap, p) -> bool:
-    """Whether `p` is in a volume the player can see (interior or window recess) and not inside any box."""
+    """Whether `p` is in a volume the player can see (interior or window recess) and not inside any VISIBLE box. The invisible window barriers fill the window holes (they only stop the player),
+    so counting them as solid dropped every face inside a window hole: the walls looked paper-thin there (user report 7/11/2026)."""
     if not any(all(lo[i] <= p[i] <= hi[i] for i in range(3)) for lo, hi in pm.air):
         return False
-    return not any(inside_box(b, p) for b in pm.boxes)
+    return not any(inside_box(b, p) for b in pm.boxes if b.visible)
 
 
 def _exposed_faces(pm: PoolMap) -> list:
@@ -266,6 +267,27 @@ def bake_key(d: MapData, look: LookData) -> str:
     """Hash of everything the stored lightmap / reflection depend on: the map numbers, the sun and sky, and the code version."""
     text = repr((BAKE_VERSION, d, look.sun_dir, look.sun_color, look.sky_irradiance))
     return hashlib.sha1(text.encode()).hexdigest()[:16]
+
+
+class AmbientGrid:
+    """The baked LOCAL AMBIENT light (core/lightbake.py `ambient_grid`: sky + bounces, no direct sun) on a floor-plan grid: the irradiance an up-facing and a down-facing surface receives
+    at gun height. The gun and hands are lit by this (interpolated at the player's spot), so they go dark where the room is dark instead of keeping one fixed ambient value."""
+
+    def __init__(self, data: dict):
+        self.x0, self.z0, self.step = float(data['x0']), float(data['z0']), float(data['step'])
+        self.nx, self.nz = int(data['nx']), int(data['nz'])
+        self.up, self.down = data['up'], data['down']                 # [nz][nx][r, g, b]
+
+    def sample(self, x: float, z: float) -> tuple:
+        """((r, g, b) up, (r, g, b) down) at floor position (x, z), bilinear, clamped to the grid."""
+        fx = min(max((x - self.x0) / self.step, 0.0), self.nx - 1.0)
+        fz = min(max((z - self.z0) / self.step, 0.0), self.nz - 1.0)
+        ix, iz = min(int(fx), self.nx - 2), min(int(fz), self.nz - 2)
+        tx, tz = fx - ix, fz - iz
+
+        def mix(grid):
+            return tuple((grid[iz][ix][c] * (1 - tx) + grid[iz][ix + 1][c] * tx) * (1 - tz) + (grid[iz + 1][ix][c] * (1 - tx) + grid[iz + 1][ix + 1][c] * tx) * tz for c in range(3))
+        return mix(self.up), mix(self.down)
 
 
 def reflect_key(d: MapData, look: LookData, lens) -> str:

@@ -54,6 +54,13 @@ VIEWS = {
     'ceiling': (-4.0, 0.0, -9.0, 20.0, -62.0),
     'corner': (8.0, 0.0, 12.0, 215.0, 0.0),
     'water': (-6.8, 0.0, -2.0, 70.0, 38.0),
+    'dark_corner': (-9.5, 0.0, -14.5, 200.0, -50.0),      # the darkest spot of the room (SW corner, no beam reaches it), looking up at the tiles: the gun must not glow there
+    'window_close': (9.35, 0.0, -3.5, 84.0, 3.0),         # at the east wall in front of a window, as close as the player can get (0.3 m body radius)
+    'window_side': (9.35, 0.0, -0.4, 40.0, 4.0),          # beside a window, looking along the wall at the reveal (the wall thickness)
+    'win_a': (7.0, 0.0, -8.0, 100.0, 4.0),                # a window frame seen from inside at normal distance, slightly from the side
+    'win_b': (8.6, 0.0, -6.8, 128.0, 0.0),                # close, looking along the wall toward the next pier: the reveal of the window beyond
+    'win_c': (9.3, 0.0, -9.0, 150.0, 24.0),               # looking down at the sill
+    'win_d': (9.3, 0.0, -6.5, 20.0, -28.0),               # looking up at the lintel from beside the window
 }
 
 

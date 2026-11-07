@@ -21,12 +21,16 @@ from fps.weapon_data import FreeAimData
 ZERO_POSE = (0.0,) * 6
 
 
-def barrel_view_dir(pose: tuple, sights: tuple, view_fov: float, world_fov: float) -> tuple:
+def barrel_view_dir(pose: tuple, sights: tuple, view_fov: float, world_fov: float, then: tuple = None) -> tuple:
     """Bullet direction (x right, y up, z forward; unit vector) in the world camera frame. `pose` = the gun pose being drawn; only its rotation part has an effect;
-    `sights` = (rear sight ring centre, front post top) at rest, which define the gun's aiming axis."""
+    `sights` = (rear sight ring centre, front post top) at rest, which define the gun's aiming axis.
+    `then` = the AIM pose (free look + free aim) that the viewmodel applies about the eye AFTER `pose` (it is the parent node): its rotation is composed on top, not added to the angles."""
     rear, front = sights
     axis = (front[0] - rear[0], front[1] - rear[1], front[2] - rear[2])
-    x, y, z = apply_pose(axis, (0.0, 0.0, 0.0, pose[3], pose[4], pose[5]))
+    axis = apply_pose(axis, (0.0, 0.0, 0.0, pose[3], pose[4], pose[5]))
+    if then is not None:
+        axis = apply_pose(axis, (0.0, 0.0, 0.0, then[3], then[4], then[5]))
+    x, y, z = axis
     if z <= 1e-6:                                # barrel points behind the camera: impossible in the game, kept for numerical safety
         return (0.0, 0.0, 1.0)
     k = math.tan(math.radians(view_fov) / 2.0)

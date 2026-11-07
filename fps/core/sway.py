@@ -42,6 +42,20 @@ def apply_pose(point: tuple, pose: tuple) -> tuple:
     return x + tx, y + ty, z + tz
 
 
+def apply_chain(point: tuple, *poses: tuple) -> tuple:
+    """Apply poses like nested nodes: the first is the innermost (the gun's own pose), the last the outermost (the aim pose that turns the whole gun about the eye).
+    Each pose rotates about the origin (the eye) and then translates, so a translation of an inner pose is turned by the outer rotation too."""
+    for pose in poses:
+        point = apply_pose(point, pose)
+    return point
+
+
+def aim_translation_weight(ads_progress: float) -> float:
+    """How much of the aim pose's SHIFT (hand offset, rest drift) is kept: all of it at the hip, none when fully aimed. A shift moves the rear and the front sight by the same distance,
+    which seen from the eye pulls them apart (parallax); the rotation about the eye never does, so it is always kept."""
+    return 1.0 - smoothstep(ads_progress)
+
+
 def ads_pose(rear: tuple, front: tuple, eye_relief: float) -> tuple:
     """Pose that brings the sight line (rear ring centre -> front post top) onto the camera's view axis, with the rear ring `eye_relief` from the eye.
     Rotates about the eye so the sight line is parallel to the z axis, then translates so the rear ring lies on the axis."""

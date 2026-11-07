@@ -48,6 +48,29 @@ def test_faces_of_the_east_window_reveal_exist(pm):
     assert 'ceiling' in names and 'deck_w' in names and 'column0' in names
 
 
+def test_every_window_hole_shows_its_full_wall_thickness(pm):
+    """The hole of each window is lined by four faces (sill top, lintel underside, two jambs) as deep as the wall: otherwise the wall is a paper-thin sheet there (user report 7/11/2026;
+    the invisible window barrier used to hide all four)."""
+    w = D.wall
+    hx = D.room_x / 2
+    faces = pm.exposed_faces()
+    for zc in D.window_z:
+        z0, z1 = zc - D.window_width / 2, zc + D.window_width / 2
+        sill = [f for f in faces if f.axis == 1 and f.sign == 1 and abs(f.plane - D.window_sill) < 1e-6 and f.u0 >= hx - 1e-6 and f.u1 <= hx + w + 1e-6 and z0 - 1e-6 <= f.v0 and f.v1 <= z1 + 1e-6]
+        lintel = [f for f in faces if f.axis == 1 and f.sign == -1 and abs(f.plane - D.window_top) < 1e-6 and f.u0 >= hx - 1e-6 and f.u1 <= hx + w + 1e-6 and z0 - 1e-6 <= f.v0 and f.v1 <= z1 + 1e-6]
+        jambs = [f for f in faces if f.axis == 2 and (abs(f.plane - z0) < 1e-6 or abs(f.plane - z1) < 1e-6) and f.u0 >= hx - 1e-6 and f.u1 <= hx + w + 1e-6
+                 and f.v0 >= D.window_sill - 1e-6 and f.v1 <= D.window_top + 1e-6]
+        assert sum(f.area for f in sill) == pytest.approx(w * (z1 - z0)), f'sill top of the window at z={zc}'
+        assert sum(f.area for f in lintel) == pytest.approx(w * (z1 - z0)), f'lintel underside of the window at z={zc}'
+        assert sum(f.area for f in jambs) == pytest.approx(2 * w * (D.window_top - D.window_sill)), f'jambs of the window at z={zc}'
+
+
+def test_the_invisible_window_barrier_is_not_a_solid_for_the_faces(pm):
+    gap = next(b for b in pm.boxes if b.name.startswith('window_gap'))
+    mid = tuple((gap.lo[i] + gap.hi[i]) / 2 for i in range(3))
+    assert is_air(pm, mid)                                              # the middle of a window hole is air, though the barrier fills it
+
+
 def test_outer_faces_are_dropped(pm):
     for f in pm.exposed_faces():
         c = f.point((f.u0 + f.u1) / 2, (f.v0 + f.v1) / 2)
@@ -124,3 +147,14 @@ def test_rails_are_closed_tubes_with_valid_indices(pm):
 def test_uv_axes_are_two_axes_other_than_the_normal():
     for axis, (u, v) in UV_AXES.items():
         assert len({axis, u, v}) == 3
+
+
+def test_ambient_grid_interpolates_and_clamps():
+    from fps.core.poolmap import AmbientGrid
+    up = [[[0.0, 0.0, 0.0], [1.0, 2.0, 3.0]], [[2.0, 4.0, 6.0], [3.0, 6.0, 9.0]]]
+    grid = AmbientGrid({'x0': 0.0, 'z0': 0.0, 'step': 1.0, 'nx': 2, 'nz': 2, 'up': up, 'down': [[[0.1] * 3] * 2] * 2})
+    u, d = grid.sample(0.5, 0.5)
+    assert u == pytest.approx((1.5, 3.0, 4.5)) and d == pytest.approx((0.1, 0.1, 0.1))
+    assert grid.sample(0.0, 0.0)[0] == pytest.approx((0.0, 0.0, 0.0))
+    assert grid.sample(1.0, 1.0)[0] == pytest.approx((3.0, 6.0, 9.0))
+    assert grid.sample(-5.0, 9.0)[0] == pytest.approx(grid.sample(0.0, 1.0)[0])          # outside: clamped to the edge

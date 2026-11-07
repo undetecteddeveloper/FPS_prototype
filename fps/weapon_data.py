@@ -703,10 +703,12 @@ GLOCK = GunData(
     shot_sound=('assets/sounds/el_pistol_shot_0.wav', 'assets/sounds/el_pistol_shot_1.wav', 'assets/sounds/el_pistol_shot_2.wav'),
     shot_pool=4,
     hip_offset=(0.0, 0.0, 0.15),           # push the whole viewmodel forward a little: the pack's hands sit close to the eye
-    ads_eye_relief=0.50,
+    ads_eye_relief=0.38,                   # was 0.50: at 0.5 m the 2 mm front post was only a few pixels wide (user could not see it); 0.38 makes the sights ~30% larger. Tunable on F1
     shake=ShakeData(reload_beats={'reload': ((29, 'mag_out'), (45, 'seat')), 'reload_empty': ((135, 'mag_out'), (151, 'seat'), (164, 'bolt'))}),
     # measured with tools/measure/g8_measure.py (camera frame at rest, hip_offset not included)
-    ads_sights=((0.0612, -0.0226, 0.2502), (0.0612, -0.0199, 0.4209)),
+    # rear point = the middle of the rear NOTCH (blade tops -0.0191, notch floor -0.0214: 2.3 mm deep), front point = top of the front post (-0.0199). The first version put the rear point 3.5 mm under the
+    # blade tops, i.e. 1.2 mm BELOW the notch floor: the line of sight went through the slide and the front sight was hidden behind it (user report 7/11/2026)
+    ads_sights=((0.0612, -0.0203, 0.2502), (0.0612, -0.0199, 0.4209)),
     muzzle=(0.0612, -0.0410, 0.4278),
     # pistol: a smaller puff; the ejection port is on the top right of the slide, ~2/3 of the way forward (estimated from the slide bounds)
     smoke=SmokeData(puffs=4, speed=7.0, size=0.04, growth=0.35, opacity=0.34, life=0.85, ejection_port=(0.072, -0.016, 0.35)),

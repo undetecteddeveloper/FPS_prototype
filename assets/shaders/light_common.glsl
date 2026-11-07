@@ -1,10 +1,10 @@
 // SHARED lighting for the world (world.frag) and the gun + hands (viewmodel.frag): the same sun, the same ambient light, the same muzzle flash, the same tone curve.
 // The sun has no shadow map: the world is one flat slab of ground. `ambient_at` and the sun term must match core/exposure.py.
 uniform vec3 look_camera_pos;
-uniform vec3 look_frame;            // x = current exposure, y = share of the sun reaching the player, z = ambient scale around him (all change every frame; y, z only matter to the gun)
+uniform vec3 look_frame;            // x = current exposure, y = share of the sun reaching the player (changes every frame; y only matters to the gun)
 uniform vec3 look_sun_dir;          // unit vector toward the sun
 uniform vec3 look_sun_color;        // colour x intensity
-uniform vec3 look_ambient_up;
+uniform vec3 look_ambient_up;       // ambient light on up-facing surfaces: LookData's value, or the baked local value around the player (the gun)
 uniform vec3 look_ambient_down;
 uniform vec3 look_flash_pos;        // muzzle flash, world coordinates (changes every frame while firing)
 uniform vec3 look_flash_color;      // black = off

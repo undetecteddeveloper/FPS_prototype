@@ -14,16 +14,20 @@ class FrameLight:
         self.look, self.gun = look, gun
         self.nodes = []
         self.camera_pos = PTA_LVecBase3f.empty_array(1)
-        self.frame = PTA_LVecBase3f.empty_array(1)                 # x = exposure, y = share of the sun reaching the player, z = ambient scale (the gun's shade; the world is baked)
+        self.frame = PTA_LVecBase3f.empty_array(1)                 # x = exposure, y = share of the sun reaching the player (z unused)
+        self.ambient_up = PTA_LVecBase3f.empty_array(1)            # ambient light on up- / down-facing surfaces: LookData's values, or the baked local values around the player (the gun)
+        self.ambient_down = PTA_LVecBase3f.empty_array(1)
+        self.local_ambient = False                                 # True once `set_local_light` gave real values: the F1 panel's ambient sliders then no longer apply
         self.view_x = PTA_LVecBase3f.empty_array(1)
         self.view_y = PTA_LVecBase3f.empty_array(1)
         self.view_z = PTA_LVecBase3f.empty_array(1)
         self.flash_pos = PTA_LVecBase3f.empty_array(1)
         self.flash_color = PTA_LVecBase3f.empty_array(1)
         self.camera_pos.set_element(0, Vec3(0, 1.68, 0))
-        self.frame.set_element(0, Vec3(1, 1, 1))
+        self.frame.set_element(0, Vec3(1, 1, 0))
         self.sun_visibility = 1.0
-        self.ambient_scale = 1.0
+        self.ambient_up.set_element(0, Vec3(*look.ambient_up))
+        self.ambient_down.set_element(0, Vec3(*look.ambient_down))
         self.view_x.set_element(0, Vec3(1, 0, 0))
         self.view_y.set_element(0, Vec3(0, 1, 0))
         self.view_z.set_element(0, Vec3(0, 0, 1))
@@ -37,6 +41,8 @@ class FrameLight:
         self.nodes.append(node)
         node.set_shader_input('look_camera_pos', self.camera_pos)
         node.set_shader_input('look_frame', self.frame)
+        node.set_shader_input('look_ambient_up', self.ambient_up)
+        node.set_shader_input('look_ambient_down', self.ambient_down)
         node.set_shader_input('look_flash_pos', self.flash_pos)
         node.set_shader_input('look_flash_color', self.flash_color)
         self._push_static(node)
@@ -46,8 +52,6 @@ class FrameLight:
         return {
             'look_sun_dir': Vec3(*sun_vector(p)),
             'look_sun_color': Vec3(*p.sun_color),
-            'look_ambient_up': Vec3(*p.ambient_up),
-            'look_ambient_down': Vec3(*p.ambient_down),
         }
 
     def _push_static(self, node):
@@ -58,6 +62,9 @@ class FrameLight:
         """The F1 panel changed a light value: push it to every node."""
         for node in self.nodes:
             self._push_static(node)
+        if not self.local_ambient:
+            self.ambient_up.set_element(0, Vec3(*self.look.ambient_up))
+            self.ambient_down.set_element(0, Vec3(*self.look.ambient_down))
 
     # --- per frame ---
     def set_camera(self, pos, right, up, forward):
@@ -70,13 +77,17 @@ class FrameLight:
         self.exposure = value
         self._push_frame()
 
-    def set_local_light(self, sun_visibility: float, ambient_scale: float = 1.0):
-        """How much of the sun reaches the player and how bright the ambient light is around him: the gun and hands are lit by this (the world's own light is baked)."""
-        self.sun_visibility, self.ambient_scale = sun_visibility, ambient_scale
+    def set_local_light(self, sun_visibility: float, ambient_up=None, ambient_down=None):
+        """How much of the sun reaches the player and the ambient light around him: the gun and hands are lit by this (the world's own light is baked)."""
+        self.sun_visibility = sun_visibility
+        if ambient_up is not None:
+            self.local_ambient = True
+            self.ambient_up.set_element(0, Vec3(*ambient_up))
+            self.ambient_down.set_element(0, Vec3(*(ambient_down if ambient_down is not None else ambient_up)))
         self._push_frame()
 
     def _push_frame(self):
-        self.frame.set_element(0, Vec3(self.exposure * self.look.exposure, self.sun_visibility, self.ambient_scale))
+        self.frame.set_element(0, Vec3(self.exposure * self.look.exposure, self.sun_visibility, 0.0))
 
     def set_flash(self, view_pos, color):
         """Muzzle flash: `view_pos` in camera space (x right, y up, z forward), `color` black = off. Shared by the gun and the world."""

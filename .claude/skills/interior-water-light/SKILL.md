@@ -61,6 +61,15 @@ Three options, cheapest first. Which one is used is a product decision (does the
 - Pre-existing bug found by the new dark walls: the bullet-hole batch never had its texture bound (Ursina applies `Entity.texture` only to the entity's model; the batch is a raw node), so holes were white squares. Fixed with `np.set_texture`.
 - The reflection image is tone-mapped with the exposure at capture time: changing exposure / fog needs a recapture (reflect_key includes them; the game recaptures at the next start).
 
+## Pitfalls found by the user's play test (7/11/2026, all verified-in-project; tests named)
+- Face derivation from boxes: an INVISIBLE collision box (the window barrier filling the hole) must not count as solid when deciding whether a face touches air, or every face inside the hole disappears and the wall is a paper-thin sheet there. Test only for the face's *existence* is not enough: assert the AREA of sill / lintel / jamb faces (tests/test_poolmap.py `test_every_window_hole_shows_its_full_wall_thickness`).
+- Aimed sights: poses summed as 'angles + shifts in one node' break the sight line as soon as an aim rotation is added (the ADS shift is not turned with the gun): M4 sights 0.4 deg apart at 1.5 deg offset, 3.1 deg at 10 deg. Fix = parent node for the aim rotation (rotates the whole gun incl. its ADS shift about the eye). Any rotation about the eye keeps points that are collinear with the eye collinear; a translation does not (parallax). tests/test_sights.py + pool_check.py (probe nodes under the real graph).
+- Pistol sights: the rear aiming point must be INSIDE the notch (here 2.3 mm deep); 3.5 mm 'under the blade tops' ran the sight line through the slide. Measure notch floor / blade tops / post top from the vertices, do not guess an offset. A 2 mm front post at 0.5 m eye relief is only a few pixels: 0.38 m reads better.
+- Ambient for the gun must come from the room (baked probe grid, up- and down-facing irradiance at gun height), not a constant: a constant 0.27 in a black corner made the rail edges glow white (fresnel x ambient x 6).
+- Panda binding: a PTA element read in Python (`pta[0]`) is a live reference; copy it (`tuple(...)`) before comparing two moments.
+- Angles between nearly parallel vectors: use atan2(|a x b|, a . b); acos of float32 'almost 1' is off by ~0.02 deg.
+- Machine noise: after a heavy bake / pytest the UHD 620 laptop gave 100 FPS and 1%-lows of 3 FPS (stalls); the same scene re-run alone 20 s later gave 132 FPS / 96 low. Never trust one number right after heavy work.
+
 ## Still open
 - 8-bit gamma-2 lightmap banding on the soft penumbra: not visible in the shots, not measured.
 - Planar per-frame reflection cost (smoke / tracers mirrored): not measured.

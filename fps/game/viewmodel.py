@@ -18,6 +18,7 @@ from ursina import application, window
 
 from fps.core.lens import overscan_fov
 from fps.core.movement import smoothstep, step_toward
+from fps.core.sway import aim_translation_weight
 from fps.game.frame_light import FrameLight
 from fps.game.gltf_maps import read_normal_maps
 from fps.game.shaders import load_glsl
@@ -35,11 +36,14 @@ class Viewmodel:
         self.light = light or FrameLight(LookData(), gun)
         self.project_root = project_root
         self.ads = 0.0                                # 0 hip .. 1 fully aimed (set in `animate`)
-        self.barrel_pose = (0.0,) * 6                 # actual gun pose (without image shake): the bullet direction is read from here
+        self.base_pose = (0.0,) * 6                   # kick + sway / ADS / sprint (the `sway` node): the gun's own pose
+        self.aim_pose = (0.0,) * 6                    # free look + free aim (the `aim` node, parent of `sway`): turns the WHOLE gun about the eye
+        self.barrel_pose = (0.0,) * 6                 # base + aim summed, for readers that only want the angles (the bullet direction composes them: `barrel_view_dir(base_pose, ..., then=aim_pose)`)
         base = application.base
 
         self.root = NodePath('viewmodel_root')      # not attached to render: the main camera does not see it
-        self.sway = self.root.attach_new_node('viewmodel_sway')
+        self.aim = self.root.attach_new_node('viewmodel_aim')
+        self.sway = self.aim.attach_new_node('viewmodel_sway')
         self.rig = self.sway.attach_new_node('viewmodel_rig')
 
         self.actor = Actor(Filename.from_os_specific(str(project_root / gun.glb)))
@@ -403,10 +407,14 @@ class Viewmodel:
             self.actor.setControlEffect(locked[0], self._empty)
         self._bundle.force_update()
 
-    def update(self, *poses: tuple, visual: tuple = ()):
-        """Each pose = (x right, y up, z forward, pitch up, yaw right, roll right), metres and degrees: gun kick
-        (GunKick.pose), sway/ADS/sprint (Sway.update), free drift (FreeAim.pose). They are summed and set on the `sway` node; this sum is `barrel_pose`, the source of the bullet direction.
-        `visual`: image-ONLY poses (camera shake, gun following the head); they do not enter `barrel_pose`, so they never change the bullet direction.
+    def update(self, *poses: tuple, visual: tuple = (), aim: tuple = ()):
+        """Each pose = (x right, y up, z forward, pitch up, yaw right, roll right), metres and degrees.
+        `poses`: the gun's own pose: gun kick (GunKick.pose), sway/ADS/sprint (Sway.update). They are summed and set on the `sway` node (`base_pose`).
+        `aim`: the poses that point the whole gun: free drift (FreeAim.pose), free look (FreeLook.pose). Summed, set on the `aim` node, the PARENT of `sway`: the gun's pose (the ADS shift included) is turned
+        about the eye as a whole, so the rear and front sights stay on the eye's line however far the mouse has pushed the gun. A plain sum of angles and shifts breaks that (the ADS shift is not
+        turned with the gun: M4 sights 3 degrees apart at 10 degrees of offset). The aim SHIFT fades out while aiming (`aim_translation_weight`): a shift pulls the two sights apart by parallax.
+        The bullet direction is the composition of the two (`barrel_view_dir(base_pose, ..., then=aim_pose)`).
+        `visual`: image-ONLY poses (camera shake, gun following the head); they do not enter the bullet direction.
 
         SIGN TRAP (measured with tools/selftests/g3_selftest.py): the raw `set_hpr` of a node in this gun graph differs from Ursina's `Entity.rotation`
         in the world: positive h turns the gun to the LEFT, positive p tilts the barrel UP, positive r leans it RIGHT."""
@@ -414,9 +422,14 @@ class Viewmodel:
         k = smoothstep(self._view)
         if k > 0.0:
             poses = poses + (tuple(c * k for c in self.gun.reload.view_pose),)
-        self.barrel_pose = tuple(sum(c) for c in zip(*poses)) if poses else (0.0,) * 6
-        x, y, z, pitch_up, yaw_right, roll_right = (sum(c) for c in zip(self.barrel_pose, *visual))
+        self.base_pose = tuple(sum(c) for c in zip(*poses)) if poses else (0.0,) * 6
+        self.aim_pose = tuple(sum(c) for c in zip(*aim)) if aim else (0.0,) * 6
+        self.barrel_pose = tuple(b + a for b, a in zip(self.base_pose, self.aim_pose))
+        x, y, z, pitch_up, yaw_right, roll_right = (sum(c) for c in zip(self.base_pose, *visual))
         self.sway.set_pos_hpr(x, y, z, -yaw_right, pitch_up, roll_right)
+        w = aim_translation_weight(self.ads)
+        ax, ay, az, a_pitch, a_yaw, a_roll = self.aim_pose
+        self.aim.set_pos_hpr(ax * w, ay * w, az * w, -a_yaw, a_pitch, a_roll)
 
     def destroy(self):
         self.output.remove_display_region(self.region)

@@ -146,3 +146,19 @@ def test_every_texel_of_every_piece_is_written_not_left_black():
     for f, p in zip(res.faces, res.atlas.faces):
         block = e[p.y:p.y + p.h, p.x:p.x + p.w]
         assert block.sum(axis=2).min() > 0.0, (pm.boxes[f.box].name, f.axis, f.sign)
+
+
+def test_baked_ambient_grid_is_dark_in_the_dark_corner_and_lighter_by_the_windows():
+    """The gun's local ambient light: no direct sun in it, brighter where the sky and the lit walls reach, never zero, and every probe has a value (none left inside a column)."""
+    from fps.core.poolmap import AmbientGrid
+    d = dataclasses.replace(D, texel=0.5, coarse=1.5, sun_samples=1, bounce_rays=48)
+    pm = build_map(d)
+    res = bake(pm, LOOK)
+    grid = AmbientGrid(res.ambient)
+    assert (grid.nx, grid.nz) == (20, 30)
+    import numpy as np
+    assert np.isfinite(np.array(res.ambient['up'])).all() and np.isfinite(np.array(res.ambient['down'])).all()
+    assert np.array(res.ambient['up']).min() > 0.0
+    corner_up, _ = grid.sample(-9.5, -14.5)                            # south-west corner, far from every window
+    window_up, _ = grid.sample(8.5, 0.0)                               # under the east windows
+    assert sum(window_up) > 1.5 * sum(corner_up)

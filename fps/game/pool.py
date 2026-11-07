@@ -13,7 +13,7 @@ from PIL import Image
 from ursina import Entity
 
 from fps.core.exposure import target_exposure
-from fps.core.poolmap import PoolMap, bake_key, build_map, colliders, lightmap_uv, pack_atlas, probe_uv, rail_meshes, reflect_key, solid_boxes, walk_tops
+from fps.core.poolmap import AmbientGrid, PoolMap, bake_key, build_map, colliders, lightmap_uv, pack_atlas, probe_uv, rail_meshes, reflect_key, solid_boxes, walk_tops
 from fps.core.terrain import Terrain
 from fps.game.shaders import load_glsl
 from fps.game.water import WaterSurface
@@ -48,6 +48,7 @@ class PoolHall:
         self.dir = root / ASSET_DIR
         self.spawn = (0.0, 0.0, -(pz + (hz - pz) / 2.0))                            # the middle of the south bank, looking north along the pool
         self.lightmap, self.e_max = self._load_or_bake(force_bake)
+        self.ambient = AmbientGrid(json.loads((self.dir / 'ambient.json').read_text(encoding='utf-8')))
         self.entity = Entity(add_to_scene_entities=False)
         self.node = self.entity.attach_new_node(self._build_mesh())
         self.node.set_two_sided(True)
@@ -103,6 +104,7 @@ class PoolHall:
         res = bake(self.pm, self.params.look, probes=self.probes, progress=progress)
         self.dir.mkdir(parents=True, exist_ok=True)
         Image.fromarray(res.rgb, 'RGB').save(self.dir / 'lightmap.png')
+        (self.dir / 'ambient.json').write_text(json.dumps(res.ambient, separators=(',', ':')), encoding='utf-8')
         self._write_meta(key=self.key, e_max=res.e_max, reflect=None, stats=res.stats)
         self.log(f'[map] xong sau {time.time() - t0:.1f} s ({res.stats["rays"]:,} tia, ảnh {res.rgb.shape[1]}x{res.rgb.shape[0]})')
 
@@ -168,6 +170,10 @@ class PoolHall:
         from fps.core.ballistics import first_hit
         far = tuple(point[i] + sun_dir[i] * 200.0 for i in range(3))
         return first_hit(point, far, self.world['colliders'][:-1], ground_y=None) is not None       # [:-1]: the water box is not an occluder
+
+    def local_ambient(self, x: float, z: float) -> tuple:
+        """((r, g, b) up, (r, g, b) down): the ambient light for the gun at floor position (x, z) (baked: `ambient.json`)."""
+        return self.ambient.sample(x, z)
 
     def update(self, dt: float):
         self.water.update(dt)

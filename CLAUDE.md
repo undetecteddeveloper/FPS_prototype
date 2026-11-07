@@ -7,7 +7,7 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 - Chạy game: `run.bat` (hoặc `.venv\Scripts\python.exe main.py`; cửa sổ không viền phủ kín). Tuỳ chọn: `--novsync`, `--window --size 1280x720`, `--quit-after 5`, `--mute`, `--defaults` (bỏ `user_params.json`), `--map flat` (nền trắng phẳng cũ, để so FPS; mặc định là phòng hồ bơi), `--rebake` (nướng lại ánh sáng + chụp lại phản chiếu của phòng hồ).
 - Test thuần (toán + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest` (~30 s).
 - `tools\selftests\*` HIỆN KHÔNG CHẠY ĐƯỢC (dựng bằng bia và phòng bắn đã xoá 7/11/2026; người dùng bảo không cần). Cổng kiểm tra = pytest + chạy game thật. Nhiều game cùng lúc làm bài đo thời gian trượt oan: bọc `.venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh gốc>`.
-- Đo FPS: `tools\measure\g8_perf.py --gun glock|m4 [--map flat]` (6 tình huống, ngưỡng 55; máy nóng/bận cho số thấp, đo lại một mình). Map hồ bơi: `tools\measure\pool_check.py` (23 mục bằng game thật), `pool_shots.py` (chụp ảnh các góc). Kiểm rút/đổi súng: `tools\measure\swap_check.py`. Chụp tư thế: `tools\measure\g8_shots.py`.
+- Đo FPS: `tools\measure\g8_perf.py --gun glock|m4 [--map flat]` (6 tình huống, ngưỡng 55; máy nóng/bận cho số thấp, đo lại một mình). Map hồ bơi: `tools\measure\pool_check.py [--gun glock]` (26 mục bằng game thật), `pool_shots.py` (chụp ảnh các góc). Kiểm rút/đổi súng: `tools\measure\swap_check.py`. Chụp tư thế: `tools\measure\g8_shots.py`.
 - Công cụ đo/dựng: `tools\measure\`, `tools\build\` (dựng WAV). Danh mục + công tắc tắt để đo (`free_aim=False`, `lens=False`...): `docs/notes/tools.md`.
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15).
 
@@ -31,7 +31,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
   Camera thế giới KHÔNG rung: mọi rung (bước, nhảy, bắn, nạp, ánh nhìn khi nạp) thành dịch + nghiêng cả khung ống kính (`game/camera_shake.py`, `core/lens.frame_shake`, `lens.frag`).
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi console.
 - Thế giới mặc định là phòng hồ bơi trong nhà (G9, `docs/notes/pool-hall.md`): dựng từ hộp, ánh sáng NƯỚNG SẴN (mặt trời cố định), nước phản chiếu căn phòng chụp sẵn. `--map flat` còn khối đất phẳng trắng cũ để so FPS. Không bia, không bóng đổ động; đừng dựng lại phòng bắn / bia khi chưa được hỏi.
-  Sửa hình học map (`MapData`) hay nắng (`sun_dir`, `sun_color`, `sky_irradiance`) thì game tự nướng lại (~36 s). Numpy chỉ dùng lúc nướng và ở test.
+  Sửa hình học map (`MapData`) hay nắng (`sun_dir`, `sun_color`, `sky_irradiance`) thì game tự nướng lại (~60 s). Numpy chỉ dùng lúc nướng và ở test.
 - Commit trên nhánh `dev`; chỉ push khi người dùng nói. `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
 - Comment và docstring trong mã viết bằng TIẾNG ANH (cả mã mới). Chữ cho người dùng (HUD, bảng F1, tên mục selftest, thông báo) và file `.md` vẫn tiếng Việt.
 - Mức hỏi người dùng theo cỡ việc: `docs/WORKFLOW.md` mục 2 (thắng luật chung "tự quyết kỹ thuật").

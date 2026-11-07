@@ -28,6 +28,7 @@ class BakeResult:
     faces: list
     probes: list                   # [(position, normal)] in the same order as atlas.probes
     stats: dict
+    ambient: dict = None           # AmbientGrid.to_dict(): the local ambient light for the gun and hands
 
 
 class Occluders:
@@ -283,6 +284,40 @@ def decode(rgb: np.ndarray, e_max: float) -> np.ndarray:
     return (rgb.astype(np.float64) / 255.0) ** 2 * e_max
 
 
+AMBIENT_STEP = 1.0                 # m between the ambient probes on the floor plan
+AMBIENT_HEIGHT = 1.4               # m above the deck: where the gun is held
+
+
+def ambient_grid(pm: PoolMap, occ: Occluders, look: LookData, lookup, grids1, rng) -> dict:
+    """The ambient light (sky + bounces + fill, NOT the direct sun) a gun held in the room receives, on a grid over the floor plan: irradiance on an up-facing and a down-facing surface
+    (the shader mixes the two by the normal, like `ambient_at`). Probes that fall inside a column take the mean of their neighbours."""
+    d = pm.data
+    hx, hz = d.room_x / 2.0, d.room_z / 2.0
+    xs = np.arange(-hx + AMBIENT_STEP / 2, hx, AMBIENT_STEP)
+    zs = np.arange(-hz + AMBIENT_STEP / 2, hz, AMBIENT_STEP)
+    gx, gz = np.meshgrid(xs, zs)
+    pts = np.stack([gx.ravel(), np.full(gx.size, AMBIENT_HEIGHT), gz.ravel()], axis=1)
+    inside = np.zeros(len(pts), dtype=bool)
+    for lo, hi in zip(occ.lo, occ.hi):
+        inside |= np.all((pts > lo) & (pts < hi), axis=1)
+    sky = np.asarray(look.sky_irradiance, dtype=np.float64)
+    fill = d.fill * sky / max(sky.mean(), 1e-6)
+    out = {}
+    for name, normal in (('up', (0.0, 1.0, 0.0)), ('down', (0.0, -1.0, 0.0))):
+        g = gather(occ, pts, np.array(normal), look, d, rng)
+        e = resolve(g, look, occ.albedo_by_box, lookup, grids1) * d.bounce_gain + fill
+        grid = e.reshape(len(zs), len(xs), 3)
+        bad = inside.reshape(len(zs), len(xs))
+        if bad.any() and (~bad).any():
+            mean_all = grid[~bad].mean(axis=0)
+            for iz, ix in zip(*np.nonzero(bad)):
+                near = [grid[jz, jx] for jz in range(max(iz - 2, 0), min(iz + 3, len(zs))) for jx in range(max(ix - 2, 0), min(ix + 3, len(xs))) if not bad[jz, jx]]
+                grid[iz, ix] = np.mean(near, axis=0) if near else mean_all
+        out[name] = grid
+    return {'x0': float(xs[0]), 'z0': float(zs[0]), 'step': AMBIENT_STEP, 'nx': len(xs), 'nz': len(zs),
+            'up': np.round(out['up'], 4).tolist(), 'down': np.round(out['down'], 4).tolist()}
+
+
 def bake(pm: PoolMap, look: LookData, probes: list = (), progress=None) -> BakeResult:
     """Bake the whole map. `probes`: [(position, normal)] single points that get a 2 x 2 patch in the atlas (objects with no UV of their own).
     Pass 1: direct sun (fine) + rays that remember what they hit. Pass 2: the same rays, but a hit spot is as bright as pass 1 found it."""
@@ -327,4 +362,5 @@ def bake(pm: PoolMap, look: LookData, probes: list = (), progress=None) -> BakeR
         g = gather(occ, pos, normal, look, d, rng)
         e = direct_light(occ, pos, normal, look, d) + resolve(g, look, occ.albedo_by_box, lookup, grids1) * d.bounce_gain + fill
         image[place.y - 1:place.y + 3, place.x - 1:place.x + 3] = e[0]
-    return BakeResult(encode(image, d.lightmap_max), d.lightmap_max, atlas, faces, list(probes), {'rays': rays_cast, 'texels': int(atlas.width * atlas.height)})
+    ambient = ambient_grid(pm, occ, look, lookup, grids1, rng)
+    return BakeResult(encode(image, d.lightmap_max), d.lightmap_max, atlas, faces, list(probes), {'rays': rays_cast, 'texels': int(atlas.width * atlas.height)}, ambient)

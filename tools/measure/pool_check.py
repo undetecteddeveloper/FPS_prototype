@@ -3,6 +3,8 @@ Prints PASS / FAIL per check and exits with the number of failures.
 
 Run: .venv\Scripts\python.exe -X utf8 tools\with_game_lock.py .venv\Scripts\python.exe -X utf8 tools\measure\pool_check.py
 """
+import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -11,12 +13,17 @@ sys.path.insert(0, str(ROOT))
 sys.stdout.reconfigure(encoding='utf-8')
 
 from main import create_game  # noqa: E402
-from ursina import Entity, mouse  # noqa: E402
+from panda3d.core import Point3  # noqa: E402
+from ursina import Entity, held_keys, mouse  # noqa: E402
 
 from fps.core.exposure import sun_vector  # noqa: E402
+from fps.core.sway import ads_target_for  # noqa: E402
 from fps.game.combat import Bullet  # noqa: E402
 
-game = create_game(vsync=False, size=(800, 450), sound=False, draw=False, map_name='pool')
+ap = argparse.ArgumentParser()
+ap.add_argument('--gun', default='m4')
+args = ap.parse_args()
+game = create_game(vsync=False, size=(800, 450), sound=False, draw=False, map_name='pool', gun=args.gun)
 mouse.locked = False
 game.combat.require_locked_mouse = False
 pool, combat, player = game.pool, game.combat, game.player
@@ -49,6 +56,21 @@ def place(x, y, z, yaw):
     player.on_ground = True
     player.yaw, player.pitch = yaw, 0.0
     player.step_offset = 0.0
+
+
+def sight_gap_degrees() -> float:
+    """Angle (degrees) between the rear and the front sight as seen from the eye, read from the REAL scene graph: two probe nodes at the sight points under the gun's `sway` node, so they go
+    through exactly the transforms the gun model goes through (the aim node above it included)."""
+    vm, gun = game.viewmodel, game.params.gun
+    pts = []
+    for sight in gun.ads_sights:
+        node = vm.sway.attach_new_node('sight_probe')
+        node.set_pos(*(c + h for c, h in zip(sight, gun.hip_offset)))
+        pts.append(vm.root.get_relative_point(node, Point3(0, 0, 0)))
+        node.remove_node()
+    a, b = pts
+    cross = (a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
+    return math.degrees(math.atan2(math.sqrt(sum(c * c for c in cross)), a.x * b.x + a.y * b.y + a.z * b.z))      # atan2, not acos: acos of a float32 'almost 1' is off by ~0.02 degrees
 
 
 class Script(Entity):
@@ -136,6 +158,43 @@ class Script(Entity):
         grid = [(x, 1.68, z) for x in range(-9, 10, 2) for z in range(-14, 15, 2)]
         blocked = [pool.sun_blocked(p, sun) for p in grid]
         check('the sun reaches the player in some places and not in others', 0 < sum(blocked) < len(blocked), f'{sum(blocked)}/{len(blocked)} in the shade')
+
+        # --- aimed sights stay lined up with the eye when the gun is pushed off the screen centre (user report 7/11/2026)
+        # (a) exact: set the poses straight on the real scene-graph nodes (ADS pose + an aim rotation far outside the free zone), no sway noise
+        vm, gun = game.viewmodel, game.params.gun
+        vm.ads = 1.0
+        ads = ads_target_for(gun)
+        exact = []
+        for yaw, pitch, roll in ((0.0, 0.0, 0.0), (3.0, 1.8, 0.7), (-6.0, -3.6, -1.3), (10.0, 6.0, 2.2), (-15.0, 9.0, -3.3), (15.0, -9.0, 3.3)):
+            vm.update(ads, aim=((0.0, 0.0, 0.0, pitch, yaw, roll),))
+            exact.append(sight_gap_degrees())
+        check(f'{args.gun}: sights on one line through the eye at any aim offset (real nodes, exact poses)', max(exact) < 0.01, f'{[round(g, 4) for g in exact]} deg')
+        # (b) live: aimed for real, gun pushed to offsets inside the aimed free zone; breathing and mouse lag still move the gun a few mm, which M4 (eye relief 0.18 m) shows as ~0.2 degrees
+        place(*pool.spawn, 0.0)
+        held_keys['right mouse'] = 1
+        for _ in range(90):                                              # ~1.5 s: fully aimed
+            yield
+        gaps = []
+        for yaw, pitch in ((0.0, 0.0), (1.5, 0.9), (-2.0, -1.0), (2.8, -0.5)):
+            for _ in range(20):
+                player.free_look.offset = [yaw, pitch]
+                yield
+            gaps.append(sight_gap_degrees())
+        held_keys['right mouse'] = 0
+        check(f'{args.gun}: aimed live, sights stay within 0.5 degrees at in-zone offsets', max(gaps) < 0.5 and player.ads_amount > 0.99, f'{[round(g, 3) for g in gaps]} deg, ads {player.ads_amount:.2f}')
+        player.free_look.reset()
+
+        # --- the gun is lit by the baked local ambient: dark in the dark corner, brighter by the windows
+        place(-9.5, 0.0, -14.5, 0.0)
+        for _ in range(10):
+            yield
+        corner = tuple(game.light.ambient_up[0])                            # a copy: the PTA element is a live reference
+        place(8.5, 0.0, 0.0, 0.0)
+        for _ in range(10):
+            yield
+        window = tuple(game.light.ambient_up[0])
+        corner_luma, window_luma = sum(corner) / 3, sum(window) / 3
+        check('gun ambient light follows the room: dark corner < under the windows, and well below the old fixed 0.27', corner_luma < 0.6 * window_luma and corner_luma < 0.2, f'corner {corner_luma:.3f}, windows {window_luma:.3f}')
 
         # --- ripples really animate
         t0 = pool.water.clock

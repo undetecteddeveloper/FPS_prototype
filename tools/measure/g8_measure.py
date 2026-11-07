@@ -1,7 +1,7 @@
 """G8: measures the Glock's sights and muzzle from the model vertices (camera space, ready pose, hip_offset NOT applied) and prints the values to paste
 into GLOCK (ads_sights, muzzle). Same method as g4_ads_align.py / g5_muzzle_align.py, for the Glock slide (node Slide_Glock_D_0-parent).
 
-  rear sight : top vertices of the rear 3.5 cm of the slide; point = centre of their box, a little below the blade top (the notch)
+  rear sight : top vertices of the rear 3.5 cm of the slide; point = centre of their box, in the middle of the notch (the blades are 2.3 mm taller than the notch floor: measured 7/11/2026, see GLOCK in weapon_data.py)
   front sight: top vertices of the front 3.5 cm of the slide; point = centre x, highest vertex
   muzzle     : the vertices of the slide front face; point = centre of their box
 
@@ -20,7 +20,7 @@ from ursina import mouse  # noqa: E402
 
 from fps.core.sway import ads_target_for  # noqa: E402
 
-NOTCH_BELOW_TOP = 0.0035         # m: the aiming point of the rear sight sits this far under the top of the blade
+NOTCH_BELOW_TOP = 0.00115        # m: the aiming point of the rear sight sits this far under the top of the blades = the middle of the 2.3 mm deep notch (0.0035 here hid the front sight behind the slide)
 
 game = create_game(vsync=False, draw=False, sound=False, effects=False, look=False, gun='glock')
 mouse.locked = False
