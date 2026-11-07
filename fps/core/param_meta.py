@@ -302,9 +302,6 @@ META = {
     'audio.hit_pitch_variation': p('Tiếng trúng: đổi cao độ', '± tỉ lệ ngẫu nhiên', 0, 0.2, 0.005, 'A'),
     'audio.speed_of_sound': p('Tốc độ âm thanh', 'm/s; tiếng đạn trúng xa tới tai muộn', 100, 1000, 10, 'A'),
     'audio.dry_volume': p('Cò rỗng', 'bóp cò khi hết sạch đạn', 0, 1, 0.05),
-    'audio.breath_volume': p('Tiếng thở', 'khi đứng yên, theo nhịp thở của súng', 0, 1, 0.05),
-    'audio.breath_min_idle': p('Thở: ngưỡng đứng yên', 'đi nhiều hơn mức này thì thôi thở', 0, 1, 0.05, 'A'),
-    'audio.breath_ads_scale': p('Thở khi ngắm', 'nhân âm lượng khi ngắm hẳn (nín thở)', 0, 1, 0.05),
     'audio.land_volume': p('Chạm đất', 'tiếng bịch khi rơi xuống', 0, 1, 0.05),
     'audio.land_min_speed': p('Rơi tối thiểu để có tiếng bịch', 'm/s', 0.5, 6, 0.1, 'A'),
     'audio.land_reference_speed': p('Tốc độ rơi chuẩn', 'm/s ứng với âm lượng chạm đất đầy đủ', 1, 12, 0.1, 'A'),
@@ -494,7 +491,6 @@ GROUPS = (
         ('Nhảy và chạm đất', ('audio.jump_volume', 'audio.land_volume', 'audio.land_min_speed', 'audio.land_reference_speed')),
         ('Đạn trúng và cò rỗng', ('audio.hit_hard_volume', 'audio.hit_reference_distance', 'audio.hit_pitch_variation',
                                   'audio.speed_of_sound', 'audio.dry_volume')),
-        ('Tiếng thở', ('audio.breath_volume', 'audio.breath_ads_scale', 'audio.breath_min_idle')),
     )),
     ('reload', 'Nạp đạn', (
         ('Tốc độ và huỷ', ('gun.reload.speed', 'gun.reload.draw_speed', 'gun.reload.sprint_cancels', 'gun.reload.cancel_blend',

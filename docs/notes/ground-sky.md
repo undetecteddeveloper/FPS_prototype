@@ -10,7 +10,7 @@ Viết cho: người dùng và agent mở phiên sau. Thay thế phần phòng b
 - Ánh sáng: một mặt trời (`look.sun_dir`, `look.sun_color`) cộng ánh nền (`ambient_up/down`), KHÔNG có bóng đổ. Dùng chung cho đất và súng qua `assets/shaders/light_common.glsl`; công thức CPU ở `fps/core/exposure.py` (phơi sáng giờ là một số cố định theo ánh sáng, không còn tự thích nghi).
 - Bầu trời: vòm trời vẽ bằng shader (`fps/game/sky.py`, `assets/shaders/sky.vert|frag`): gradient từ màu sương ở chân trời (cùng màu `fog_color`) lên xanh đậm hơn, mây trôi chậm từ nhiễu `look_detail_tex`. Vòm chỉ nhận xoay của camera nên không cần đi theo người chơi.
 - ĐÃ XOÁ: phòng bắn, tường, cột, đèn trần, bóng đổ, biển, bia và bia chạy (`core/room`, `core/patrol`, `core/signs`, `game/targets`, `game/signs`, `game/lamp_shadows`, `shooting_range`), tiếng đạn trúng bia (`audio.hit_target_volume`), dấu đánh trúng và số mét bia trên HUD,
-  trạng thái căng thẳng / run tay theo số phát bắn (`FreeAim.stress`, `tremor_*`). Tiếng thở và nhịp thở của súng GIỮ NGUYÊN.
+  trạng thái căng thẳng / run tay theo số phát bắn (`FreeAim.stress`, `tremor_*`). Tiếng thở dốc (hơi thở khi đứng yên) đã bỏ 7/11/2026 (`core/breath.py`, `audio.breath_*`); súng vẫn nhấp nhô nhẹ theo nhịp thở trong `sway`.
 - Bộ selftest `tools/selftests/*` và vài công cụ đo cũ dựng bằng bia / phòng nên KHÔNG còn chạy được (người dùng bảo không cần selftest, 7/11/2026). Muốn dùng lại thì phải viết lại theo nền đất.
 
 ## Glock 17 (gói animation `assets/guns/glock17.glb`)

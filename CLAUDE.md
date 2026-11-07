@@ -18,7 +18,7 @@ main.py  run.bat  requirements.txt  pytest.ini  CLAUDE.md  CREDITS.txt        <-
 fps/                    gói mã nguồn (import dạng `from fps.core.movement import ...`)
   app.py                Game, create_game() (dựng tất cả; tools gọi lại hàm này), prune_scene_entities(), main()
   weapon_data.py        MỌI thông số (dataclass)
-  core/                 toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, breath,
+  core/                 toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps,
                         params + param_meta (bảng F1), freeaim, headcam, lens, exposure
   game/                 phần ghép Ursina/Panda: player, combat, viewmodel, ground (nền đất), sky (bầu trời + mây), hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake,
                         debug_panel (F1), frame_light, lens, decals, gltf_maps

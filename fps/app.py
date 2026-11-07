@@ -187,7 +187,7 @@ class Game(Entity):
         inp = self.player.sway_input()
         sway_pose = self.sway.update(step, inp)
         if self.foley:
-            self.foley.update(dt, self.sway.phase, self.sway, self.player.ads_amount)       # after sway: footsteps play exactly when the gun reaches the lowest point of the bob; breathing sound follows the sway's breathing clock
+            self.foley.update(dt, self.sway.phase)       # after sway: footsteps play exactly when the gun reaches the lowest point of the bob
         visual = ()
         if self.shake_view:
             p = self.player

@@ -15,7 +15,6 @@ from pathlib import Path
 from panda3d.core import Filename
 from ursina import application
 
-from fps.core.breath import Breathing
 from fps.core.cues import CueSchedule, impact_sound
 from fps.core.footsteps import FootEvent, Footsteps, pick_variant
 from fps.weapon_data import AudioData, GunData
@@ -49,10 +48,9 @@ class Foley:
         self.rng = rng or random.Random()
         self.schedule = CueSchedule()
         self.steps = Footsteps(audio, self.rng)
-        self.breathing = Breathing(audio, gun.sway)
         self._px, self._pz = player.x, player.z
 
-        names = set(STEP_NAMES) | {audio.cancel_sound, 'dry', 'hit_hard', 'breath'}
+        names = set(STEP_NAMES) | {audio.cancel_sound, 'dry', 'hit_hard'}
         for cues in audio.cues.values():
             names.update(c.sound for c in cues)
         names.discard(None)
@@ -119,9 +117,9 @@ class Foley:
         elif kind == 'cancel':
             self.schedule.cancel(self.audio)
 
-    def update(self, dt: float, bob_phase: float = None, sway=None, ads: float = 0.0):
+    def update(self, dt: float, bob_phase: float = None):
         """Every frame, AFTER the Handling events are processed (same real `dt` as Handling.update) and AFTER `Sway.update` (so the bob phase is this frame's).
-        `bob_phase` = Sway.phase: footsteps play exactly when the gun reaches the lowest point of the bob. `sway` = Sway (breathing clock + bob), `ads` = player.ads_amount: breathing sound."""
+        `bob_phase` = Sway.phase: footsteps play exactly when the gun reaches the lowest point of the bob."""
         self.clock += dt
         self._play_cues(self.schedule.update(dt))
         if self.pending:
@@ -137,7 +135,3 @@ class Foley:
             moved = 0.0
         for ev in self.steps.update(dt, moved, p.on_ground, p.vy, p.landed, p.sprinting, p.crouching, bob_phase):
             self._play_foot(ev)
-        if sway is not None:
-            volume = self.breathing.update(sway.clock, sway.bob_amount, ads, p.on_ground)
-            if volume is not None and volume > 0.0:
-                self.play('breath', volume, fit_hz=self.gun.sway.breath_freq)

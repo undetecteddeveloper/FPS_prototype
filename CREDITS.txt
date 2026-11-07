@@ -31,7 +31,9 @@ file gốc assets\sounds\source\elevenlabs\*.mp3, dựng bằng tools\build\prep
 
 Các tiếng dưới đây vẫn nằm trong dự án nhưng game không còn dùng mặc định:
 
-Tiếng súng M4 (assets\sounds\m4_shot.wav; dựng từ assets\sounds\source\m4_shot_original.wav bằng tools\build\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
+Tiếng súng M4 ĐANG DÙNG (assets\sounds\m4_shot_new.wav, 2,56 s, do chủ dự án cung cấp 7/11/2026): tác giả / nguồn / giấy phép CHƯA RÕ, CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây).
+
+Tiếng súng M4 cũ (assets\sounds\m4_shot.wav; dựng từ assets\sounds\source\m4_shot_original.wav bằng tools\build\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
   Do chủ dự án cung cấp. Tác giả / nguồn / giấy phép: CHƯA RÕ. CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây);
   nếu không chứng minh được quyền dùng thì phải thay bằng tiếng khác.
 

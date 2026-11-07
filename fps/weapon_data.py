@@ -454,7 +454,8 @@ M4 = GunData(
     # measured from the model's peaks (tools/measure/g4_ads_align.py): center of the rear aperture and top of the front post
     ads_sights=((0.0678, -0.0074, 0.1556), (0.0678, -0.0069, 0.5622)),
     muzzle=(0.0677, -0.0752, 0.7326),
-    shot_sound=('assets/sounds/el_shot_0.wav', 'assets/sounds/el_shot_1.wav', 'assets/sounds/el_shot_2.wav'),
+    shot_sound=('assets/sounds/m4_shot_new.wav',),
+    shot_pool=24,                          # the new shot is 2.56 s long (reverb tail): a copy comes round again after 24 x 80 ms = 1.9 s
 )
 
 
@@ -605,7 +606,7 @@ class AudioData:
         'bolt_tick': 'el_bolt', 'bolt_release': 'el_bolt',
         'draw_a': 'el_draw_a', 'draw_b': 'el_draw_b', 'settle': 'el_settle',
         'step_walk': 'el_step', 'step_run': 'el_step', 'land': 'el_land', 'jump': 'el_jump',
-        'dry': 'el_dry', 'hit_hard': 'el_hit_hard', 'breath': 'el_breath'})
+        'dry': 'el_dry', 'hit_hard': 'el_hit_hard'})
     # multiplies the pitch when playing a logical name (running shares the walking file, slightly higher)
     pitch_scale: dict = field(default_factory=lambda: {'step_run': 1.06})
     # reload / draw
@@ -641,10 +642,6 @@ class AudioData:
     hit_pitch_variation: float = 0.05     # +- random pitch ratio
     speed_of_sound: float = 343.0         # m/s
     dry_volume: float = 0.55              # trigger pulled with no rounds left
-    # breathing while still (core/breath.py): one breath per breathing cycle of the sway (SwayData.breath_freq), on the same clock as the gun's bob
-    breath_volume: float = 0.35
-    breath_min_idle: float = 0.5          # if bob (walking / running) takes more than half, a new breath does not start
-    breath_ads_scale: float = 0.5         # fully aimed: reduced to this (holding breath)
 
 
 @dataclass
