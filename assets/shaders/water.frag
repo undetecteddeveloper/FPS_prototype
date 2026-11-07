@@ -16,7 +16,7 @@ uniform vec4 water_rect;            // pool: x0, x1, z0, z1
 uniform vec4 water_impact;          // ring: speed, wavelength, width, life
 uniform vec4 water_impact2;         // ring: strength, reach, tan(half face fov), -
 uniform vec4 water_rings[RING_SLOTS];   // x, z, t0, amp
-uniform vec3 water_time;            // x = clock (s)
+uniform vec3 water_time;            // x = clock (s), y = number of live rings (G13: they are packed first, game/water.py)
 uniform vec4 look_fog;              // rgb = haze colour, a = density (exp)
 // --- G10 ---
 uniform sampler2D water_sim_a;      // simulated height (r, metres); the latest of the two is `water_sim_pick.x`
@@ -145,7 +145,8 @@ vec3 underside(vec3 p, vec3 dir, vec3 n) {
     vec3 r = reflect(dir, nd);
     r.y = min(r.y, -0.03);                                                           // a ripple must not send the mirror ray back up through the surface
     float dr;
-    vec3 mirror = under_fog(tonemap(basin_hit(p, normalize(r), dr)), dr);           // outside Snell's window: the pool itself (total internal reflection)
+    vec3 mirror = Q_FULL_UNDER ? tonemap(basin_hit(p, normalize(r), dr)) : tonemap(basin_mirror_simple(p, normalize(r), dr));   // outside Snell's window: the pool itself (total internal reflection)
+    mirror = under_fog(mirror, dr);
     vec3 t = refract(dir, nd, 1.333);
     if (dot(t, t) < 1e-6) return mirror;
     float cos_t = max(t.y, 0.0);                                                     // Schlick on the air side (n1 > n2)
@@ -160,26 +161,40 @@ void main() {
     vec3 v = to_cam / dist;
 
     vec2 slope = ambient_slope(world_pos.xz, t);
-    if (water_quality.x > 0.5) {
+    if (Q_SIM) {
         vec3 s = sim_slope(world_pos.xz);
         slope = slope * 0.5 + s.xy * water_glint.z;
     } else {
-        for (int i = 0; i < RING_SLOTS; i++) slope += ring_slope(world_pos.xz, water_rings[i], t);
+        for (int i = 0; i < RING_SLOTS; i++) {                                           // only the live rings (an empty loop over 12 dead ones cost 0.5-0.8 ms per frame)
+            if (float(i) >= water_time.y) break;
+            slope += ring_slope(world_pos.xz, water_rings[i], t);
+        }
     }
-    vec2 ripple = water_quality.y > 0.5 && water_caustic2.y + water_caustic2.z > 0.0 ? pool_wave(world_pos.xz, t).yz : vec2(0.0);   // the small ripples (G11), the ones that make the caustics
+    vec2 ripple = Q_BOTTOM && water_caustic2.y + water_caustic2.z > 0.0 ? pool_wave(world_pos.xz, t).yz : vec2(0.0);   // the small ripples (G11), the ones that make the caustics
     ripple *= 1.0 - smoothstep(0.01, 0.05, length(fwidth(world_pos.xz)));             // far away a pixel covers several ripples: they would only sparkle
     vec2 s_top = slope + ripple * water_caustic2.z, s_under = slope + ripple * water_caustic2.y;
     vec3 n = normalize(vec3(-s_top.x, 1.0, -s_top.y));                                 // reflection, Fresnel, sparkle
     vec3 n_under = normalize(vec3(-s_under.x, 1.0, -s_under.y));                       // the view into the water
 
     // G12: the camera under the surface, or a wet pixel of the split frame
+    // G13: two more lite builds fix what the frame already knows (game/water.py `set_view`, from game/underwater.py): VIEW_DRY = no pixel can be wet,
+    // VIEW_UNDER = every pixel is wet and the eye is below the surface plane. The branch that is then never taken (the basin trace of the split frame) is not
+    // compiled in: fewer registers, measured -0.54 ms per frame looking up from the deep end at 1440 x 810. Same picture as the plain lite build.
+#if defined(VIEW_UNDER)
+    bool below = true;
+    bool wet = true;
+#elif defined(VIEW_DRY)
+    bool below = look_camera_pos.y < world_pos.y;
+    bool wet = false;
+#else
     bool below = look_camera_pos.y < world_pos.y;
     bool wet = pixel_wet();
+#endif
     if (below || wet) {
         vec3 dir = -v;
         vec3 c;
         if (below && wet) {                                                          // looking up from under the water: Snell's window
-            vec2 s_snell = look_under3.x > 0.5 ? slope + ripple * look_under3.y : vec2(0.0);
+            vec2 s_snell = Q_FULL_UNDER ? slope + ripple * look_under3.y : vec2(0.0);
             c = underside(world_pos, dir, normalize(vec3(-s_snell.x, 1.0, -s_snell.y)));
         } else if (below) {                                                          // the dry (upper) part of the port while the eye dips just under: the room straight on
             c = room_reflection(world_pos, dir) * water_look.w;
@@ -199,7 +214,7 @@ void main() {
     float fresnel = f0 + (1.0 - f0) * pow(1.0 - max(dot(n, v), 0.0), 5.0);
 
     vec3 body;
-    if (water_quality.y > 0.5) {
+    if (Q_BOTTOM) {
         vec3 d = refract(-v, n_under, ETA);
         body = tonemap(see_bottom(world_pos, d));
     } else {
@@ -209,7 +224,7 @@ void main() {
     }
     vec3 color = mix(body, mirrored, fresnel);
 
-    if (water_quality.w > 0.5) {                                                    // the sun's sparkle: a mirror image of the sun on the wave facets, only where the sun reaches the water
+    if (Q_GLINT) {                                                                  // the sun's sparkle: a mirror image of the sun on the wave facets, only where the sun reaches the water
         float lit = sun_visible(world_pos);
         if (lit > 0.0) {
             float g = pow(max(dot(r, look_sun_dir), 0.0), water_glint.y) * water_glint.x * fresnel * lit;

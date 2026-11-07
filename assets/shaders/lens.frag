@@ -12,7 +12,10 @@ uniform vec3 lens_tint;
 uniform vec3 lens_frame;        // current distortion, time, turn speed (deg/s, positive = right)
 uniform vec3 lens_shake;        // frame shake (core/lens.py frame_shake): content offset dx, dy in p units, CCW roll in radians
 uniform vec4 lens_film;         // G12: x film edge y (covered below), y film strength (0 = none), z film wobble, w zoom (1 = none)
-uniform vec4 lens_wet;          // x drop refraction, y meniscus thickness (m on the port), zw -
+uniform vec4 lens_wet;          // x drop refraction, y meniscus thickness (m on the port), z number of drops (packed first), w -
+uniform vec4 lens_lod;          // G13: x = log2(scene buffer / window): mip levels are picked in WINDOW terms, so a 75% buffer blooms over the same screen area
+// G13: LENS_DRY = the build used while the lens is dry (no film, no drop, no waterline band in view: game/lens.py picks it every frame). It leaves the wet code out
+// (an unused branch still costs registers on Intel; measured 2.78 -> 2.19 ms at 1080p). Both builds are compiled at start-up.
 uniform vec4 lens_drops[12];    // x, y (p units), radius (half widths), alpha
 #define UNDER_NO_FRAGCOORD
 #include "underwater.glsl"
@@ -45,6 +48,7 @@ void main() {
     // G12 wet lens: the film (below its running edge) wobbles and softens the picture, each drop pulls its picture from nearer its centre
     vec2 wo = vec2(0.0);
     float shade = 1.0, glint = 0.0, film = 0.0;
+#ifndef LENS_DRY
     float film_edge = lens_film.x + 0.025 * sin(p.x * 7.0 + 1.3) + 0.012 * sin(p.x * 19.0);   // the running edge is not straight
     if (lens_film.y > 0.0 && p.y < film_edge) {
         float edge = film_edge - p.y;
@@ -57,6 +61,7 @@ void main() {
         shade *= 1.0 - 0.18 * bead * film;
     }
     for (int i = 0; i < 12; i++) {
+        if (float(i) >= lens_wet.z) break;
         vec4 dr = lens_drops[i];
         if (dr.z <= 0.0) continue;
         vec2 dq = vec2(p.x - dr.x, (p.y - dr.y) / lens_warp.x);
@@ -69,10 +74,12 @@ void main() {
         glint += pow(max(dot(dq / dr.z, vec2(-0.5, 0.6)), 0.0), 6.0) * dr.w;   // its highlight (light from above-left)
     }
     src += wo;
+#endif
     src.x += lens_motion.y * turn * p.y;                 // rolling shutter: the top and bottom rows are read at two different times
     src /= lens_motion.w;                                // overscan: the scene texture covers a wider view, the shown frame is its middle
     // G12 meniscus: where the waterline crosses the port the water bulges: the picture is pushed away from the line, a dark core with a light rim
     float men = 0.0, men_core = 0.0, men_side = 0.0;
+#ifndef LENS_DRY
     if (look_under2.x > 0.5 && lens_wet.y > 0.0) {
         float h = port_h(src);
         men = 1.0 - smoothstep(0.0, lens_wet.y, abs(h));
@@ -80,6 +87,7 @@ void main() {
         men_side = h > 0.0 ? 1.0 : 0.0;
         src.y += men * 0.012 * (h > 0.0 ? 1.0 : -1.0);
     }
+#endif
     vec2 uv_g = src * 0.5 + 0.5;
     float ca = lens_warp.y * r2;
     vec2 uv_r = (src * (1.0 + ca)) * 0.5 + 0.5;
@@ -99,14 +107,16 @@ void main() {
         c = sum * 0.2;
     }
 
-    if (film > 0.0) c = mix(c, textureLod(lens_scene, uv_g, 2.0).rgb, 0.45 * film);   // the film softens what is behind it
+#ifndef LENS_DRY
+    if (film > 0.0) c = mix(c, textureLod(lens_scene, uv_g, 2.0 + lens_lod.x).rgb, 0.45 * film);   // the film softens what is behind it
     c *= shade;
     c += vec3(0.55) * glint;
     c = c * (1.0 - 0.65 * men_core) + vec3(0.30, 0.36, 0.38) * (men - men_core) * (0.4 + 0.6 * men_side);
+#endif
 
     // flare: taken from the coarse mip levels of the image itself, bright areas spread outward
     if (lens_grade.z > 0.0) {
-        vec3 b = textureLod(lens_scene, uv_g, 3.5).rgb * 0.55 + textureLod(lens_scene, uv_g, 5.5).rgb * 0.45;
+        vec3 b = textureLod(lens_scene, uv_g, 3.5 + lens_lod.x).rgb * 0.55 + textureLod(lens_scene, uv_g, 5.5 + lens_lod.x).rgb * 0.45;
         c += max(b - lens_grade.w, 0.0) / (1.0 - lens_grade.w) * lens_grade.z;
     }
 

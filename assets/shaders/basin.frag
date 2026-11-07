@@ -28,6 +28,6 @@ void main() {
         frag_color = vec4(tonemap(shade_basin(world_pos, normalize(world_normal), true) * through + water_shallow.rgb * (1.0 - through)), 1.0);
         return;
     }
-    vec3 c = tonemap(shade_basin(world_pos, normalize(world_normal), look_under3.x > 0.5));
+    vec3 c = tonemap(shade_basin(world_pos, normalize(world_normal), Q_FULL_UNDER));
     frag_color = vec4(under_fog(c, dist), 1.0);
 }

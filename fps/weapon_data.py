@@ -617,10 +617,15 @@ class GraphicsLevel:
     dust: bool                    # dust motes glinting in the sun beams
     under: int = 1                # G12 under the water: 0 simple (fog only: no caustics on the basin, flat surface seen from below), 1 full (caustics, waves bend the Snell window)
     wetlens: bool = True          # G12 wet lens after surfacing: water film + drops refracting the image
+    render_scale: float = 1.0     # G13: world + gun are drawn at this share of the window size, the lens pass upscales (text and panels stay sharp); core/graphics.py RENDER_SCALES
+    smoke_simple: bool = False    # G13: gun smoke shaded per corner (colour, haze, size fade interpolated): ~40% cheaper while firing
+
+
+SMOKE_SIMPLE_KEEP = 0.5           # G13: share of the gun smoke puffs drawn when the smoke is 'Đơn giản' (core/smoke.py thin_items); the M4's full-auto smoke cost ~2 ms at 1440 x 810
 
 
 GRAPHICS_LEVELS = (
-    GraphicsLevel('Thấp', 0, 0, False, 0, False, 0, 0.0, False, False, False, 0, False),
+    GraphicsLevel('Thấp', 0, 0, False, 0, False, 0, 0.0, False, False, False, 0, False, 0.75, True),     # G13: 3D at 75%, simple smoke: weak laptops (UHD 620 class)
     GraphicsLevel('Vừa', 128, 256, True, 1, True, 1, 0.6, True, True, False, 1, True),
     GraphicsLevel('Cao', 256, 512, True, 2, True, 3, 1.0, True, True, True, 1, True),
 )

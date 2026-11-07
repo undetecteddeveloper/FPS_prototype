@@ -50,7 +50,8 @@ class WorldLook:
         self.world = world
         self.light = light
         self.shader = self._make_shader()
-        self.sky = Sky()
+        pool = world.get('pool')
+        self.sky = Sky(holes=pool.sky_holes() if pool is not None else None)      # indoors the sky is only seen through the window holes (G13)
         render = application.base.render
 
         render.set_shader_input('look_fog', (*params.fog_color, params.fog_density))

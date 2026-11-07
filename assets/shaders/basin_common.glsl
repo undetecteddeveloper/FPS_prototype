@@ -17,6 +17,23 @@ uniform vec4 water_amb_grid;        // x0, z0, step (m), -
 
 const float ETA = 1.0 / 1.333;
 
+// G13: a node whose graphics flags are all those of level Low is drawn by a build with POOL_LITE defined (game/water.py, game/underwater.py; core/graphics.py
+// lite_water / lite_basin): the switched-off features become compile-time false, so their code is not in the shader at all. Same picture; on Intel an unused branch
+// still costs registers (narrower SIMD), measured 0.5-1 ms per frame at 1080p. Without POOL_LITE the F2 flags decide per frame, as before.
+#ifdef POOL_LITE
+#define Q_SIM false
+#define Q_BOTTOM false
+#define Q_CAUS false
+#define Q_GLINT false
+#define Q_FULL_UNDER false
+#else
+#define Q_SIM (water_quality.x > 0.5)
+#define Q_BOTTOM (water_quality.y > 0.5)
+#define Q_CAUS (water_quality.z > 0.5)
+#define Q_GLINT (water_quality.w > 0.5)
+#define Q_FULL_UNDER (look_under3.x > 0.5)
+#endif
+
 // height of the pool bottom at z (shelf / ramp / deep floor; steps ignored)
 float bottom_y(float z) {
     float k = clamp((z - water_ramp.x) / (water_ramp.y - water_ramp.x), 0.0, 1.0);
@@ -76,7 +93,7 @@ vec3 shade_basin(vec3 hit, vec3 n, bool caustics) {
     vec3 sun = look_sun_color * (lit * transmit * max(dot(n, -sun_w), 0.0)) * exp(-water_absorb.rgb * s);
 
     vec3 sun_albedo = albedo;
-    if (caustics && water_quality.z > 0.5) {
+    if (caustics && Q_CAUS) {
         float c = caustic_at(hit, sun_w);
         c /= 1.0 + max(c - 1.0, 0.0) / water_caustic.w;                                // the brightest lines saturate softly instead of blowing out
         c = mix(1.0, c, n.y > 0.5 ? 1.0 : water_caustic.z);                             // walls: fainter (an approximation, see caustic_at)
@@ -86,4 +103,13 @@ vec3 shade_basin(vec3 hit, vec3 n, bool caustics) {
         sun *= c * water_caustic.x;
     }
     return albedo * sky + sun_albedo * sun;
+}
+
+// G13, 'Dưới nước: Đơn giản' (level Low): the basin seen in the mirror of the surface from below (total internal reflection), without tracing the basin boxes.
+// At that range the underwater fog covers most of it: the basin's average tile colour under the baked ambient, at the distance where the mirrored ray reaches the
+// floor plane under the surface point (the fog uses `dist`). The full trace cost ~3.6 ms per frame at 1440 x 810 looking up from the deep end (G13).
+vec3 basin_mirror_simple(vec3 p, vec3 r, out float dist) {
+    dist = min((p.y - bottom_y(p.z)) / max(-r.y, 0.05), 40.0);
+    vec3 hit = p + r * dist;
+    return water_basin.rgb * 0.914 * grid_ambient(water_amb_up, hit.xz) * water_absorb.a;     // 0.914 = the tile pattern's average (basin_tile_shade)
 }

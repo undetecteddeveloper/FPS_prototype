@@ -9,7 +9,7 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 - Game chết / treo / cửa sổ đen lúc khởi động: mở `logs\crash.log` (dòng đầu mỗi lần chạy ghi commit trống; crash native và treo > 150 s để lại dấu vết Python), rồi `docs/notes/troubleshooting.md`. Nguyên nhân đã biết (7/11/2026): máy hết commit (pagefile 3 GB). Đừng giết tiến trình theo tên (`Stop-Process python`): đó có thể là game của người dùng.
 - Test thuần (toán + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest` (~30 s).
 - `tools\selftests\*` HIỆN KHÔNG CHẠY ĐƯỢC (dựng bằng bia và phòng bắn đã xoá 7/11/2026; người dùng bảo không cần). Cổng kiểm tra = pytest + chạy game thật. Nhiều game cùng lúc làm bài đo thời gian trượt oan: bọc `.venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh gốc>`.
-- Đo FPS: `tools\measure\g8_perf.py --gun glock|m4 [--map flat]` (6 tình huống, ngưỡng 55; máy nóng/bận cho số thấp, đo lại một mình). Map hồ bơi: `tools\measure\pool_check.py [--gun glock]` (26 mục bằng game thật), `pool_shots.py` (chụp ảnh các góc). Kiểm rút/đổi súng: `tools\measure\swap_check.py`. Chụp tư thế: `tools\measure\g8_shots.py`.
+- Đo FPS: `tools\measure\g8_perf.py --gun glock|m4 [--map flat]` (9 tình huống, ngưỡng 55; máy nóng/bận cho số thấp, đo lại một mình). Máy yếu (G13): `tools\measure\weak_pc.py --gun m4|glock` (ước UHD 620 từ ms GPU / CPU đo thật; `docs/notes/performance.md`). Map hồ bơi: `tools\measure\pool_check.py [--gun glock]` (26 mục bằng game thật), `pool_shots.py` (chụp ảnh các góc). Kiểm rút/đổi súng: `tools\measure\swap_check.py`. Chụp tư thế: `tools\measure\g8_shots.py`.
 - Công cụ đo/dựng: `tools\measure\`, `tools\build\` (dựng WAV). Danh mục + công tắc tắt để đo (`free_aim=False`, `lens=False`...): `docs/notes/tools.md`.
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15).
 
@@ -35,6 +35,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - Thế giới mặc định là phòng hồ bơi trong nhà (G9, `docs/notes/pool-hall.md`): dựng từ hộp, ánh sáng NƯỚNG SẴN (mặt trời cố định), nước phản chiếu căn phòng chụp sẵn.
   G10: nước TRONG (thấy đáy bằng tia khúc xạ dò trong shader), sóng mô phỏng trên GPU, hồ dốc 0,5 → 2 m (lội tới ngực), tia nắng, giọt nước, sàn ướt, bụi; **F2 mở bảng đồ hoạ** (`game/graphics_panel.py`: mức chung, khử răng cưa MSAA Tắt / 2x / 4x, từng hiệu ứng, hiện FPS; lưu `user_graphics.json`). Hiệu ứng mới nào cũng phải có dòng trong `core/graphics.py` (`GraphicsSettings`, `OPTIONS`) và đổi được ngay (không biên dịch lại shader). `--map flat` còn khối đất phẳng trắng cũ để so FPS. Không bia, không bóng đổ động; đừng dựng lại phòng bắn / bia khi chưa được hỏi.
   G12: đi bộ xuống đáy 2 m, camera dưới nước (`core/underwater.py`, `game/underwater.py`, `underwater.glsl` dùng chung ở mọi shader: pixel nào nhìn qua nước), lòng hồ thành lưới thật (`basin.*`), khung tách đôi ở mặt nước, ống kính ướt khi trồi lên (`core/wetlens.py`), dưới nước không bắn được.
+  G13 (hiệu năng, `docs/notes/performance.md`): mức Thấp vẽ 3D ở 75% (F2 "Độ phân giải 3D"), khói đơn giản (F2 "Khói súng"); nước / lòng hồ / phòng / ống kính / khói có BẢN BIÊN DỊCH THAY THẾ (`POOL_LITE`, `VIEW_DRY` / `VIEW_UNDER`, `LENS_DRY`, `SMOKE_LITE`) chọn bằng Python, mỗi bản phải được vẽ thử trong `Game.warm_shader_builds` (trình điều khiển Intel biên dịch ở lần vẽ đầu: không vẽ thử = khựng 50-150 ms). Thêm bản mới thì thêm vào đó.
   Sửa hình học map (`MapData`) hay nắng (`sun_dir`, `sun_color`, `sky_irradiance`) thì game tự nướng lại (~60 s). Numpy chỉ dùng lúc nướng và ở test.
 - `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
 
@@ -79,5 +80,6 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - `docs/notes/ground-sky.md` (7/11/2026): nền, ánh sáng, bầu trời, Glock, `gltf_patch`, đổi súng / rút súng, những thứ đã xoá.
 - `docs/notes/range-lights-signs.md` (G6; phần phòng/đèn/bia/biển đã xoá, còn đúng: shake, bảng F1, foley, bước chân).
 - `docs/notes/pool-hall.md` (G9-G12): map phòng hồ bơi, camera dưới nước, nước, ánh sáng nướng sẵn, phản chiếu, bậc thang / va chạm, số đo.
+- `docs/notes/performance.md` (G13): máy yếu ở mức Thấp, cách đo GPU / CPU và quy đổi, bẫy đo, bản biên dịch thay thế, số đo trước / sau.
 - `docs/notes/bodycam.md` (G7): FreeLook / FreeAim, headcam, lens, exposure, ánh sáng thống nhất, âm thanh ElevenLabs.
 - `docs/notes/ai-assets.md`: sinh tài nguyên AI, credit, skill học trước, thư mục review. `docs/notes/multiplayer.md`: hướng multiplayer.

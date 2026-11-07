@@ -62,6 +62,16 @@ def coverage(line: tuple, amp: float = 0.0) -> tuple:
     return min(corners) - margin < 0.0, max(corners) + margin < 0.0
 
 
+def band_visible(line: tuple, half_width: float, amp: float = 0.0, reach: float = 1.25) -> bool:
+    """G13: can some point of [-reach, reach]^2 have |h| < half_width (the meniscus band of lens.frag around the waterline), wobble included?
+    The lens reads the render a little past [-1, 1] (fisheye corners, wet-lens offsets), hence `reach`. False = the lens can use its dry build."""
+    a, b, c = line
+    lo = c - (abs(a) + abs(b)) * reach
+    hi = c + (abs(a) + abs(b)) * reach
+    margin = abs(amp) * sum(w for _, _, w in WOBBLE) + half_width
+    return lo - margin < 0.0 < hi + margin
+
+
 def wet_share(line: tuple, n: int = 16) -> float:
     """Share of the frame that is under the water (0 dry .. 1 fully under), without the wobble: a grid count, for the wet lens and the zoom."""
     wet = 0

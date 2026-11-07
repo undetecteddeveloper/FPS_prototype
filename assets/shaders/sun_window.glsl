@@ -3,6 +3,7 @@
 // and the outer wall face (mirror of core/poolmap.py `sun_visible`; tests/test_graphics.py checks it against a ray cast on every box).
 uniform vec4 look_windows[4];       // z0, z1, y0, y1 of each window hole
 uniform vec4 look_window_wall;      // x = inner wall face, y = outer wall face, z = number of windows, w = soft edge (m)
+uniform vec4 look_window_box;       // G13: z0, z1, y0, y1 around every hole, grown by the soft edge (game/pool.py _bind_sun_windows)
 uniform vec4 look_shaft;            // x = density (1/m), y = anisotropy g, z = samples per pixel (0 = off), w = dust 0..1
 uniform vec4 look_shaft2;           // x = range (m), y = clock (s), zw unused
 
@@ -16,11 +17,17 @@ float sun_visible(vec3 p) {
     vec3 s = look_sun_dir;
     if (s.x <= 1e-4 || p.x > look_window_wall.x) return 0.0;
     vec2 qa = p.zy + s.zy * ((look_window_wall.x - p.x) / s.x);
+    // G13: outside the box around all holes every window_inside below is exactly 0: skip the loop (most of the basin and room is not sunlit;
+    // the loop cost ~1 ms per frame on the basin seen from under the water, 1440 x 810)
+    if (qa.x < look_window_box.x || qa.x > look_window_box.y || qa.y < look_window_box.z || qa.y > look_window_box.w) return 0.0;
     vec2 qb = p.zy + s.zy * ((look_window_wall.y - p.x) / s.x);
     float best = 0.0;
+    float e = look_window_wall.w;
     for (int i = 0; i < 4; i++) {
         if (float(i) >= look_window_wall.z) break;
-        best = max(best, window_inside(qa, look_windows[i], look_window_wall.w) * window_inside(qb, look_windows[i], look_window_wall.w));
+        vec4 w = look_windows[i];
+        if (qa.x < w.x - e || qa.x > w.y + e || qa.y < w.z - e || qa.y > w.w + e) continue;      // G13: outside this hole (+ soft edge) its test is exactly 0
+        best = max(best, window_inside(qa, w, e) * window_inside(qb, w, e));
     }
     return best;
 }
@@ -52,6 +59,9 @@ vec2 clip_span(vec2 t, float a, float b, float lo, float hi) {
 // the sun onto a wall plane is linear in the point, so each window cuts one interval [t0, t1] out of the ray. Only the dust needs samples: look_shaft.z per lit interval.
 // (Marching 16 steps x 4 windows per pixel cost 7 ms per frame here; this costs a few dozen instructions.)
 vec3 sun_shaft(vec3 eye, vec3 p) {
+#ifdef POOL_LITE
+    return vec3(0.0);                    // G13: a lite build has no shafts (level Low); see basin_common.glsl
+#endif
     float samples = look_shaft.z;
     vec3 s = look_sun_dir;
     if (samples < 0.5 || look_shaft.x <= 0.0 || s.x <= 1e-4) return vec3(0.0);

@@ -59,6 +59,21 @@ def test_settings_file_roundtrip_and_bad_values_fall_back():
     assert bad.aa == 0 and bad.sim == 2 and bad.dust is False
 
 
+def test_render_scale_is_75_on_low_only_and_old_files_keep_their_preset():
+    """G13: Thấp draws the 3D image at 75%; Vừa / Cao stay at 100%; a file saved before the row existed keeps its preset (no surprise 'Tuỳ chỉnh')."""
+    import json
+    from fps.core.graphics import RENDER_SCALES, from_json, preset_of, resolve, settings_for, to_json
+    assert [resolve(settings_for(i)).render_scale for i in range(3)] == [0.75, 1.0, 1.0]
+    for i in range(3):
+        old = json.loads(to_json(settings_for(i)))
+        del old['graphics']['scale']
+        del old['graphics']['smoke']
+        s = from_json(json.dumps(old))
+        assert preset_of(s) == i and resolve(s).render_scale == GRAPHICS_LEVELS[i].render_scale
+        assert resolve(s).smoke_simple == GRAPHICS_LEVELS[i].smoke_simple
+    assert all(0.0 < r <= 1.0 for r in RENDER_SCALES)
+
+
 def _unit(v):
     n = math.sqrt(sum(c * c for c in v))
     return tuple(c / n for c in v)
@@ -113,3 +128,36 @@ def test_basin_holds_the_steps_under_the_water():
     assert hi[1] == pytest.approx(MapData().water_y) and lo[1] == pytest.approx(MapData().pool_deep)
     assert len(steps) == 1 + MapData().steps                                        # the shallow shelf + the south steps (no north steps: 2 m deep there)
     assert all(s_hi[1] < hi[1] for _, s_hi in steps)
+
+
+def test_lite_builds_only_when_every_feature_they_drop_is_off():
+    """G13: Low gets the lite water / basin / room shaders; Vừa / Cao never do; turning one feature back on in F2 goes back to the full build of that node."""
+    from dataclasses import replace
+    from fps.core.graphics import lite_basin, lite_room, lite_water
+    low, mid, high = GRAPHICS_LEVELS
+    assert lite_water(low) and lite_basin(low) and lite_room(low)
+    for g in (mid, high):
+        assert not lite_water(g) and not lite_basin(g) and not lite_room(g)
+    assert not lite_water(replace(low, glint=True)) and lite_basin(replace(low, glint=True))
+    assert not lite_room(replace(low, shaft_steps=1)) and not lite_water(replace(low, shaft_steps=1))
+    assert not lite_basin(replace(low, under=1)) and not lite_water(replace(low, under=1))
+
+
+def test_window_box_early_out_never_drops_sunlight():
+    """G13: sun_window.glsl skips its window loop when the ray toward the sun meets the inner wall outside window_box; there the soft sun test must be 0."""
+    from fps.core.poolmap import window_box
+    d, look = MapData(), LookData()
+    rects, wall = window_rects(d)
+    soft = 0.03
+    box = window_box(rects, soft)
+    s = _unit(look.sun_dir)
+    rnd = random.Random(3)
+    outside = 0
+    for _ in range(4000):
+        p = (rnd.uniform(-d.room_x / 2, wall[0]), rnd.uniform(-2.2, d.ceiling), rnd.uniform(-d.room_z / 2, d.room_z / 2))
+        k = (wall[0] - p[0]) / s[0]
+        qz, qy = p[2] + s[2] * k, p[1] + s[1] * k
+        if qz < box[0] or qz > box[1] or qy < box[2] or qy > box[3]:
+            outside += 1
+            assert sun_visible(p, s, rects[:4], wall, soft) == 0.0, p
+    assert outside > 100

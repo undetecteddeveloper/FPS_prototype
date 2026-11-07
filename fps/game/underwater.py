@@ -10,7 +10,8 @@ from panda3d.core import Geom, GeomNode, GeomTriangles, GeomVertexData, GeomVert
 from fps.core import underwater as uw
 from fps.core.wetlens import WetLens
 from fps.game.lens import DROP_SLOTS
-from fps.game.shaders import load_glsl
+from fps.core.graphics import lite_basin
+from fps.game.shaders import load_glsl, prepare
 from fps.core.poolmap import basin_faces, ramp_quad
 from fps.weapon_data import GraphicsLevel, UnderwaterData, WaterData
 
@@ -54,7 +55,11 @@ class Underwater:
         self.rect = (x0, x1, z0, z1)
         self.basin = pool.water.node.attach_new_node(basin_node(pool.pm))       # child of the water node: inherits every water_* input
         self.basin.set_two_sided(True)
-        self.basin.set_shader(load_glsl('basin'), 2)
+        self.basin_shaders = {False: load_glsl('basin'), True: load_glsl('basin', defines=('POOL_LITE',))}    # G13: full / lite (Low) build
+        for sh in self.basin_shaders.values():
+            prepare(sh)
+        self.basin_lite = False
+        self.basin.set_shader(self.basin_shaders[False], 2)
         self.warm_frames = 3                 # drawn (behind the water) the first frames so its shader compiles at start, not at the first dip
         self.wetlens = WetLens(d)
         self.full_quality = True
@@ -67,6 +72,7 @@ class Underwater:
         self.any_wet = self.all_wet = self.eye_under = False
         self.share = 0.0
         self.surface = self.water_y
+        self._amp = 0.0
         self.apply_params()
 
     def apply_params(self):
@@ -79,6 +85,10 @@ class Underwater:
     def set_level(self, g: GraphicsLevel):
         self.full_quality = g.under > 0
         self.wetlens_on = g.wetlens
+        lite = lite_basin(g)
+        if lite != self.basin_lite:
+            self.basin_lite = lite
+            self.basin.set_shader(self.basin_shaders[lite], 2)
         self.apply_params()
 
     def update(self, dt: float, eye, right, up, aspect: float, buffer_size: tuple, speed: float):
@@ -93,8 +103,12 @@ class Underwater:
             self.surface = self.water_y
             self.line = (0.0, 0.0, 10.0)                                       # on the deck: never wet
         amp = d.wobble + d.wobble_speed * speed
+        self._amp = amp
         self.any_wet, self.all_wet = uw.coverage(self.line, amp)
         self.eye_under = self.line[2] < 0.0
+        # G13: the water's lite build can drop the branches this frame cannot take (water.frag VIEW_DRY / VIEW_UNDER). 'under' needs the eye below the FLAT
+        # quad too (the shader's `below` test), not only below the wavy surface
+        self.pool.water.set_view('dry' if not self.any_wet else ('under' if self.all_wet and ey < self.water_y - 1e-3 else 'any'))
         self.share = (1.0 if self.all_wet else uw.wet_share(self.line, SHARE_GRID)) if self.any_wet else 0.0
         a, b, c = self.line
         u = self.light.under
@@ -120,7 +134,7 @@ class Underwater:
         d, z = self.d, self.zoom_mix
         edge, strength = self.wetlens.film() if self.wetlens_on else (-1.0, 0.0)
         drops = self.wetlens.packed(DROP_SLOTS) if self.wetlens_on else []
-        return edge, strength, d.film_blur, 1.0 + (d.zoom - 1.0) * z, d.warp * z, drops, d.drop_refract, d.meniscus
+        return edge, strength, d.film_blur, 1.0 + (d.zoom - 1.0) * z, d.warp * z, drops, d.drop_refract, d.meniscus, self.line, self._amp
 
 
 class UnderwaterAudio:

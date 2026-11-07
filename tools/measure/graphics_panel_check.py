@@ -70,7 +70,7 @@ class S(Entity):
             ms = (pytime.perf_counter() - t0) * 1000
             self.dts.clear()
             yield from self.frames(15)
-            buf = game.lens.manager.buffers[-1]
+            buf = game.lens.scene_buffer
             got = buf.get_fb_properties().get_multisamples()
             check(f'anti-aliasing {want}x: the scene buffer has {want} samples, switch is quick', got >= want and game.gfx.aa == want and ms < 300,
                   f'mẫu {got}, đổi {ms:.0f} ms, khung chậm nhất sau đó {max(self.dts) * 1000:.0f} ms')
@@ -105,7 +105,7 @@ class S(Entity):
         # back to off for a fair look
         game.apply_graphics(type(game.gfx)(**{**game.gfx.__dict__, 'aa': 0}))
         yield from self.frames(10)
-        check('anti-aliasing off again: plain buffer', game.lens.manager.buffers[-1].get_fb_properties().get_multisamples() == 0)
+        check('anti-aliasing off again: plain buffer', game.lens.scene_buffer.get_fb_properties().get_multisamples() == 0)
 
 
 S()

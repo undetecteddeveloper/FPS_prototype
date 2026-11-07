@@ -157,3 +157,18 @@ def test_muzzle_puffs_stay_in_the_cone_and_slow_ones_form_a_core():
         speeds.append(s)
         assert math.degrees(math.acos(vz / s)) <= data.cone + 1e-6
     assert max(speeds) > 2.5 * min(speeds)
+
+
+def test_thin_items_keeps_a_stable_half_and_keeps_the_cloud_opacity():
+    """G13 'Khói súng: Đơn giản': the same puffs every frame (by seed), about half of them, each denser so two stacked puffs' opacity is kept."""
+    import random
+    from fps.core.smoke import thin_items
+    rnd = random.Random(5)
+    items = [(rnd.random(), 0.0, 0.0, 0.1, rnd.uniform(0.0, 0.4), rnd.random()) for _ in range(2000)]
+    kept = thin_items(items, 0.5)
+    assert 900 < len(kept) < 1100
+    assert {k[5] for k in kept} == {i[5] for i in items if i[5] < 0.5}            # chosen by seed only: no flicker when the list order changes
+    assert thin_items(list(reversed(items)), 0.5) == list(reversed(kept))
+    for (x, y, z, r, a, s), k in zip([i for i in items if i[5] < 0.5], kept):
+        assert abs(k[4] - (1.0 - (1.0 - a) ** 2)) < 1e-12 and k[:4] == (x, y, z, r) and a <= k[4] <= 2 * a + 1e-12
+    assert thin_items(items, 1.0) is items

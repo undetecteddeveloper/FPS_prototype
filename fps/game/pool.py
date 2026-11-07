@@ -15,9 +15,10 @@ from ursina import Entity
 
 from fps.core.exposure import sun_vector, target_exposure
 from fps.core.poolmap import (AmbientGrid, PoolMap, bake_key, build_map, colliders, lightmap_uv, pack_atlas, probe_uv, rail_meshes, pool_terrain, reflect_key,
-                              window_rects)
+                              window_box, window_rects)
 from fps.core.terrain import Terrain
-from fps.game.shaders import load_glsl
+from fps.core.graphics import lite_room
+from fps.game.shaders import load_glsl, prepare
 from fps.game.water import WaterSurface
 from fps.weapon_data import GameParams, GraphicsLevel, MapData
 
@@ -54,7 +55,11 @@ class PoolHall:
         self.entity = Entity(add_to_scene_entities=False)
         self.node = self.entity.attach_new_node(self._build_mesh())
         self.node.set_two_sided(True)
-        self.node.set_shader(load_glsl('room'), 1)
+        self.room_shaders = {False: load_glsl('room'), True: load_glsl('room', defines=('POOL_LITE',))}     # G13: full / lite (Low) build
+        for sh in self.room_shaders.values():
+            prepare(sh)
+        self.room_lite = False
+        self.node.set_shader(self.room_shaders[False], 1)
         self.node.set_shader_input('room_lightmap', self.lightmap)
         self.node.set_shader_input('room_params', Vec4(self.e_max, 0, 0, 0))
         self.water = WaterSurface(self.pm, params.water, self.ambient, sun_vector(params.look))
@@ -212,16 +217,24 @@ class PoolHall:
         self.shaft2 = PTA_LVecBase4f.empty_array(1)
         self._shaft_steps = 0
         self._clock = 0.0
-        self._sun_inputs = (wins, Vec4(wall[0], wall[1], min(len(rects), 4), 0.03))
+        edge = 0.03
+        box = Vec4(*window_box(rects, edge))                   # G13: every hole together, grown by the soft edge (outside it sun_visible is exactly 0)
+        self._sun_inputs = (wins, Vec4(wall[0], wall[1], min(len(rects), 4), edge), box)
         for n in (self.node, self.water.node):
             self._bind_sun(n)
         self.splash = None
         self._push_shaft()
 
+    def sky_holes(self) -> tuple:
+        """(window hole rects, x of the outer wall face): where the sky can be seen from inside (game/sky.py draws it only there)."""
+        rects, wall = window_rects(self.data)
+        return rects, wall[1]
+
     def _bind_sun(self, n):
-        wins, wall = self._sun_inputs
+        wins, wall, box = self._sun_inputs
         n.set_shader_input('look_windows', wins)
         n.set_shader_input('look_window_wall', wall)
+        n.set_shader_input('look_window_box', box)
         n.set_shader_input('look_shaft', self.shaft)
         n.set_shader_input('look_shaft2', self.shaft2)
 
@@ -250,6 +263,10 @@ class PoolHall:
     def set_level(self, g: GraphicsLevel):
         """Graphics level (F2): everything the map draws."""
         self.room_quality.set_element(0, Vec4(1.0 if g.wet else 0.0, 0, 0, 0))
+        lite = lite_room(g)
+        if lite != self.room_lite:
+            self.room_lite = lite
+            self.node.set_shader(self.room_shaders[lite], 1)
         self._shaft_steps = g.shaft_steps
         self.water.set_level(g)
         if self.splash:

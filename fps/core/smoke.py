@@ -43,6 +43,16 @@ def _basis(d) -> tuple:
     return (ux, uy, uz), (dy * uz - dz * uy, dz * ux - dx * uz, dx * uy - dy * ux)
 
 
+def thin_items(items: list, keep: float) -> list:
+    """G13, 'Khói súng: Đơn giản': draw only the puffs whose stable seed is below `keep` (the same puffs every frame: no flicker), each one denser so the
+    cloud keeps about the same opacity: alpha' = 1 - (1 - alpha) ^ (1 / keep), the opacity 1 / keep stacked puffs would give. The simulation is untouched.
+    `items` = SmokeSim.draw_items() tuples (x, y, z, radius, alpha, seed)."""
+    if keep >= 1.0:
+        return items
+    k = 1.0 / max(keep, 1e-3)
+    return [(x, y, z, r, 1.0 - (1.0 - min(a, 1.0)) ** k, s) for x, y, z, r, a, s in items if s < keep]
+
+
 def cone_direction(d, cone_deg: float, rng: random.Random) -> tuple:
     """A random unit vector within `cone_deg` of the unit vector d (uniform over the cone's cross-section)."""
     if cone_deg <= 0:

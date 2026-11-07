@@ -35,6 +35,7 @@ from fps.game.graphics_panel import GraphicsPanel  # noqa: E402
 from fps.game.lens import Lens  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
+from fps.game.shaders import load_glsl  # noqa: E402
 from fps.game.smoke import GunSmoke  # noqa: E402
 from fps.game import sysmem  # noqa: E402
 from fps.game.splash import WaterSplash  # noqa: E402
@@ -165,7 +166,7 @@ class Game(Entity):
         self.underwater = Underwater(params.underwater, params.water, self.pool, self.light) if self.pool else None   # G12: the camera at / under the surface
         self._dust_under = False                                              # dust motes hidden because the eye is under the water
         self.under_audio = UnderwaterAudio(params.audio, ROOT, self.ambience) if self.underwater and sound else None
-        self.lens = Lens(params.lens, self.viewmodel, samples=self._capped_aa(self.gfx.aa), light=self.light) if lens else None
+        self.lens = Lens(params.lens, self.viewmodel, samples=self._capped_aa(self.gfx.aa), light=self.light, scale=resolve(self.gfx).render_scale) if lens else None
         self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.hud = Hud(params.gun.credit) if hud else None                    # Bodycam style: nothing on screen; only the selftest turns it on to read numbers
         self.debug = DebugPanel(self, self.params_store, USER_PARAMS)         # F1 panel: built lazily the first time it opens; costs nothing while closed
@@ -192,9 +193,11 @@ class Game(Entity):
             kit.viewmodel.set_env(g.gun_env and self.pool is not None)
         if self.dust:
             self.dust.set_enabled(g.dust and not self._dust_under)
+        if self.smoke:
+            self.smoke.set_simple(g.smoke_simple)
         if self.underwater:
             self.underwater.set_level(g)
-        self._set_aa(self._capped_aa(s.aa))
+        self._set_lens(self._capped_aa(s.aa), g.render_scale)     # G13: 3D resolution (75% on Thấp)
         window.fps_counter.enabled = s.show_fps
         if announce:
             self.notice.show(f'Đồ hoạ: {g.name}')
@@ -206,9 +209,10 @@ class Game(Entity):
     def _capped_aa(self, samples: int) -> int:
         return samples if self._aa_cap is None else min(samples, self._aa_cap)
 
-    def _set_aa(self, samples: int):
-        """Rebuild the lens buffer with `samples` MSAA samples (0 = off). The guns' drawing regions move to the new buffer (a parked gun stays switched off)."""
-        if self.lens is None or self.lens.samples == samples:
+    def _set_lens(self, samples: int, scale: float):
+        """Rebuild the lens buffers with `samples` MSAA samples (0 = off) at `scale` x the window (G13). The guns' drawing regions move to the new scene buffer
+        (a parked gun stays switched off). A few ms, only when one of the two changes."""
+        if self.lens is None or (self.lens.samples == samples and self.lens.scale == scale):
             return
         win = application.base.win
         vms = [k.viewmodel for k in self._kits.values()]
@@ -216,9 +220,43 @@ class Game(Entity):
             vm.move_to_output(win)
         data = self.lens.d
         self.lens.destroy()
-        self.lens = Lens(data, None, samples=samples, light=self.light)
+        self.lens = Lens(data, None, samples=samples, light=self.light, scale=scale)
         for vm in vms:
-            vm.move_to_output(self.lens.manager.buffers[-1])
+            vm.move_to_output(self.lens.scene_buffer)
+
+    def warm_shader_builds(self):
+        """G13: draw one frame with every alternative build (lite / view / dry lens / blit) in place, then put back the builds in use. The driver compiles a
+        shader at its first draw; without this, the first dip under the water or the first split frame stalled 50-150 ms. The pictures of these frames are
+        the same as the normal ones (the builds differ only in code that is not taken), and the gun is still hidden (its draw clip has not started)."""
+        engine = application.base.graphicsEngine
+        slots = []                                       # (node, [builds], priority, build in use)
+        if self.pool:
+            w = self.pool.water
+            slots.append((w.node, list(w.shaders.values()), 1, w.shaders[w._build]))
+            slots.append((self.pool.node, list(self.pool.room_shaders.values()), 1, self.pool.room_shaders[self.pool.room_lite]))
+        if self.underwater:
+            u = self.underwater
+            slots.append((u.basin, list(u.basin_shaders.values()), 2, u.basin_shaders[u.basin_lite]))
+            u.basin.show()
+        if self.smoke:
+            sm = self.smoke
+            slots.append((sm.root, list(sm.shaders.values()), 2, sm.shaders[sm.simple]))
+        if self.lens:
+            ln = self.lens
+            if ln.quad is ln.window_quad:                 # 100%: the blit (used below 100%) is warmed on the window quad too, reading the scene texture
+                ln.window_quad.set_shader_input('blit_src', ln.scene)
+                slots.append((ln.quad, list(ln.shaders.values()) + [load_glsl('blit')], 0, ln.shaders[ln.dry]))
+            else:
+                slots.append((ln.quad, list(ln.shaders.values()), 0, ln.shaders[ln.dry]))
+        rounds = max((len(s[1]) for s in slots), default=0)
+        try:
+            for i in range(rounds):
+                for node, builds, prio, _ in slots:
+                    node.set_shader(builds[min(i, len(builds) - 1)], prio)
+                engine.render_frame()
+        finally:
+            for node, _, prio, used in slots:
+                node.set_shader(used, prio)
 
     def save_graphics(self):
         try:
@@ -254,7 +292,7 @@ class Game(Entity):
             vm.set_env(resolve(self.gfx).gun_env)
         fx = Effects(gun, vm, smoke=self.smoke) if self._effects else None
         if self.lens:
-            vm.move_to_output(self.lens.manager.buffers[-1])
+            vm.move_to_output(self.lens.scene_buffer)
         audio = GunAudio(gun, ROOT) if self._sound and gun.shot_sound else None
         foley = Foley(self.params.audio, gun, self.player, ROOT) if self._sound else None
         vm.prewarm()                                    # compile its shaders and upload its textures now (window sits these frames out), not in the first frames of its draw
@@ -425,7 +463,8 @@ class Game(Entity):
         self.light.set_exposure(target_exposure(self.params.lens, self.params.look))
         if self.underwater:
             win = application.base.win
-            self.underwater.update(dt, cam_pos, camera.right, camera.up, window.aspect_ratio, (win.get_x_size(), win.get_y_size()), self.player.speed)
+            size = self.lens.buffer_size if self.lens else (win.get_x_size(), win.get_y_size())     # gl_FragCoord counts pixels of the buffer the world is drawn into
+            self.underwater.update(dt, cam_pos, camera.right, camera.up, window.aspect_ratio, size, self.player.speed)
             under = self.underwater.all_wet
             if self.dust and under != self._dust_under:
                 self._dust_under = under
@@ -498,6 +537,9 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
                  development_mode=False)
     application.asset_folder = ROOT
     window.fps_counter.enabled = False
+    # Ursina's camera.overlay is a full-screen alpha-blended quad (color.clear) kept for fades this game never uses: it blended the whole window
+    # every frame for no visible change (G13, measured 1.6-3.3 ms GPU at 1080p on the Iris Xe; tools/measure/g8_perf.py --passes)
+    camera.overlay.enabled = False
     setup_fonts()
     # a copy of the gun: the debug panel writes straight into the gun data, so the shared GunData must not be dirtied (tests, measuring tools)
     game = Game(GameParams(gun=copy.deepcopy(GUNS[gun])), quit_after, sound, draw, effects, look, shake=shake,
@@ -508,6 +550,7 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     game.viewmodel.prewarm()
     if not low_memory:              # (low memory: built on the first switch instead, `_apply_gun`: one long frame, but 0.12 GB less commit at start-up)
         game.preload_guns()         # the other gun too: a weapon switch then loads nothing (it used to freeze the game 0.5-1.7 s)
+    game.warm_shader_builds()       # G13: every lite / view / dry build drawn once now, not in the middle of play
     return game
 
 

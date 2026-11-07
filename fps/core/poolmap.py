@@ -319,6 +319,15 @@ def window_rects(d: MapData) -> tuple:
     return rects, (d.room_x / 2.0, d.room_x / 2.0 + d.wall)
 
 
+def window_box(rects, edge: float, slots: int = 4) -> tuple:
+    """G13: (z0, z1, y0, y1) around the first `slots` holes, grown by the soft edge: sun_window.glsl returns 0 at once when the ray meets the inner wall face
+    outside it (every soft window test is exactly 0 there). No hole: an empty box (rejects everything)."""
+    used = rects[:slots]
+    if not used:
+        return (1.0, -1.0, 1.0, -1.0)
+    return (min(r[0] for r in used) - edge, max(r[1] for r in used) + edge, min(r[2] for r in used) - edge, max(r[3] for r in used) + edge)
+
+
 def sun_visible(p, sun, rects, wall, soft: float = 0.0) -> float:
     """Mirror of sun_window.glsl `sun_visible`: 1 if the ray from `p` toward the sun leaves the room through a window hole (it must pass inside the hole at BOTH the inner and
     the outer wall face, so the reveal shades), else 0. `soft` (m) blurs the edges like the shader. Only the east wall has openings and nothing stands between it and the room

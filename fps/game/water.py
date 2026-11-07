@@ -10,10 +10,10 @@ from ursina import Entity
 
 from fps.core import caustics
 from fps.core.cubemap import TAN_HALF, basis
-from fps.core.graphics import CAUSTIC_SIZES, water_flags
+from fps.core.graphics import CAUSTIC_SIZES, lite_water, water_flags
 from fps.core.poolmap import AmbientGrid, PoolMap, basin_boxes
 from fps.core.waves import RippleBuffer
-from fps.game.shaders import load_glsl
+from fps.game.shaders import load_glsl, prepare
 from fps.game.caustics import CausticPass
 from fps.game.water_sim import WaterSim
 from fps.weapon_data import GraphicsLevel, WaterData
@@ -56,7 +56,18 @@ class WaterSurface:
         self.entity = Entity(add_to_scene_entities=False)
         self.node = self.entity.attach_new_node(self._quad(x0 - MARGIN, x1 + MARGIN, z0 - MARGIN, z1 + MARGIN, y))
         self.node.set_two_sided(True)
-        self.node.set_shader(load_glsl('water', defines=(f'RING_SLOTS {params.ripple_slots}', f'STEP_SLOTS {STEP_SLOTS}')), 1)
+        defines = (f'RING_SLOTS {params.ripple_slots}', f'STEP_SLOTS {STEP_SLOTS}')
+        # G13: the full build; on Low (core/graphics.py lite_water) the lite build, plus two lite builds for a frame known to be all dry / all under (`set_view`)
+        self.shaders = {(False, 'any'): load_glsl('water', defines=defines)}
+        for view, extra in (('any', ()), ('dry', ('VIEW_DRY',)), ('under', ('VIEW_UNDER',))):
+            self.shaders[(True, view)] = load_glsl('water', defines=defines + ('POOL_LITE',) + extra)
+        for sh in self.shaders.values():
+            prepare(sh)
+        self.lite = False
+        self.view = 'any'
+        self._build = (False, 'any')
+        self.node.set_shader(self.shaders[self._build], 1)
+        self._live = 0                              # G13: rings still spreading; packed first in `rings_pta`, their count in water_time.y (the shader loops over those only)
         self.time_pta = PTA_LVecBase3f.empty_array(1)
         self.time_pta.set_element(0, Vec3(0, 0, 0))
         self.rings_pta = PTA_LVecBase4f.empty_array(params.ripple_slots)
@@ -155,6 +166,8 @@ class WaterSurface:
     def set_level(self, g: GraphicsLevel):
         """Graphics level (F2): shader flags, and the wave simulation built / resized / switched off. Building a 256 x 512 sim takes a few ms (two float buffers)."""
         self.quality.set_element(0, Vec4(*water_flags(g)))
+        self.lite = lite_water(g)
+        self._pick_build()
         if g.sim_cols == 0:                         # Low: the sim only stops (its buffers stay: removing them stalled the switch frame to 71 ms)
             if self.sim is not None:
                 self.sim.set_enabled(False)
@@ -175,6 +188,19 @@ class WaterSurface:
                 n.set_shader_input('water_sim_pick', self.sim.pick)
             self._sim_size = size
         self._set_caustics(g)
+
+    def set_view(self, view: str):
+        """G13, every frame from game/underwater.py: 'dry' (no pixel can look through the water), 'under' (every pixel does and the eye is below the surface
+        plane) or 'any'. Only the lite build has view-specific twins; all were compiled at start-up, so switching costs nothing."""
+        if view != self.view:
+            self.view = view
+            self._pick_build()
+
+    def _pick_build(self):
+        build = (True, self.view) if self.lite else (False, 'any')
+        if build != self._build:
+            self._build = build
+            self.node.set_shader(self.shaders[build], 1)
 
     def _set_caustics(self, g: GraphicsLevel):
         """Build / resize / stop the caustic pass (only useful when the bottom is seen)."""
@@ -244,17 +270,26 @@ class WaterSurface:
     def splash(self, point, distance: float, amp: float = 1.0):
         """A bullet landed at `point`: a push into the simulation (Mid / High) and a ring (Low draws the rings), and the sound hook."""
         self.ripples.add(point[0], point[2], self.clock, amp)
-        for i, ring in enumerate(self.ripples.packed()):
-            self.rings_pta.set_element(i, Vec4(*ring))
+        self._push_rings()
         self.push(point[0], point[2], self.p.bullet_radius, self.p.bullet_push * amp)
         if self.on_bullet:
             self.on_bullet(point)
         if self.on_splash:
             self.on_splash(point, distance)
 
+    def _push_rings(self):
+        """The live rings first (same values as before), then empty slots; their count goes to the shader with the clock."""
+        life = self.p.impact_life
+        live = [r for r in self.ripples.packed() if 0.0 <= self.clock - r[2] < life]
+        for i in range(self.p.ripple_slots):
+            self.rings_pta.set_element(i, Vec4(*live[i]) if i < len(live) else Vec4(0, 0, -1e6, 0))
+        self._live = len(live)
+
     def update(self, dt: float):
         self.clock += dt
-        self.time_pta.set_element(0, Vec3(self.clock, 0, 0))
+        if self.ripples.alive(self.clock, self.p.impact_life) != self._live:        # a ring died out (or F1 changed the ring life)
+            self._push_rings()
+        self.time_pta.set_element(0, Vec3(self.clock, float(self._live), 0))
         self.caus_params.set_element(0, Vec4(self.y, self.p.caustic_sim, self.clock, 0.0))
         if self.sim is not None:
             self.sim.update(dt)

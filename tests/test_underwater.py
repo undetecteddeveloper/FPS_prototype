@@ -174,3 +174,25 @@ def test_foley_bank_plays_the_muffled_copy_only_under_the_water():
     plain = _Bank(normal)                                                                # no twins (an old install): the normal copy, no error
     v, s = plain.next_sound(rng, under=True)
     assert s in normal[v]
+
+
+def test_meniscus_band_visible_matches_a_dense_grid():
+    """G13: band_visible (the lens may use its dry build when False) never says False where some point of the read area lies inside the band."""
+    import random
+    from fps.core.underwater import band_visible, port_height
+    rnd = random.Random(7)
+    reach, half = 1.25, 0.012
+    for _ in range(400):
+        line = (rnd.uniform(-0.3, 0.3), rnd.uniform(-0.3, 0.3), rnd.uniform(-0.8, 0.8))
+        amp = rnd.choice((0.0, 0.004))
+        hit = False
+        for i in range(41):
+            for j in range(41):
+                x, y = -reach + 2 * reach * i / 40, -reach + 2 * reach * j / 40
+                for t in (0.0, 0.7, 1.9):
+                    if abs(port_height(line, x, y, t, amp)) < half:
+                        hit = True
+        if hit:
+            assert band_visible(line, half, amp, reach), line
+    assert not band_visible((0.0, 0.0, 10.0), half)          # on the deck: the line is far away
+    assert band_visible((0.1, 0.2, 0.0), half)               # the waterline right across the middle

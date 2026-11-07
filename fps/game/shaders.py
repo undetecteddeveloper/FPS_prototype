@@ -26,7 +26,16 @@ def read_source(file_name: str) -> str:
     return expand_includes((SHADER_DIR / file_name).read_text(encoding='utf-8'))
 
 
-def load_glsl(name: str, defines=()) -> Shader:
+_CACHE = {}
+
+
+def load_glsl(name: str, defines=(), frag: str = None) -> Shader:
+    """`frag` = another shader's fragment file (e.g. the sky's window quads reuse sky.frag).
+    G13: the same request returns the same Shader object, so a rebuilt pass (the lens after an F2 change) reuses what the driver already compiled."""
+    key = (name, tuple(defines), frag)
+    if key in _CACHE:
+        return _CACHE[key]
+
     def build(file_name):
         text = read_source(file_name)
         version = '#version 140\n'
@@ -35,7 +44,17 @@ def load_glsl(name: str, defines=()) -> Shader:
             version = first + '\n'
         return version + ''.join(f'#define {d}\n' for d in defines) + text
 
-    shader = Shader.make(Shader.SL_GLSL, build(f'{name}.vert'), build(f'{name}.frag'))
+    shader = Shader.make(Shader.SL_GLSL, build(f'{name}.vert'), build(f'{frag or name}.frag'))
     if shader is None:
         raise RuntimeError(f'shader {name} không biên dịch được (xem log của Panda)')
+    _CACHE[key] = shader
     return shader
+
+
+def prepare(shader: Shader):
+    """G13: queue a shader build for the GPU (compiled at the start of the next frame). The Intel driver still finishes its own compile at the first DRAW
+    with a build (a 50-150 ms frame), so Game.warm_shader_builds also draws every build once at start-up."""
+    from ursina import application
+    gsg = application.base.win.get_gsg()
+    if gsg is not None:
+        shader.prepare(gsg.get_prepared_objects())

@@ -12,6 +12,12 @@ uniform vec4 room_wet;              // x puddles 0..1, y puddle size (m), z damp
 uniform vec4 room_wet2;             // x darkening of a wet tile, y footprint life (s)
 uniform vec4 room_pool;             // pool rectangle x0, x1, z0, z1 (the deck around it gets wet)
 uniform vec4 room_prints[24];       // wet footprints: x, z, t0, yaw + 10 * round(strength * 100) (core/footprints.py)
+// G13: with POOL_LITE (wet deck and shafts off, as on level Low; core/graphics.py lite_room) the wet code is compiled out; see basin_common.glsl
+#ifdef POOL_LITE
+#define Q_WET false
+#else
+#define Q_WET (room_quality.x > 0.5)
+#endif
 
 #include "light_common.glsl"
 #include "sun_window.glsl"
@@ -80,7 +86,7 @@ void main() {
     vec3 albedo = vertex_color.rgb * (tile > 0.0 ? tile_shade(metric, tile) : 1.0);
     vec3 n_face = normalize(cross(dFdx(world_pos), dFdy(world_pos)));
     float wet = 0.0, puddle = 0.0;
-    if (room_quality.x > 0.5 && abs(n_face.y) > 0.9 && abs(world_pos.y) < 0.01) {      // the deck top only
+    if (Q_WET && abs(n_face.y) > 0.9 && abs(world_pos.y) < 0.01) {      // the deck top only
         wet = deck_wetness(world_pos.xz, look_shaft2.y, puddle);
         albedo *= 1.0 - room_wet2.x * wet;                                            // wet tiles are darker (water fills the pores)
     }

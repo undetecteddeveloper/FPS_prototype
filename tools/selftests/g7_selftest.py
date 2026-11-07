@@ -482,7 +482,7 @@ class Script(Entity):
         # --- G. lens ---
         place()
         yield from self.wait(5)
-        check('súng vẽ vào cùng buffer với thế giới', viewmodel.output == lens.manager.buffers[-1], True, viewmodel.output == lens.manager.buffers[-1])
+        check('súng vẽ vào cùng buffer với thế giới', viewmodel.output == lens.scene_buffer, True, viewmodel.output == lens.scene_buffer)
         img = grab()
         w, h = img.get_x_size(), img.get_y_size()
         corners = max(lum(img, x, y) for x, y in ((1, 1), (w - 2, 1), (1, h - 2), (w - 2, h - 2)))

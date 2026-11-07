@@ -13,9 +13,9 @@ from panda3d.core import (Geom, GeomNode, GeomTriangles, GeomVertexArrayFormat, 
                           OmniBoundingVolume, TransparencyAttrib, Vec2, Vec3, Vec4)
 from ursina import application, camera
 
-from fps.core.smoke import SmokeSim
-from fps.game.shaders import load_glsl
-from fps.weapon_data import LookData, SmokeData
+from fps.core.smoke import SmokeSim, thin_items
+from fps.game.shaders import load_glsl, prepare
+from fps.weapon_data import SMOKE_SIMPLE_KEEP, LookData, SmokeData
 
 CAPACITY = 128                   # puffs: M4 full auto (12.5 shots/s x 7 puffs x ~1 s) stays just under it; the oldest puff is reused past it
 FILL_FADE = (0.45, 0.9)          # radius / distance: a puff fades out between these angular sizes (it would cover a big part of the screen)
@@ -53,7 +53,11 @@ class GunSmoke:
         node.set_final(True)
         self.root = application.base.render.attach_new_node(node)
         r = self.root
-        r.set_shader(load_glsl('smoke'), 2)
+        self.shaders = {False: load_glsl('smoke'), True: load_glsl('smoke', defines=('SMOKE_LITE',))}    # G13: full / simple (F2 'Khói súng')
+        for sh in self.shaders.values():
+            prepare(sh)
+        self.simple = False
+        r.set_shader(self.shaders[False], 2)
         r.set_transparency(TransparencyAttrib.M_alpha)
         r.set_depth_write(False)
         r.set_two_sided(True)
@@ -68,6 +72,12 @@ class GunSmoke:
         r.set_shader_input('smoke_color', Vec3(*self._color))
         self._apply_look()
         self._write([])
+
+    def set_simple(self, simple: bool):
+        """G13: F2 'Khói súng' (simple on level Low). Both builds were compiled and drawn at start-up (Game.warm_shader_builds)."""
+        if simple != self.simple:
+            self.simple = simple
+            self.root.set_shader(self.shaders[simple], 2)
 
     def _apply_look(self):
         lk = self.look
@@ -88,6 +98,8 @@ class GunSmoke:
         self._write(sim.draw_items())
 
     def _write(self, items: list):
+        if self.simple:
+            items = thin_items(items, SMOKE_SIMPLE_KEEP)
         cx, cy, cz = camera.world_position
         if len(items) > 1:                           # back to front
             items.sort(key=lambda p: -((p[0] - cx) ** 2 + (p[1] - cy) ** 2 + (p[2] - cz) ** 2))
