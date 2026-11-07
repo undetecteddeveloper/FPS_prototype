@@ -104,3 +104,10 @@ Kế hoạch + bản chốt: `docs/sessions/G10.md`. Skill kỹ thuật (nguồn
   Chi phí (cùng tiến trình, mức Cao): 2x +1,5 ms, 4x +3,3 ms mỗi khung (4x vẫn 134-148 FPS trung bình).
 - Kiểm: `tools\measure\graphics_panel_check.py` (19 mục: buffer thật có 2 / 4 mẫu, súng sang buffer mới, mọi dòng đổi và quay vòng, lưu file); `tests/test_graphics.py` (mức chung qua lại, "Tuỳ chỉnh", file hỏng thì về mặc định).
 - Bẫy: `Text` của Ursina coi `<` là đầu thẻ định dạng: chuỗi "< Cao >" làm lỗi IndexError trong `align`; dùng "‹ ›".
+
+## G10: tiếng nước (7/11/2026)
+- 9 bản ElevenLabs V3 mới (prompt `PROMPTS.txt` mục 43-51) + 3 bản nháp G9 (mục 40-42) ở `assets/review/water/` (thư mục review bị gitignore). CHƯA DUYỆT: game chưa có tiếng nước nào.
+- Mã đã nối sẵn, nhóm tiếng TUỲ CHỌN (thiếu file thì im, không lỗi): `wade` (bước lội), `wade_deep` (nước sâu từ `audio.wade_deep_from` 0,8 m), `wade_run`, `water_land`, `water_hit` (đạn trúng nước, trễ theo tốc độ âm thanh như `hit_hard`),
+  `drip` (vừa lên bờ), tiếng nền `assets/sounds/pool_ambience.wav` lặp liên tục. Lội thì không còn tiếng bước gạch. Âm lượng ở F1 nhóm "Âm lượng" mục "Nước hồ bơi".
+- Duyệt xong: `.venv\Scripts\python.exe -X utf8 tools\build\prep_water_audio.py` (in kế hoạch + bảng đo), chọn bằng `--set nhóm=bản1,bản2`, rồi `--apply` (giải mã mp3 bằng Panda3D, không cần ffmpeg; ffmpeg không có trên PATH máy này 7/11/2026).
+- Kiểm đường phát: `tools\measure\water_audio_check.py` (6 mục, file wav giả trong thư mục tạm).

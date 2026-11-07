@@ -114,6 +114,15 @@ class Game(Entity):
         self.trail = FootprintTrail()                                          # G10: wet footprints after leaving the pool
         self._feet = (self.player.x, self.player.z)
         self.dust = DustMotes(params.look, self.light, self.pool) if self.pool and effects else None    # G10: dust glinting in the sun beams
+        self.ambience = None                                                   # G10: looping room tone of the pool hall (only once the user approved the file)
+        if self.pool and sound:
+            self.pool.water.on_splash = lambda point, distance: self.foley.on_water_impact(distance) if self.foley else None
+            amb = ROOT / params.audio.ambience_file
+            if amb.exists():
+                self.ambience = application.base.loader.load_sfx(Filename.from_os_specific(str(amb)))
+                self.ambience.set_loop(True)
+                self.ambience.set_volume(params.audio.ambience_volume)
+                self.ambience.play()
         if self.pool:
             x0, x1, z0, z1, wy = self.pool.pm.water
             self.player.water = (x0, x1, z0, z1, wy, self.pool.data.wade_depth)
@@ -296,6 +305,8 @@ class Game(Entity):
             self.pool.apply_params()
         if 'look' in paths and self.dust:
             self.dust.apply_params()
+        if 'audio' in paths and self.ambience:
+            self.ambience.set_volume(self.params.audio.ambience_volume)
         if 'lens' in paths and self.lens:
             self.lens.apply_params()
         if any(s.id == 'gun.ads_eye_relief' for s in specs):

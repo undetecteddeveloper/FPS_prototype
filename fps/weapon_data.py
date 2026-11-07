@@ -861,6 +861,14 @@ class AudioData:
     hit_pitch_variation: float = 0.05     # +- random pitch ratio
     speed_of_sound: float = 343.0         # m/s
     dry_volume: float = 0.55              # trigger pulled with no rounds left
+    # --- G10 water sounds (groups in `folder`: wade_*, wade_run_*, wade_deep_*, water_land_*, water_hit_*, drip_*; OPTIONAL: a missing group is silent until the user approves the files) ---
+    wade_volume: float = 0.45             # one step in the water (scaled up with depth)
+    wade_deep_from: float = 0.8           # m of water from which the deep wading sound is used
+    water_land_volume: float = 0.75       # jumping / falling into the water
+    water_hit_volume: float = 0.55        # a bullet landing on the water (delayed and faded by distance like hit_hard)
+    drip_volume: float = 0.30             # climbing out of the pool: water dripping off him
+    ambience_file: str = 'assets/sounds/pool_ambience.wav'    # looping room tone of the pool hall (silent if the file is missing)
+    ambience_volume: float = 0.22
 
 
 @dataclass

@@ -40,3 +40,4 @@
 - Đọc ngược GPU (`extract_texture_data`) chặn GPU: khung KẾ TIẾP bị tính chậm 60-75 ms; đo thời gian thì chờ ~30 khung sau mỗi lần đọc.
 - Công tắc để đo: F2 / `game.set_graphics(0)` = tắt mọi hiệu ứng G10 (như G9).
 - `tools\measure\graphics_panel_check.py`: bảng đồ hoạ F2 bằng game thật (MSAA thật, mọi dòng, lưu file vào thư mục tạm).
+- `tools\build\prep_water_audio.py [--set nhóm=bản,...] [--apply]`: dựng tiếng nước từ bản duyệt (không cần ffmpeg). `tools\measure\water_audio_check.py`: đường phát tiếng nước bằng game thật.
