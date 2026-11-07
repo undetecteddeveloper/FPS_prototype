@@ -34,6 +34,7 @@ Người dùng duyệt TỪNG CÁI và phải xem/nghe xong mới được duy�
 ## 7. Việc còn mở (cập nhật 7/11/2026)
 - NỢ TEST: `tests/test_breath.py` không nạp được và 5 bài `tests/test_prep_elevenlabs.py` trượt (do bỏ tiếng thở / đổi tiếng súng M4, commit 64c057e; người dùng tự sửa). Selftest bằng game thật không chạy được (xem `CLAUDE.md`).
 - NỢ HIỆU NĂNG: `perf_scenarios` cũ không còn chạy; đo bằng `tools\measure\g8_perf.py`.
+- G10 (nước trong, sóng, lội, sàn ướt, bụi, bảng đồ hoạ F2; `docs/sessions/G10.md`, `docs/notes/pool-hall.md` mục G10): CHỜ NGƯỜI DÙNG nghe 12 tiếng nước ở `assets/review/water/` và chọn; rồi `tools\build\prep_water_audio.py --set ... --apply`. Chỉnh bằng F1 / F2 rồi chốt số.
 - G9 (map hồ bơi, `docs/sessions/G9.md`, `docs/notes/pool-hall.md`): CHỜ NGƯỜI DÙNG (a) xem map trong game bằng `run.bat` và so với ảnh tham chiếu, chỉnh bằng F1 rồi chốt số; (b) nghe 3 bản nháp tiếng nước ở `assets/review/water/` và chọn một (hoặc bảo tạo lại), rồi mới gắn vào game.
 - Glock (G8, `docs/sessions/G8.md`, tài nguyên `assets/review/glock/`): Higgsfield ghi model thực chạy là `nano_banana_2` dù yêu cầu `nano_banana_pro`, cần kiểm lại.
 - Chưa xác nhận xem/nghe thử ElevenLabs / Higgsfield trong Claude Desktop; chưa tự đọc được số dư ElevenLabs (người dùng khai); Tripo không có trong 3D AI Studio (hỏi người dùng); chưa đo Cloudflare đủ cho FPS 4 người.
