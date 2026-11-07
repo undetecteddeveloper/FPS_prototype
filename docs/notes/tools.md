@@ -35,7 +35,8 @@
 
 # G10 (7/11/2026)
 - `tools\measure\g8_perf.py --level 0|1|2` (mức đồ hoạ), `--trace` (in từng khung của giây đầu), `--size WxH`.
-- `tools\measure\pool_shots.py --level 0|1|2 --set water.caustic_scale=0.6 [--set ...]` (so A/B một số mà không cần F1); góc mới `deep`, `slope`, `wade`.
+- `tools\measurelash_shots.py [--gun-name m4|glock] [--spot dark|beam] [--set gun.flash.light_power=3]`: đứng chỗ tối nhất phòng hồ, bóp cò, chụp `shotslash_<súng>_off.png` / `_on.png` và in độ sáng góc dưới-phải (nơi có súng). Tia lửa lên súng dùng đèn riêng nâng lên + lùi về phía mắt + ánh sáng ôm vòng (`gun.flash.gun_*`, `viewmodel.frag gun_flash_light`), vì đèn ở đầu nòng chỉ chiếu mặt súng quay ra trước (mặt người chơi thấy toàn mặt sau / trên, nên đen).
+- `tools\measure\pool_shots.py --level 0|1|2 --set water.wave_height=0.004 [--set ...]` (so A/B một số mà không cần F1); góc mới `deep`, `slope`, `wade`. `--ring --ring-ahead 3` đặt 3 viên đạn ngay trước mặt camera (thấy vân caustics vỡ theo sóng). So A/B một số trên ảnh: thêm `--set water.wave_speed=0 --set water.ripple_speed=0` để gợn đứng yên, nếu không hai lần chạy chụp ở hai thời điểm sóng khác nhau.
 - `tools\measure\pool_check.py`: thêm mục sóng mô phỏng (đọc ngược texture từ GPU: dùng `WaterSim.drawn_texture`, KHÔNG `latest_texture` - pass của khung này chưa vẽ), nhìn thấy đáy, F2 không giật, vạch nước sâu.
 - Đọc ngược GPU (`extract_texture_data`) chặn GPU: khung KẾ TIẾP bị tính chậm 60-75 ms; đo thời gian thì chờ ~30 khung sau mỗi lần đọc.
 - Công tắc để đo: F2 / `game.set_graphics(0)` = tắt mọi hiệu ứng G10 (như G9).

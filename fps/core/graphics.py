@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, fields
 from fps.weapon_data import GRAPHICS_LEVELS, GraphicsLevel
 
 SIM_SIZES = ((0, 0), (128, 256), (256, 512))      # wave simulation: off / mid / high
+CAUSTIC_SIZES = ((0, 0, 0), (256, 512, 1024), (384, 768, 2048))   # caustics: off / mid / high = (light mesh cols, rows, texels on the long side)
 SHAFT_SAMPLES = (0, 1, 3)                         # sun shafts: off / mid / high (dust noise samples per lit piece)
 SPLASH_SHARE = (0.0, 0.6, 1.0)                    # droplets: off / few / all
 AA_SAMPLES = (0, 2, 4)                            # MSAA samples of the scene buffer
@@ -16,7 +17,7 @@ AA_SAMPLES = (0, 2, 4)                            # MSAA samples of the scene bu
 class GraphicsSettings:
     sim: int = 2              # index into SIM_SIZES
     refraction: bool = True   # clear water (see the bottom)
-    caustics: bool = True
+    caustics: int = 2         # index into CAUSTIC_SIZES
     glint: bool = True
     shafts: int = 2           # index into SHAFT_SAMPLES
     splash: int = 2           # index into SPLASH_SHARE
@@ -35,7 +36,7 @@ OPTIONS = (
     ('aa', 'Khử răng cưa', [(0, 'Tắt'), (2, '2x'), (4, '4x')]),
     ('sim', 'Sóng nước mô phỏng', [(0, 'Tắt'), (1, 'Vừa'), (2, 'Cao')]),
     ('refraction', 'Nước trong (thấy đáy)', [(False, 'Tắt'), (True, 'Bật')]),
-    ('caustics', 'Vệt sáng đáy hồ', [(False, 'Tắt'), (True, 'Bật')]),
+    ('caustics', 'Vệt sáng đáy hồ', [(0, 'Tắt'), (1, 'Vừa'), (2, 'Cao')]),
     ('glint', 'Nắng lấp lánh trên nước', [(False, 'Tắt'), (True, 'Bật')]),
     ('shafts', 'Tia nắng trong không khí', [(0, 'Tắt'), (1, 'Vừa'), (2, 'Cao')]),
     ('dust', 'Bụi trong nắng', [(False, 'Tắt'), (True, 'Bật')]),
@@ -88,7 +89,7 @@ def preset_of(s: GraphicsSettings):
 
 def water_flags(g: GraphicsLevel) -> tuple:
     """vec4 for water.frag `water_quality`: (wave simulation on, see the bottom, caustics, sun sparkle), each 0 or 1."""
-    return (1.0 if g.sim_cols > 0 else 0.0, 1.0 if g.refraction else 0.0, 1.0 if g.caustics else 0.0, 1.0 if g.glint else 0.0)
+    return (1.0 if g.sim_cols > 0 else 0.0, 1.0 if g.refraction else 0.0, 1.0 if g.caustics > 0 else 0.0, 1.0 if g.glint else 0.0)
 
 
 def cycle(s: GraphicsSettings, field: str, step: int) -> GraphicsSettings:

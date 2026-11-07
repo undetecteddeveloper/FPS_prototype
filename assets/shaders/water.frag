@@ -3,6 +3,8 @@
 //   - graphics level Low (G9): ambient ripples + analytic rings where bullets landed (mirror of core/waves.py), dark mirror body;
 //   - Mid / High (G10): the GPU wave simulation (game/water_sim.py) + faint ambient ripples, and the water is CLEAR: the refracted view ray is traced against the basin
 //     (its box from inside + the step boxes; core/poolmap.py `basin_boxes`) and the tiled bottom is shaded there: baked room ambient, sun caustics, absorption on the way.
+//   - G11: the caustics come from a texture drawn every frame by the light-mesh pass (game/caustics.py); the small ripples that focus the light there (pool_waves.glsl)
+//     also bend the view of the tiles and, a little, the reflection.
 // The reflection is the room captured once into a 3 x 2 atlas (game/pool_capture.py), looked up with a box-projected ray (mirror of core/cubemap.py). Fresnel mixes the two.
 // RING_SLOTS and STEP_SLOTS are defined by the loader.
 uniform vec4 water_look;           // x ripple strength, y ripple scale, z ripple speed, w reflection strength
@@ -26,8 +28,11 @@ uniform vec4 water_steps_lo[STEP_SLOTS];
 uniform vec4 water_steps_hi[STEP_SLOTS];
 uniform vec4 water_basin;           // rgb basin tile colour, a = tile size (m)
 uniform vec4 water_absorb;          // rgb absorption (1/m), a = basin light (multiplies the baked ambient)
-uniform vec4 water_caustic;         // x sun strength, y sky share, z net size (m), w speed
-uniform vec4 water_glint;           // x strength, y power, z simulated slope weight, w caustic focusing by the waves
+uniform vec4 water_caustic;         // x sun strength, y sky share, z share of the pattern on the walls, w peak (the brightest the lines get)
+uniform vec4 water_caustic2;        // x how white the bright lines turn, y ripples bending the view of the bottom, z ripples in the reflection, w -
+uniform sampler2D water_caus_tex;   // brightness of the focused sunlight on the bottom (1 = flat water), over `water_caus_domain` (x0, x1, z0, z1)
+uniform vec4 water_caus_domain;
+uniform vec4 water_glint;           // x strength, y power, z simulated slope weight, w -
 uniform sampler2D water_amb_up;     // baked room ambient on the floor plan (core/poolmap.py AmbientGrid): up- and down-facing irradiance at gun height
 uniform sampler2D water_amb_down;
 uniform vec4 water_amb_grid;        // x0, z0, step (m), -
@@ -35,6 +40,7 @@ uniform vec4 water_amb_grid;        // x0, z0, step (m), -
 #include "light_common.glsl"
 #include "sun_window.glsl"
 #include "cube_reflect.glsl"
+#include "pool_waves.glsl"
 
 in vec3 world_pos;
 out vec4 frag_color;
@@ -152,19 +158,11 @@ float tile_shade(vec2 p, float size) {
     return mix(tone, 0.62, grout);
 }
 
-// the well-known iterative "tileable water caustic" pattern: bright net on a dark ground, mean ~0.2; `p` in net units
-float caustic_net(vec2 p, float t) {
-    vec2 q = mod(p * TWO_PI, TWO_PI) - 250.0;
-    vec2 i = q;
-    float c = 1.0;
-    for (int n = 0; n < 4; n++) {
-        float tt = t * (1.0 - (3.5 / float(n + 1)));
-        i = q + vec2(cos(tt - i.x) + sin(tt + i.y), sin(tt - i.y) + cos(tt + i.x));
-        c += 1.0 / length(vec2(q.x / (sin(i.x + tt) / 0.005), q.y / (cos(i.y + tt) / 0.005)));
-    }
-    c /= 4.0;
-    c = 1.17 - pow(c, 1.4);
-    return pow(abs(c), 8.0);
+// focused sunlight at a point of the bottom or a wall: the texture is laid out where the light lands on the floor, so a point is looked up where the FLAT refracted sun ray
+// through it reaches the floor (a wall point: further along the ray, beyond the wall; the domain reaches there). Mipmaps average the cells far away.
+float caustic_at(vec3 hit, vec3 sun_w) {
+    vec3 q = hit + sun_w * ((bottom_y(hit.z) - hit.y) / min(sun_w.y, -0.05));
+    return texture(water_caus_tex, (q.xz - water_caus_domain.xz) / (water_caus_domain.yw - water_caus_domain.xz)).r;
 }
 
 vec3 grid_ambient(sampler2D tex, vec2 xz) {
@@ -174,7 +172,7 @@ vec3 grid_ambient(sampler2D tex, vec2 xz) {
 }
 
 // linear radiance coming up through the surface along the refracted ray
-vec3 see_bottom(vec3 p, vec3 d, float t, vec2 slope, float lap) {
+vec3 see_bottom(vec3 p, vec3 d) {
     vec3 n;
     float dist = trace_basin(p, d, n);
     vec3 hit = p + d * dist;
@@ -196,20 +194,19 @@ vec3 see_bottom(vec3 p, vec3 d, float t, vec2 slope, float lap) {
     float transmit = 1.0 - (0.02 + 0.98 * pow(1.0 - cos_in, 5.0));                  // Fresnel on the way in (the low sun loses about half)
     vec3 sun = look_sun_color * (lit * transmit * max(dot(n, -sun_w), 0.0)) * exp(-water_absorb.rgb * s);
 
+    vec3 sun_albedo = albedo;
     if (water_quality.z > 0.5) {
-        float tc = water_time.x * water_caustic.w;
-        vec2 p = (hit.xz + slope * 0.4) / water_caustic.z;
-        p += 0.35 * vec2(sin(p.y * 0.61 + tc * 0.23), cos(p.x * 0.53 - tc * 0.19));   // slow warp: the net must not read as a repeating grid
-        vec2 q = mat2(0.80, -0.60, 0.60, 0.80) * p * 1.37 + vec2(3.1, 7.7);             // a second net, turned and scaled: their product hides both tilings
-        float c = sqrt(caustic_net(p + vec2(0.13, 0.07) * tc, tc) * caustic_net(q - vec2(0.05, 0.11) * tc, tc * 1.13));
-        c *= 5.5;                                                                     // mean ~1
-        c *= clamp(1.0 - water_glint.w * lap * 0.01, 0.2, 4.0);                        // waves focus (crest) or spread (trough) the light
+        float c = caustic_at(hit, sun_w);
+        c /= 1.0 + max(c - 1.0, 0.0) / water_caustic.w;                                // the brightest lines saturate softly instead of blowing out
+        c = mix(1.0, c, n.y > 0.5 ? 1.0 : water_caustic.z);                             // walls: fainter (an approximation, see caustic_at)
+        float top = max(max(albedo.r, albedo.g), albedo.b);
+        sun_albedo = mix(albedo, vec3(top), water_caustic2.x * clamp((c - 1.0) / 3.0, 0.0, 1.0));   // a photo burns the bright lines to white
         sky *= mix(1.0, c, water_caustic.y);
         sun *= c * water_caustic.x;
     }
-    vec3 bottom = albedo * (sky + sun);
+    vec3 bottom = albedo * sky + sun_albedo * sun;
     vec3 through = exp(-water_absorb.rgb * dist);
-    return bottom * through + water_shallow.rgb * (1.0 - through);                   // what the water scatters on the way (teal)
+    return bottom * through + water_shallow.rgb * (1.0 - through);                   // what the water scatters on the way (blue)
 }
 
 void main() {
@@ -219,15 +216,17 @@ void main() {
     vec3 v = to_cam / dist;
 
     vec2 slope = ambient_slope(world_pos.xz, t);
-    float lap = 0.0;
     if (water_quality.x > 0.5) {
         vec3 s = sim_slope(world_pos.xz);
         slope = slope * 0.5 + s.xy * water_glint.z;
-        lap = s.z;
     } else {
         for (int i = 0; i < RING_SLOTS; i++) slope += ring_slope(world_pos.xz, water_rings[i], t);
     }
-    vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));
+    vec2 ripple = water_quality.y > 0.5 && water_caustic2.y + water_caustic2.z > 0.0 ? pool_wave(world_pos.xz, t).yz : vec2(0.0);   // the small ripples (G11), the ones that make the caustics
+    ripple *= 1.0 - smoothstep(0.01, 0.05, length(fwidth(world_pos.xz)));             // far away a pixel covers several ripples: they would only sparkle
+    vec2 s_top = slope + ripple * water_caustic2.z, s_under = slope + ripple * water_caustic2.y;
+    vec3 n = normalize(vec3(-s_top.x, 1.0, -s_top.y));                                 // reflection, Fresnel, sparkle
+    vec3 n_under = normalize(vec3(-s_under.x, 1.0, -s_under.y));                       // the view into the water
 
     vec3 r = reflect(-v, n);
     r = normalize(vec3(r.x, max(r.y, 0.03), r.z));                                   // a ripple tilted past the horizon must not mirror the floor
@@ -238,8 +237,8 @@ void main() {
 
     vec3 body;
     if (water_quality.y > 0.5) {
-        vec3 d = refract(-v, n, ETA);
-        body = tonemap(see_bottom(world_pos, d, t, slope, lap));
+        vec3 d = refract(-v, n_under, ETA);
+        body = tonemap(see_bottom(world_pos, d));
     } else {
         float edge = min(min(world_pos.x - water_rect.x, water_rect.y - world_pos.x), min(world_pos.z - water_rect.z, water_rect.w - world_pos.z));
         float shallow = exp(-max(edge, 0.0) / max(water_shallow.a, 0.05));

@@ -26,6 +26,7 @@ ap.add_argument('--holes', action='store_true', help='bắn một chùm đạn v
 ap.add_argument('--gun-name', default='m4')
 ap.add_argument('--tag', default='')
 ap.add_argument('--exposure', type=float, default=0.0, help='nhân thêm vào phơi sáng (xem vùng tối); 0 = giữ mặc định')
+ap.add_argument('--ring-ahead', type=float, default=0.0, help='mét: đặt 3 viên đạn trúng nước ngay trước mặt camera, cách chừng này (0 = chỗ cũ)')
 ap.add_argument('--ring-wait', type=float, default=0.7, help='giây từ lúc đạn trúng nước (--ring) tới lúc chụp; 0.15 = thấy giọt nước đang bay')
 ap.add_argument('--no-gun-env', action='store_true', help='tắt phản chiếu căn phòng trên súng (so A/B)')
 ap.add_argument('--no-dust', action='store_true', help='tắt bụi lơ lửng (so A/B)')
@@ -90,6 +91,9 @@ VIEWS = {
     'deep': (-6.8, 0.0, 9.0, 120.0, 40.0),                # G10: the deep end (2 m) from the west bank, looking down
     'slope': (6.8, 0.0, -2.0, 300.0, 22.0),               # G10: along the slope from the east bank (shallow -> deep)
     'wade': (0.0, -1.37, 0.8, 0.0, 10.0),                 # G10: standing at the chest-deep line, looking toward the deep end
+    'wall_e': (3.0, -1.37, 3.0, 90.0, 30.0),              # caustics on the pool walls: from the chest-deep line, looking down at the east wall below the surface
+    'wall_w': (3.0, -1.37, 3.0, 270.0, 30.0),             # ... the west wall (the sun comes in through the east windows, so this one is lit)
+    'wall_n': (0.0, -1.37, 5.0, 0.0, 28.0),               # ... and at the deep-end wall
     'deck': (-3.0, 0.0, -14.4, 60.0, 30.0),               # G10: the south deck by the pool edge, looking down at the wet tiles (and the footprints with --prints)
     'beam': (-4.0, 0.0, 0.0, 95.0, -4.0),                 # G10: inside the sun beams mid-room, toward the windows (dust motes, shafts; ~25 % of the air around is sunlit)
     'beam2': (3.0, 0.0, 5.0, 75.0, 0.0),                  # G10: deeper in the beams (~38 % sunlit), toward the sun
@@ -148,8 +152,15 @@ class Script(Entity):
                         if not game.combat._advance(b, 0.05, game.combat._boxes()):
                             break
             if args.ring and game.pool:
+                import math
                 for k in range(3):
-                    game.pool.water.splash((x + 1.5 * k - 1.5, game.pool.pm.water[4], z + 4.0 + 1.2 * k), 10.0)
+                    if args.ring_ahead > 0:                            # in front of the camera, a little apart (to see them in the picture)
+                        a = math.radians(yaw + (k - 1) * 12.0)
+                        d = args.ring_ahead * (1.0 + 0.25 * k)
+                        point = (x + d * math.sin(a), game.pool.pm.water[4], z + d * math.cos(a))
+                    else:
+                        point = (x + 1.5 * k - 1.5, game.pool.pm.water[4], z + 4.0 + 1.2 * k)
+                    game.pool.water.splash(point, 10.0)
                 yield from self.sec(args.ring_wait)
             else:
                 yield from self.wait(25)

@@ -25,7 +25,21 @@ Companion: `.claude/skills/interior-water-light/SKILL.md` (bake, box-projected c
 
 ## 3. Caustics
 - Physically: concave crests focus light -> brightness ~ 1 / (area change) ~ 1 - k * depth * laplacian(h) (own derivation, first order; high for the sign, low for the look).
-- Cheap look: procedural animated caustic pattern (two layers of the well-known iterative sine "tileable water caustic"), modulated by the sim laplacian and multiplied by the light that reaches the surface point (sun share + a small sky share). Own design - unverified.
+- WHY real pool caustics are a CLOSED network of rounded cells: every bright line is a fold of the surface->floor map, and the light that lands at a floor point is the SUM over all
+  surface points whose refracted ray lands there. Evaluating 1/|det J| at the surface point and painting it straight below (G10 version) gives OPEN tangled threads with loose ends,
+  not cells (verified-in-project by eye, shots g9_*_g11before vs the user's photos, 2026-11-07). A BROAD wave spectrum (1.4 -> 0.13 m) adds cells of every size: use a NARROW band
+  (one octave and a bit) for even cells; cell size ~ the dominant wavelength. Low sun -> oblique refracted beam -> cells stretched along the sun. Own reasoning + photos - medium.
+- Wallace's method (WebGL Water, MIT, https://madebyevan.com/webgl-water/renderer.js read 2026-11-07 - high for the code; the Medium article could not be fetched):
+  - Draw the WATER SURFACE MESH (plane, detail 200) into a caustic texture (1024 x 1024) each frame, after the sim step; clear first.
+  - Vertex: normal from the sim; `ray = refract(-light, normal, 1/1.333)`; `oldPos` = vertex on the FLAT surface projected along the flat refracted light, `newPos` = displaced vertex
+    projected along `ray` (exit point of the pool box, then onto the floor plane along the flat refracted light); `gl_Position = newPos.xz` mapped to clip space.
+  - Fragment: `oldArea = length(dFdx(oldPos)) * length(dFdy(oldPos)); newArea = length(dFdx(newPos)) * length(dFdy(newPos)); out = oldArea / newArea * 0.2` (flat water = 0.2).
+    Exact determinant form: |det(dFdx(old.xz), dFdy(old.xz))| / |det(dFdx(new.xz), dFdy(new.xz))| (own; = area ratio of the triangle, works per 2x2 pixel quad).
+  - Shading looks the texture up at `point.xz - point.y * refractedLight.xz / refractedLight.y` (the floor point a flat ray through `point` would reach): the SAME projection for floor
+    and walls, so walls get the pattern too. Extras: rim shadow of the pool edge (sigmoid), sphere blob shadow in the green channel.
+  - Not in the code: blending setup / texture format (in lightgl). Overlapping (folded) triangles must ADD: additive blend (ONE, ONE), two-sided (a fold flips the winding).
+- Here (G11): flat reference = the same vertex on the flat surface with the flat refracted sun, so a sloping bottom gives exactly 1 on flat water (its n.l is in the shading already).
+  The texture domain is the pool plan widened DOWNSTREAM of the sun (light travelling west lands beyond the west wall): walls look up the continued flat ray there.
 
 ## 4. Sun through the windows, analytic (caustics, shafts, wet glints)
 - The sun is fixed and the only openings are rectangular holes in the east wall (x = hx .. hx + w): a point p sees the sun iff the ray p + s * sun hits the wall planes inside a window rectangle (test both wall faces for the reveal). Exact for this map up to columns (west side, never between the sun and the room). Own derivation, high.
@@ -66,3 +80,11 @@ Companion: `.claude/skills/interior-water-light/SKILL.md` (bake, box-projected c
     Cost here: 2x +1.5 ms, 4x +3.3 ms. Display regions moved to another output must keep their active flag (parked guns). verified-in-project (tools/measure/graphics_panel_check.py).
   - Ursina `Text`: '<' starts a markup tag ("< Cao >" -> IndexError in align). verified-in-project.
   - First second after start sometimes ~30 FPS at Mid/High, ramping down to normal frame time (GPU clock ramp?). Not reproducible every run; dry-run warm frames did not reliably help. OPEN.
+- 2026-11-07, G11 caustics by the light mesh (docs/notes/pool-hall.md):
+  - Wallace's area-ratio pass ported to Panda: ONE triangle strip + `set_instance_count(rows - 1)` (gl_InstanceID = row) -> building / switching costs nothing; OmniBoundingVolume + final
+    (the shader places vertices); ColorBlendAttrib M_add ONE ONE, two-sided, no depth; buffer clears itself; sort after the sim passes. Closed rounded cells like the photos. verified-in-project (shots g9_*_g11).
+  - Light conserved (CPU reference binning photons, mean 1.01) and flat water = exactly 1. NOTE: bin with math.floor, not int() (int truncates negatives into bin 0). verified-in-project (tests).
+  - Narrow band 16 waves, 0.56-0.21 m, rms 3 mm, low 7 deg sun: soft at 0.5 m, closed cells at 1 m, crossing bands at 2 m depth. verified-in-project (numpy proto + shots).
+  - Cost on Iris-Xe class, AC: +0.5-1.3 ms (384x768 mesh, 2048 R16F tex) and +0.5-0.6 ms (256x512, 1024); R16F vs R32F made no measurable difference; mesh/texture size matter little
+    (fixed cost of one more pass dominates). A/B PITFALL: switching a level off and on does NOT rebuild a pass of the same index - destroy it to test other sizes; the first 4 s after
+    start are slow whatever is on (warm-up): never compare against the first block. verified-in-project.

@@ -557,7 +557,7 @@ class WaterData:
     """The pool water (assets/shaders/water.*, math in core/waves.py + core/cubemap.py): dark mirror, Fresnel, teal in the shallows, faint ripples, rings where a bullet lands.
     The reflection is the room captured ONCE (box-projected cube), so smoke, tracers and the gun are not mirrored."""
     deep_color: tuple = (0.004, 0.012, 0.014)     # body colour of deep water (linear light): nearly black, like the photo
-    shallow_color: tuple = (0.006, 0.085, 0.075)  # teal body colour in the shallows (near the steps and the pool wall)
+    shallow_color: tuple = (0.004, 0.045, 0.110)  # body colour in the shallows and what the water scatters on the way to the bottom (G11: blue, was teal)
     shallow_width: float = 1.4                    # m: how far the teal reaches from the pool wall / steps
     reflect_strength: float = 1.0                 # multiplies the mirrored room (1 = as captured)
     fresnel_f0: float = 0.06                      # reflectivity looking straight down (real water 0.02); grazing view is always near 1
@@ -577,15 +577,22 @@ class WaterData:
     sim_slope: float = 1.0                        # multiplies the simulated slope on the normal (how strongly waves bend the picture)
     bullet_push: float = -0.015                   # m: a bullet landing pushes the water down this much (Gaussian)
     bullet_radius: float = 0.06                   # m: radius of that push
-    basin_color: tuple = (0.40, 0.62, 0.70)       # tile colour of the pool basin under the water (linear; pale pool blue). Only seen through the water: not baked
+    basin_color: tuple = (0.14, 0.36, 1.00)       # tile colour of the pool basin under the water (linear; pool blue, G11: bluer like the user's photos). Only seen through the water: not baked
     basin_tile: float = 0.15                      # m: tile size on the basin floor and walls
     basin_light: float = 0.75                     # multiplies the baked room ambient (at gun height) to light the basin bottom
-    absorption: tuple = (0.42, 0.10, 0.07)        # 1/m per colour: water swallows red first (a deeper path turns teal-blue)
-    caustic_strength: float = 0.9                 # brightness of the sun's caustic net on the bottom
-    caustic_ambient: float = 0.25                 # how much the caustic pattern also shows where only sky light reaches (0 = only in the sun)
-    caustic_scale: float = 0.65                   # m: size of the caustic net
-    caustic_speed: float = 0.5                    # how fast the net drifts
-    caustic_waves: float = 6.0                    # how much simulated waves focus / spread the sunlight on the bottom (laplacian weight)
+    absorption: tuple = (0.45, 0.13, 0.03)        # 1/m per colour: water swallows red first, then green (real water: a deeper path turns blue)
+    # G11 caustics (core/caustics.py, game/caustics.py): a light mesh refracted by the small ripples + the simulated waves, drawn each frame into a texture over the pool plan
+    caustic_strength: float = 1.0                 # multiplies the sunlight on the bottom where the caustic pattern lies (1 = physical)
+    caustic_ambient: float = 0.12                 # how much the pattern also shows where only sky light reaches (0 = only in the sun)
+    caustic_wall: float = 0.7                     # share of the pattern on the pool walls (they read the floor's pattern along the sun ray: an approximation)
+    caustic_peak: float = 6.0                     # the brightest the lines get (multiples of the average light): brighter ones saturate softly
+    caustic_white: float = 0.9                    # 0..1: how much the bright lines lose the tile colour (a real photo burns them to white)
+    caustic_sim: float = 1.0                      # weight of the simulated waves (bullets, wading) in the light mesh (1 = physical)
+    wave_size: float = 0.35                       # m: middle wavelength of the small ripples = about the size of a caustic cell
+    wave_height: float = 0.003                    # m: rms height of the ripples: larger = sharper lines that cross sooner (shallower)
+    wave_speed: float = 0.4                       # factor on the real ripple speed (1 = capillary-gravity waves, ~0.8 m/s)
+    wave_bend: float = 2.5                        # how much the ripples bend the view of the tiles under the water (1 = physical; more = the wobbly grout of the photo)
+    wave_mirror: float = 0.5                      # share of the ripples in the reflection (1 = physical: breaks the mirrored room into small pieces)
     glint_strength: float = 2.5                   # the sun's sparkle on the waves (only where the sun reaches the water)
     glint_power: float = 900.0                    # sharpness of the sparkle (larger = smaller, harder dots)
 
@@ -597,7 +604,7 @@ class GraphicsLevel:
     sim_cols: int                 # wave simulation grid (0 = no simulation: analytic bullet rings, as G9)
     sim_rows: int
     refraction: bool              # see the pool bottom through the water (False = the G9 dark mirror)
-    caustics: bool
+    caustics: int                 # 0 off, 1 / 2: light mesh + texture size (core/graphics.py CAUSTIC_SIZES)
     glint: bool                   # the sun's sparkle on the waves
     shaft_steps: int              # sun shafts: dust noise samples per lit piece of a view ray (0 = no shafts; the lit length itself is exact, sun_window.glsl)
     splash: float                 # share of the splash droplets drawn (0 = none)
@@ -607,9 +614,9 @@ class GraphicsLevel:
 
 
 GRAPHICS_LEVELS = (
-    GraphicsLevel('Thấp', 0, 0, False, False, False, 0, 0.0, False, False, False),
-    GraphicsLevel('Vừa', 128, 256, True, True, True, 1, 0.6, True, True, False),
-    GraphicsLevel('Cao', 256, 512, True, True, True, 3, 1.0, True, True, True),
+    GraphicsLevel('Thấp', 0, 0, False, 0, False, 0, 0.0, False, False, False),
+    GraphicsLevel('Vừa', 128, 256, True, 1, True, 1, 0.6, True, True, False),
+    GraphicsLevel('Cao', 256, 512, True, 2, True, 3, 1.0, True, True, True),
 )
 
 

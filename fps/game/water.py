@@ -8,11 +8,13 @@ import struct
 from panda3d.core import Geom, GeomNode, GeomTriangles, GeomVertexData, GeomVertexFormat, GeomVertexWriter, PTA_LVecBase3f, PTA_LVecBase4f, Texture, Vec3, Vec4
 from ursina import Entity
 
+from fps.core import caustics
 from fps.core.cubemap import TAN_HALF, basis
-from fps.core.graphics import water_flags
+from fps.core.graphics import CAUSTIC_SIZES, water_flags
 from fps.core.poolmap import AmbientGrid, PoolMap, basin_boxes
 from fps.core.waves import RippleBuffer
 from fps.game.shaders import load_glsl
+from fps.game.caustics import CausticPass
 from fps.game.water_sim import WaterSim
 from fps.weapon_data import GraphicsLevel, WaterData
 
@@ -37,8 +39,9 @@ def grid_texture(name: str, grid: list) -> Texture:
 class WaterSurface:
     is_water = True
 
-    def __init__(self, pm: PoolMap, params: WaterData, ambient: AmbientGrid = None):
+    def __init__(self, pm: PoolMap, params: WaterData, ambient: AmbientGrid = None, sun: tuple = (0.0, 1.0, 0.0)):
         self.pm, self.p = pm, params
+        self.sun = sun
         self.clock = 0.0
         self.ripples = RippleBuffer(params.ripple_slots)
         self.on_splash = None                       # callable(point, distance) set by Game once the water has a sound
@@ -48,6 +51,8 @@ class WaterSurface:
         self.y = y
         self.sim = None                             # WaterSim, built by `set_level` when the graphics level asks for one
         self._sim_size = (0, 0)
+        self.caustics = None                        # CausticPass (G11), built by `set_level`
+        self._caustic_size = 0
         self.entity = Entity(add_to_scene_entities=False)
         self.node = self.entity.attach_new_node(self._quad(x0 - MARGIN, x1 + MARGIN, z0 - MARGIN, z1 + MARGIN, y))
         self.node.set_two_sided(True)
@@ -106,6 +111,20 @@ class WaterSurface:
         n.set_shader_input('water_sim_b', still)
         self._still_pick = PTA_LVecBase4f.empty_array(1)
         n.set_shader_input('water_sim_pick', self._still_pick)
+        self._still = still
+        # G11: the small ripples shared by this shader and the caustic pass (pool_waves.glsl), and the caustic texture (a 1 x 1 'flat light' until a level builds the pass)
+        self.wave_a, self.wave_b = PTA_LVecBase4f.empty_array(caustics.N_WAVES), PTA_LVecBase4f.empty_array(caustics.N_WAVES)
+        n.set_shader_input('wave_a', self.wave_a)
+        n.set_shader_input('wave_b', self.wave_b)
+        self.caus_params = PTA_LVecBase4f.empty_array(1)          # water level, weight of the simulated waves, clock, -
+        self.caus_sim_on = PTA_LVecBase4f.empty_array(1)
+        self.ramp = (r[2], r[3], r[4], r[5])
+        self.domain = caustics.domain(self.rect, sun, y - blo[1] + 0.1)
+        self.flat_caustic = Texture('caustics_flat')
+        self.flat_caustic.setup_2d_texture(1, 1, Texture.T_float, Texture.F_r32)
+        self.flat_caustic.set_ram_image(struct.pack('<f', 1.0))
+        n.set_shader_input('water_caus_tex', self.flat_caustic)
+        n.set_shader_input('water_caus_domain', Vec4(*self.domain))
         self.quality = PTA_LVecBase4f.empty_array(1)
         n.set_shader_input('water_quality', self.quality)
         self.apply_params()
@@ -139,6 +158,7 @@ class WaterSurface:
         if g.sim_cols == 0:                         # Low: the sim only stops (its buffers stay: removing them stalled the switch frame to 71 ms)
             if self.sim is not None:
                 self.sim.set_enabled(False)
+            self._set_caustics(g)
             return
         size = (g.sim_cols, g.sim_rows)
         if self.sim is not None:
@@ -154,6 +174,41 @@ class WaterSurface:
                 n.set_shader_input('water_sim_b', self.sim.textures[1])
                 n.set_shader_input('water_sim_pick', self.sim.pick)
             self._sim_size = size
+        self._set_caustics(g)
+
+    def _set_caustics(self, g: GraphicsLevel):
+        """Build / resize / stop the caustic pass (only useful when the bottom is seen)."""
+        want = g.caustics if g.refraction else 0
+        if want == 0:
+            if self.caustics is not None:
+                self.caustics.set_enabled(False)
+            self._sync_caustic_inputs()
+            return
+        if self.caustics is not None and want != self._caustic_size:
+            self.caustics.destroy()
+            self.caustics = None
+        if self.caustics is None:
+            cols, rows, tex_long = CAUSTIC_SIZES[want]
+            self.caustics = CausticPass(self.rect, self.domain, cols, rows, tex_long, self.y, self.ramp, self.sun, self._caustic_shared())
+            self._caustic_size = want
+        self.caustics.set_enabled(True)
+        self._sync_caustic_inputs()
+
+    def _caustic_shared(self) -> dict:
+        sim_on = self.sim is not None and self.sim.enabled
+        return {'wave_a': self.wave_a, 'wave_b': self.wave_b, 'caus_params': self.caus_params, 'caus_sim_on': self.caus_sim_on,
+                'water_sim_a': self.sim.textures[0] if sim_on else self._still, 'water_sim_b': self.sim.textures[1] if sim_on else self._still,
+                'water_sim_pick': self.sim.pick if sim_on else self._still_pick}
+
+    def _sync_caustic_inputs(self):
+        """The simulation textures the pass reads, and which caustic texture the water reads (flat light when the pass is off)."""
+        sim_on = self.sim is not None and self.sim.enabled
+        self.caus_sim_on.set_element(0, Vec4(1.0 if sim_on else 0.0, 0, 0, 0))
+        on = self.caustics is not None and self.caustics.enabled
+        if self.caustics is not None:
+            for name, value in self._caustic_shared().items():
+                self.caustics.set_input(name, value)
+        self.node.set_shader_input('water_caus_tex', self.caustics.texture if on else self.flat_caustic)
 
     def apply_params(self):
         """Pushes the WaterData numbers (F1 panel) to the shader."""
@@ -165,8 +220,14 @@ class WaterSurface:
         n.set_shader_input('water_impact2', Vec4(p.impact_strength, p.impact_reach, TAN_HALF, 0.0))
         n.set_shader_input('water_basin', Vec4(*p.basin_color, p.basin_tile))
         n.set_shader_input('water_absorb', Vec4(*p.absorption, p.basin_light))
-        n.set_shader_input('water_caustic', Vec4(p.caustic_strength, p.caustic_ambient, p.caustic_scale, p.caustic_speed))
-        n.set_shader_input('water_glint', Vec4(p.glint_strength, p.glint_power, p.sim_slope, p.caustic_waves))
+        n.set_shader_input('water_caustic', Vec4(p.caustic_strength, p.caustic_ambient, p.caustic_wall, p.caustic_peak))
+        n.set_shader_input('water_caustic2', Vec4(p.caustic_white, p.wave_bend, p.wave_mirror, 0.0))
+        n.set_shader_input('water_glint', Vec4(p.glint_strength, p.glint_power, p.sim_slope, 0.0))
+        wa, wb = caustics.pack(caustics.wave_table(p.wave_size, p.wave_height, p.wave_speed))
+        for i in range(caustics.N_WAVES):
+            self.wave_a.set_element(i, Vec4(*wa[i]))
+            self.wave_b.set_element(i, Vec4(*wb[i]))
+        self.caus_params.set_element(0, Vec4(self.y, p.caustic_sim, self.clock, 0.0))
         if self.sim is not None:
             self.sim.set_physics(p.sim_speed, p.sim_life)
 
@@ -194,5 +255,6 @@ class WaterSurface:
     def update(self, dt: float):
         self.clock += dt
         self.time_pta.set_element(0, Vec3(self.clock, 0, 0))
+        self.caus_params.set_element(0, Vec4(self.y, self.p.caustic_sim, self.clock, 0.0))
         if self.sim is not None:
             self.sim.update(dt)

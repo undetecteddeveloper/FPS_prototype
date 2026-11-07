@@ -13,7 +13,7 @@ from panda3d.core import (Filename, Geom, GeomNode, GeomTriangles, GeomVertexArr
 from PIL import Image
 from ursina import Entity
 
-from fps.core.exposure import target_exposure
+from fps.core.exposure import sun_vector, target_exposure
 from fps.core.poolmap import (AmbientGrid, PoolMap, bake_key, build_map, colliders, lightmap_uv, pack_atlas, probe_uv, rail_meshes, pool_terrain, reflect_key,
                               window_rects)
 from fps.core.terrain import Terrain
@@ -57,7 +57,7 @@ class PoolHall:
         self.node.set_shader(load_glsl('room'), 1)
         self.node.set_shader_input('room_lightmap', self.lightmap)
         self.node.set_shader_input('room_params', Vec4(self.e_max, 0, 0, 0))
-        self.water = WaterSurface(self.pm, params.water, self.ambient)
+        self.water = WaterSurface(self.pm, params.water, self.ambient, sun_vector(params.look))
         self._bind_sun_windows()
         self.world = {'floor': None, 'colliders': colliders(self.pm) + [self.water.collider()], 'pool': self}
         self.reflection = None
