@@ -1,6 +1,6 @@
 # Sổ credit
 
-Quy tắc ở `docs/WORKFLOW.md` mục 6b. Mỗi lần sinh tài nguyên thêm MỘT dòng; số dư là số SAU lần sinh. Người dùng khai lại số dư thật đầu mỗi phiên sinh tài nguyên.
+Quy tắc ở `docs/notes/ai-assets.md` mục 6b. Mỗi lần sinh tài nguyên thêm MỘT dòng; số dư là số SAU lần sinh. Người dùng khai lại số dư thật đầu mỗi phiên sinh tài nguyên.
 
 ## Số dư đầu kỳ (người dùng khai 6/11/2026)
 | Nền tảng | Credit |
