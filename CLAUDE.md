@@ -5,7 +5,8 @@ LUẬT CỨNG: với MỌI prompt của người dùng, dòng đầu tiên của
 Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm việc (hỏi theo cỡ việc, phiên, subagent): `docs/WORKFLOW.md`, ĐỌC ĐẦU MỖI PHIÊN. Chi tiết từng giai đoạn: `docs/notes/` (danh sách cuối file).
 
 ## Lệnh
-- Chạy game: `run.bat` (hoặc `.venv\Scripts\python.exe main.py`; cửa sổ không viền phủ kín). Tuỳ chọn: `--novsync`, `--window --size 1280x720`, `--quit-after 5`, `--mute`, `--defaults` (bỏ `user_params.json`), `--map flat` (nền trắng phẳng cũ, để so FPS; mặc định là phòng hồ bơi), `--rebake` (nướng lại ánh sáng + chụp lại phản chiếu của phòng hồ).
+- Chạy game: `run.bat` (hoặc `.venv\Scripts\python.exe main.py`; cửa sổ không viền phủ kín). Tuỳ chọn: `--novsync`, `--window --size 1280x720`, `--quit-after 5`, `--mute`, `--defaults` (bỏ `user_params.json`), `--map flat` (nền trắng phẳng cũ, để so FPS; mặc định là phòng hồ bơi), `--rebake` (nướng lại ánh sáng + chụp lại phản chiếu của phòng hồ), `--low-memory` (ép chế độ giảm tải; game tự chọn khi máy thiếu bộ nhớ ảo).
+- Game chết / treo / cửa sổ đen lúc khởi động: mở `logs\crash.log` (dòng đầu mỗi lần chạy ghi commit trống; crash native và treo > 150 s để lại dấu vết Python), rồi `docs/notes/troubleshooting.md`. Nguyên nhân đã biết (7/11/2026): máy hết commit (pagefile 3 GB). Đừng giết tiến trình theo tên (`Stop-Process python`): đó có thể là game của người dùng.
 - Test thuần (toán + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest` (~30 s).
 - `tools\selftests\*` HIỆN KHÔNG CHẠY ĐƯỢC (dựng bằng bia và phòng bắn đã xoá 7/11/2026; người dùng bảo không cần). Cổng kiểm tra = pytest + chạy game thật. Nhiều game cùng lúc làm bài đo thời gian trượt oan: bọc `.venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh gốc>`.
 - Đo FPS: `tools\measure\g8_perf.py --gun glock|m4 [--map flat]` (6 tình huống, ngưỡng 55; máy nóng/bận cho số thấp, đo lại một mình). Map hồ bơi: `tools\measure\pool_check.py [--gun glock]` (26 mục bằng game thật), `pool_shots.py` (chụp ảnh các góc). Kiểm rút/đổi súng: `tools\measure\swap_check.py`. Chụp tư thế: `tools\measure\g8_shots.py`.
@@ -16,9 +17,9 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 ```
 main.py  run.bat  requirements.txt  pytest.ini  CLAUDE.md  CREDITS.txt    <- cửa vào, cấu hình, sổ luật
 fps/        app.py (Game, create_game() dựng tất cả, prune_scene_entities(), main()), weapon_data.py (MỌI thông số, dataclass)
-  core/     toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, params + param_meta (bảng F1),
+  core/     toán thuần, KHÔNG import ursina, có pytest: memplan (chọn chế độ theo commit trống), movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, params + param_meta (bảng F1),
             freeaim, headcam, gaze, smoke, lens, exposure, easing, poolmap (map dựng từ hộp), lightbake (nướng ánh sáng, numpy), terrain (bậc thang + va chạm), waves (sóng nước), cubemap (ảnh phản chiếu 3×2)
-  game/     ghép Ursina/Panda: player, combat, viewmodel, ground, sky, smoke, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake, debug_panel (F1), frame_light, lens, decals, gltf_maps, pool (phòng hồ bơi), water, pool_capture
+  game/     ghép Ursina/Panda: player, combat, viewmodel, ground, sky, smoke, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake, debug_panel (F1), frame_light, lens, decals, gltf_maps, pool (phòng hồ bơi), water, pool_capture, sysmem (commit trống + crash log, không import ursina)
 assets/     guns/ (glb), sounds/ (wav; source/ = gốc, mp3 ElevenLabs, candidates/), shaders/ (GLSL, light_common.glsl dùng chung; room, water), maps/pool/ (ánh sáng nướng + ảnh phản chiếu, tự sinh)
 tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.md, notes/, sessions/)  backups/ shots/ (gitignore)
 ```
@@ -68,6 +69,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 
 ## Tài liệu theo chủ đề (mở khi đụng tới, đừng đọc hết)
 - `docs/notes/tools.md`: danh mục công cụ, bài kiểm tra, công tắc tắt để đo.
+- `docs/notes/troubleshooting.md` (7/11/2026): game chết / treo / âm thanh nền lặp đoạn ngắt lúc khởi động; nguyên nhân gốc (hết commit), bằng chứng, chế độ giảm tải, `logs/crash.log`, hướng dẫn tăng pagefile.
 - `docs/notes/viewmodel-world.md` (G1): viewmodel, camera, độ sâu, chuột nhìn, FOV.
 - `docs/notes/shooting-targets.md` (G2): bắn, đạn, bia, lỗ đạn, chữ HUD.
 - `docs/notes/recoil-spread-kick.md` (G3): recoil, độ tản, bloom, kick.

@@ -11,6 +11,7 @@ from pathlib import Path
 from ursina import Entity, Text, application, camera, color, window
 
 from fps.core.handling import Phase
+from fps.core.memplan import NOTICE_REDUCED
 from fps.core.spread import crosshair_gap
 
 FONT_FILE = 'segoeuisl.ttf'
@@ -37,7 +38,7 @@ def setup_fonts():
 class Notice:
     """A short line top-centre that fades out (the graphics level after F2). Game calls `update` every frame."""
 
-    WARM_TEXT = 'Đồ hoạ: Thấp Vừa Cao (F2 đổi)'      # every glyph the notices use
+    WARM_TEXT = 'Đồ hoạ: Thấp Vừa Cao (F2 đổi) ' + NOTICE_REDUCED      # every glyph the notices use
 
     def __init__(self):
         # built with every glyph at start (the font rasterizes them now), then hidden. NOT shown at alpha 0: Ursina's Text ignored that alpha and the line was visible.

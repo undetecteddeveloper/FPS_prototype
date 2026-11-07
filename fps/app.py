@@ -2,6 +2,7 @@
 import argparse
 import copy
 import math
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent      # project root (contains assets/)
@@ -16,6 +17,7 @@ from ursina import Entity, Ursina, application, camera, mouse, scene, time, wind
 
 from fps.core.exposure import sun_vector, target_exposure  # noqa: E402
 from fps.core.freeaim import barrel_view_dir, view_to_world  # noqa: E402
+from fps.core.memplan import plan as memory_plan  # noqa: E402
 from fps.core.headcam import HeadCam, reload_state  # noqa: E402
 from fps.core.movement import aim_direction  # noqa: E402
 from fps.core.params import ParamStore  # noqa: E402
@@ -34,6 +36,7 @@ from fps.game.lens import Lens  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
 from fps.game.smoke import GunSmoke  # noqa: E402
+from fps.game import sysmem  # noqa: E402
 from fps.game.splash import WaterSplash  # noqa: E402
 from fps.core.splash import Wake  # noqa: E402
 from fps.core.footprints import FootprintTrail  # noqa: E402
@@ -46,6 +49,11 @@ from fps.weapon_data import GUNS, M4, GameParams  # noqa: E402
 
 USER_PARAMS = ROOT / 'user_params.json'      # user parameters saved from the debug panel (F1); gitignored
 USER_GRAPHICS = ROOT / 'user_graphics.json'  # graphics settings saved by the F2 panel; gitignored
+CRASH_LOG = ROOT / 'logs' / 'crash.log'      # Python stack of a native crash + the memory the run started with (fps/game/sysmem.py); gitignored
+# Panda STREAMS a sound file bigger than this (audio-preload-threshold, default 1 MB): the main thread refills a 3 s queue every frame, so a long main-thread stall starves it.
+# The looping room tone (2 MB) is the biggest sound; kept in memory it loops inside OpenAL and no stall of the game can interrupt it (tests/test_memplan.py checks the sizes).
+AUDIO_PRELOAD_BYTES = 16_000_000
+STARTUP_WATCHDOG_S = 150.0                   # a start-up slower than this is written to the crash log with the place it is stuck at (a normal one takes 2-3 s; a light bake ~60 s)
 
 
 def prune_scene_entities():
@@ -73,9 +81,11 @@ class Game(Entity):
     def __init__(self, params: GameParams, quit_after: float = 0.0, sound: bool = True, draw: bool = True,
                  effects: bool = True, look: bool = True, shake: bool = True,
                  user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True, gun_name: str = 'm4',
-                 map_name: str = 'pool', rebake: bool = False):
+                 map_name: str = 'pool', rebake: bool = False, low_memory: bool = False):
         super().__init__()
         self.params = params
+        self.low_memory = low_memory                  # the machine is short of virtual memory (fps/core/memplan.py): no MSAA, the second gun is built on the first switch
+        self._aa_cap = 0 if low_memory else None      # MSAA samples allowed while the user has not touched the anti-aliasing row himself (None = no cap)
         self.map_name = map_name                      # 'pool' = the pool hall (G9); 'flat' = the old white slab (kept to compare FPS)
         look = look or map_name == 'pool'             # the pool hall is drawn by shaders that WorldLook feeds
         self.gun_name = gun_name                      # key in GUNS of the gun in hand
@@ -151,7 +161,7 @@ class Game(Entity):
                 self.gfx = from_json(USER_GRAPHICS.read_text(encoding='utf-8'))
             except (OSError, ValueError) as e:
                 print(f'[đồ hoạ] không đọc được {USER_GRAPHICS.name}: {e}')
-        self.lens = Lens(params.lens, self.viewmodel, samples=self.gfx.aa) if lens else None
+        self.lens = Lens(params.lens, self.viewmodel, samples=self._capped_aa(self.gfx.aa)) if lens else None
         self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.hud = Hud(params.gun.credit) if hud else None                    # Bodycam style: nothing on screen; only the selftest turns it on to read numbers
         self.debug = DebugPanel(self, self.params_store, USER_PARAMS)         # F1 panel: built lazily the first time it opens; costs nothing while closed
@@ -164,6 +174,8 @@ class Game(Entity):
 
     # --- graphics (G10): the F2 panel edits `self.gfx`; switching changes uniforms and buffers only (no shader recompiles); anti-aliasing rebuilds the lens buffer ---
     def apply_graphics(self, s: GraphicsSettings, announce: bool = False):
+        if self._aa_cap is not None and s.aa != self.gfx.aa:      # the user chose an anti-aliasing level himself: that wins over the low-memory cap
+            self._aa_cap = None
         self.gfx = s
         g = resolve(s)
         p = preset_of(s)
@@ -174,7 +186,7 @@ class Game(Entity):
             kit.viewmodel.set_env(g.gun_env and self.pool is not None)
         if self.dust:
             self.dust.set_enabled(g.dust)
-        self._set_aa(s.aa)
+        self._set_aa(self._capped_aa(s.aa))
         window.fps_counter.enabled = s.show_fps
         if announce:
             self.notice.show(f'Đồ hoạ: {g.name}')
@@ -182,6 +194,9 @@ class Game(Entity):
     def set_graphics(self, i: int, announce: bool = True):
         """Apply preset `i` (0 Thấp / 1 Vừa / 2 Cao), keeping anti-aliasing and the FPS counter (tools use this)."""
         self.apply_graphics(settings_for(clamp_level(i), keep=self.gfx), announce)
+
+    def _capped_aa(self, samples: int) -> int:
+        return samples if self._aa_cap is None else min(samples, self._aa_cap)
 
     def _set_aa(self, samples: int):
         """Rebuild the lens buffer with `samples` MSAA samples (0 = off). The guns' drawing regions move to the new buffer (a parked gun stays switched off)."""
@@ -444,25 +459,27 @@ def desktop_size() -> tuple:
 def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, quit_after: float = 0.0,
                 sound: bool = True, draw: bool = True, effects: bool = True, look: bool = True, shake: bool = True,
                 user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True,
-                borderless: bool = False, gun: str = 'm4', map_name: str = 'pool', rebake: bool = False) -> Game:
+                borderless: bool = False, gun: str = 'm4', map_name: str = 'pool', rebake: bool = False, low_memory: bool = False) -> Game:
     # Ursina(vsync=False) alone does not turn vsync off; the Panda config must be set directly
     loadPrcFileData('', f'sync-video {int(vsync)}')
     # Panda cleans its state cache with a job every frame (~0.5 ms here); when off, states are freed by reference counting instead
     loadPrcFileData('', 'garbage-collect-states 0')
     icon = Path(ursina.__file__).parent / 'textures' / 'ursina.ico'   # absolute path; otherwise Ursina looks in the game folder
     app = Ursina(title='FPS prototype', icon=Filename.from_os_specific(str(icon)), vsync=vsync, borderless=borderless, fullscreen=fullscreen, size=size,
+    loadPrcFileData('', f'audio-preload-threshold {AUDIO_PRELOAD_BYTES}')       # see AUDIO_PRELOAD_BYTES
                  development_mode=False)
     application.asset_folder = ROOT
     window.fps_counter.enabled = False
     setup_fonts()
     # a copy of the gun: the debug panel writes straight into the gun data, so the shared GunData must not be dirtied (tests, measuring tools)
     game = Game(GameParams(gun=copy.deepcopy(GUNS[gun])), quit_after, sound, draw, effects, look, shake=shake,
-                user_params=user_params, hud=hud, lens=lens, free_aim=free_aim, gun_name=gun, map_name=map_name, rebake=rebake)
+                user_params=user_params, hud=hud, lens=lens, free_aim=free_aim, gun_name=gun, map_name=map_name, rebake=rebake, low_memory=low_memory)
     game.app = app
     prune_scene_entities()
     # dry-run renders at build time: compiling shaders (lens, gun) and uploading normal maps to the GPU do not land in the game's first frame. Without it the first frame takes ~1 s and the 1 s draw clip is skipped entirely
     game.viewmodel.prewarm()
-    game.preload_guns()             # the other gun too: a weapon switch then loads nothing (it used to freeze the game 0.5-1.7 s)
+    if not low_memory:              # (low memory: built on the first switch instead, `_apply_gun`: one long frame, but 0.12 GB less commit at start-up)
+        game.preload_guns()         # the other gun too: a weapon switch then loads nothing (it used to freeze the game 0.5-1.7 s)
     return game
 
 
@@ -479,9 +496,23 @@ def main(argv=None):
     ap.add_argument('--rebake', action='store_true', help='nướng lại ánh sáng và chụp lại phản chiếu của phòng hồ bơi (thường game tự làm khi cần)')
     args = ap.parse_args(argv)
     # default: a borderless window covering the whole screen. Exclusive fullscreen with vsync drops straight to 30 FPS whenever one frame is late; this does not
+    ap.add_argument('--low-memory', action='store_true', help='ép chế độ giảm tải (tắt khử răng cưa, nạp súng thứ hai muộn); thường game tự chọn khi máy thiếu bộ nhớ ảo')
     size = tuple(int(v) for v in args.size.lower().split('x')) if args.window else desktop_size()
+    # BEFORE the window exists: how much virtual memory is free decides how much to build (fps/core/memplan.py), and a native crash from now on leaves logs/crash.log
+    free_mb, limit_mb = sysmem.free_commit_mb(), sysmem.commit_limit_mb()
+    mem = memory_plan(free_mb, force_reduced=args.low_memory)
+    sysmem.install_crash_log(CRASH_LOG, sysmem.header_line(sys.argv, free_mb, limit_mb, mem.mode))
+    if mem.mode == 'critical':
+        sysmem.show_error('Không đủ bộ nhớ để mở game', mem.message)
+        sys.exit(1)
     game = create_game(vsync=not args.novsync, size=size, borderless=not args.window,
-                       quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake)
+                       quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake, low_memory=mem.low_memory)
+    sysmem.stop_watchdog()
+    if mem.message:
+        print(f'[bộ nhớ] {mem.message}')
+        if mem.notice:
+            game.notice.show(mem.notice, seconds=10.0)
+    sysmem.start_watchdog(STARTUP_WATCHDOG_S)
     game.app.run()
 
 
