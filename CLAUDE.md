@@ -19,7 +19,7 @@ fps/        app.py (Game, create_game() dựng tất cả, prune_scene_entities(
             freeaim, headcam, gaze, smoke, lens, exposure, easing, poolmap (map dựng từ hộp), lightbake (nướng ánh sáng, numpy), terrain (bậc thang + va chạm), waves (sóng nước), cubemap (ảnh phản chiếu 3×2)
   game/     ghép Ursina/Panda: player, combat, viewmodel, ground, sky, smoke, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake, debug_panel (F1), frame_light, lens, decals, gltf_maps, pool (phòng hồ bơi), water, pool_capture
 assets/     guns/ (glb), sounds/ (wav; source/ = gốc, mp3 ElevenLabs, candidates/), shaders/ (GLSL, light_common.glsl dùng chung; room, water), maps/pool/ (ánh sáng nướng + ảnh phản chiếu, tự sinh)
-tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.md, notes/, sessions/, images/)  backups/ shots/ (gitignore)
+tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.md, notes/, sessions/)  backups/ shots/ (gitignore)
 ```
 - `fps/game/__init__.py` để TRỐNG có chủ đích: `fps.game.gltf_patch` phải nạp được trước khi import ursina. `main.py` chỉ re-export `create_game`, `main` (tools gọi `from main import create_game`).
 - Tài nguyên mới vào `assets/`; nguồn + prompt giữ trong `assets/<loại>/source/`.
