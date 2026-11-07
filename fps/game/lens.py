@@ -4,7 +4,7 @@ Because the lens is applied to the COMPOSITED image, the gun and the world disto
 Not using Ursina's `camera.shader` (FXAA on that path breaks the image when the gun has its own drawing region); the gun's drawing region is moved to the same buffer here.
 """
 from direct.filter.FilterManager import FilterManager
-from panda3d.core import FrameBufferProperties, PTA_LVecBase3f, SamplerState, Texture, Vec3, Vec4
+from panda3d.core import FrameBufferProperties, PTA_LVecBase3f, PTA_LVecBase4f, SamplerState, Texture, Vec3, Vec4
 from ursina import application, window
 
 from fps.core.movement import smoothstep
@@ -12,8 +12,11 @@ from fps.game.shaders import load_glsl
 from fps.weapon_data import LensData
 
 
+DROP_SLOTS = 12          # wet-lens drops the shader loops over (lens.frag `lens_drops`)
+
+
 class Lens:
-    def __init__(self, data: LensData, viewmodel=None, samples: int = 0):
+    def __init__(self, data: LensData, viewmodel=None, samples: int = 0, light=None):
         """`samples` = MSAA samples of the scene buffer (0 / 2 / 4; graphics panel F2): world AND gun are drawn into it, so both get the anti-aliasing."""
         self.d = data
         self.samples = samples
@@ -41,6 +44,20 @@ class Lens:
         self.quad.set_shader_input('lens_shake', self.shake)
         self.t = 0.0
         self.turn = 0.0                                     # smoothed turn speed (deg/s)
+        # G12: under the water (zoom, extra warp) and the wet lens after surfacing (core/wetlens.py): written in place by `set_wet`
+        self.film = PTA_LVecBase4f.empty_array(1)           # film edge y, film strength, film blur, zoom (1 = none)
+        self.wet = PTA_LVecBase4f.empty_array(1)            # drop refraction, meniscus thickness (m), -, -
+        self.drops = PTA_LVecBase4f.empty_array(DROP_SLOTS)
+        self.film.set_element(0, Vec4(-1.0, 0.0, 0.0, 1.0))
+        self.wet.set_element(0, Vec4(0, 0, 0, 0))
+        for i in range(DROP_SLOTS):
+            self.drops.set_element(i, Vec4(0, 0, 0, 0))
+        self.quad.set_shader_input('lens_film', self.film)
+        self.quad.set_shader_input('lens_wet', self.wet)
+        self.quad.set_shader_input('lens_drops', self.drops)
+        self.extra_fisheye = 0.0
+        if light is not None:
+            light.bind_under(self.quad)                     # the same waterline as the world shaders (underwater.glsl)
         self.apply_params()
         if viewmodel is not None:
             viewmodel.move_to_output(self.manager.buffers[-1])
@@ -63,7 +80,15 @@ class Lens:
 
     def current_fisheye(self, ads: float) -> float:
         d = self.d
-        return d.fisheye + (d.fisheye_ads - d.fisheye) * smoothstep(min(max(ads, 0.0), 1.0))
+        return d.fisheye + (d.fisheye_ads - d.fisheye) * smoothstep(min(max(ads, 0.0), 1.0)) + self.extra_fisheye
+
+    def set_wet(self, film_edge: float, film_strength: float, film_blur: float, zoom: float, extra_fisheye: float, drops: list, refract: float, meniscus: float):
+        """G12, once per frame before `update`: drops = [(x, y, r, alpha)] (core/wetlens.py WetLens.packed)."""
+        self.extra_fisheye = extra_fisheye
+        self.film.set_element(0, Vec4(film_edge, film_strength, film_blur, zoom))
+        self.wet.set_element(0, Vec4(refract, meniscus, 0.0, 0.0))
+        for i in range(DROP_SLOTS):
+            self.drops.set_element(i, Vec4(*drops[i]) if i < len(drops) else Vec4(0, 0, 0, 0))
 
     def update(self, dt: float, ads: float, yaw_step: float, shake: tuple = (0.0, 0.0, 0.0)):
         """`yaw_step` = degrees of horizontal mouse turn in this frame (for rolling shutter and blur when turning).

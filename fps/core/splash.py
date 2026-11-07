@@ -95,6 +95,12 @@ def wade_speed_factor(depth: float, chest: float, slow: float) -> float:
     return 1.0 - (1.0 - slow) * k
 
 
+def water_speed_factor(depth: float, chest: float, slow: float, head_under: bool = False, under_slow: float = 1.0) -> float:
+    """G12: wading as above, and with the head under the water (walking on the bottom) `under_slow` (never faster than chest-deep wading)."""
+    k = wade_speed_factor(depth, chest, slow)
+    return min(k, under_slow) if head_under else k
+
+
 class Wake:
     """Pushes of the water by a walking body: one every `spacing` metres walked in the water (the first one at once on entering), strength by depth and speed."""
 

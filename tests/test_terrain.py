@@ -8,7 +8,6 @@ from fps.weapon_data import MapData
 
 D = MapData()
 R, STEP, H = 0.3, 0.2, 1.7
-WADE_Y = D.water_y - D.wade_depth                  # the lowest the feet go in the pool (chest-deep water)
 
 
 def ramp(z):
@@ -50,17 +49,23 @@ def test_the_pool_is_two_metres_deep_at_the_north_end():
     assert not any(b.name.startswith('step_n') for b in build_map(D).boxes)          # no steps into 2 m of water: the handrails are a ladder
 
 
-def test_walking_toward_the_deep_end_stops_where_the_water_is_chest_deep(terrain):
-    x, z = walk(terrain, 0.0, -8.0, D.pool_floor, 0.0, 4.5, seconds=4.0)          # wading north along the slope (the feet follow the floor; y is not used for the depth test)
-    z_line = D.slope_z[0] + (D.slope_z[1] - D.slope_z[0]) * (D.pool_floor - WADE_Y) / (D.pool_floor - D.pool_deep)
-    assert z_line - 0.1 < z <= z_line + 1e-6
-    assert D.water_y - ramp(z) <= D.wade_depth + 1e-6
+def test_walking_down_the_slope_reaches_the_two_metre_bottom(terrain):
+    """G12: no rope line at chest depth any more: he walks the whole slope and stands on the deep floor, head under the water."""
+    x, z = walk(terrain, 0.0, -8.0, D.pool_floor, 0.0, 4.5, seconds=6.0)          # wading north along the slope (the feet follow the floor; y is not used for the depth test)
+    assert z > D.slope_z[1] + 1.0
+    assert terrain.floor_at(x, z, D.pool_floor) == pytest.approx(D.pool_deep)
+    assert D.water_y - D.pool_deep == pytest.approx(2.0)
+    eye = D.pool_deep + 1.68
+    assert eye < D.water_y - 0.3                                                   # standing there, the eye is well under the surface
 
 
-def test_dropping_into_the_deep_end_stands_at_chest_depth_and_can_wade_back(terrain):
-    assert terrain.floor_at(0, 10, 0.2) == pytest.approx(WADE_Y)                    # not 2 m down: standing (treading) at chest depth
-    x, z = walk(terrain, 0.0, 10.0, WADE_Y, 0.0, -4.5, seconds=3.0)               # someone who jumped in may walk back to the shallows
-    assert z < 0.0
+def test_dropping_into_the_deep_end_lands_on_the_bottom_and_can_walk_back(terrain):
+    assert terrain.floor_at(0, 10, 0.2) == pytest.approx(D.pool_deep)               # jumping in from the deck: down to the 2 m floor
+    x, z, y = 0.0, 10.0, D.pool_deep
+    for _ in range(80):                                                            # walking back up the slope to the shallows, the feet following the floor
+        x, z = walk(terrain, x, z, y, 0.0, -4.5, seconds=0.05)
+        y = terrain.floor_at(x, z, y + STEP)
+    assert z < 0.0 and y > D.pool_deep + 0.5
 
 
 def test_a_ledge_higher_than_a_step_blocks_from_the_pool_floor_but_not_when_high_enough(terrain):

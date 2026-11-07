@@ -3,6 +3,7 @@
 uniform vec4 look_fog;
 
 #include "light_common.glsl"
+#include "underwater.glsl"
 
 in vec2 uv;
 in float alpha;
@@ -14,5 +15,6 @@ void main() {
     float a = alpha * (1.0 - smoothstep(0.35, 1.0, r));
     if (a < 0.01) discard;
     vec3 light = look_ambient_up * 1.6 + look_sun_color * (sunlit * 1.4);
+    if (pixel_wet()) discard;                       // G12: air particles are not seen through the water
     frag_color = vec4(tonemap(light * 0.85), a * 0.75);
 }

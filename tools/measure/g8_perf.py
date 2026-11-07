@@ -1,4 +1,4 @@
-r"""G8: FPS of a gun in the real game (vsync off, 1366x768): standing, aimed, firing, reloading. Prints average / worst FPS of each scene (threshold 55).
+r"""G8: FPS of a gun in the real game (vsync off, 1366x768): standing, aimed, firing, reloading (G12: + under the water, looking up, half under). Prints average / worst FPS of each scene (threshold 55).
 
 Run: .venv\Scripts\python.exe -X utf8 tools\measure\g8_perf.py [--gun glock|m4]
 """
@@ -78,6 +78,19 @@ class Script(Entity):
         held_keys['left mouse'] = 0
         yield from self.scene('nạp đạn', 2.6, lambda: (setattr(c.weapon, 'mag', 3), c.request_reload()))
         yield from self.scene('chạy nước rút', 3.0, lambda: (held_keys.__setitem__('w', 1), held_keys.__setitem__('shift', 1)))
+        held_keys['w'] = held_keys['shift'] = 0
+        if game.pool:                                         # G12: on the deep floor, head under the water (basin mesh + underwater fog), then the split frame at the surface
+            pl = game.player
+
+            def put(x, y, z, yaw, pitch=0.0):
+                def go():
+                    pl.x, pl.y, pl.z, pl.yaw, pl.pitch = x, y, z, yaw, pitch
+                    pl.vx = pl.vz = pl.vy = 0.0
+                    pl._apply_view()
+                return go
+            yield from self.scene('dưới nước', 3.0, put(0.0, -2.12, 10.0, 180.0))
+            yield from self.scene('nhìn lên mặt nước', 3.0, put(0.0, -2.12, 9.0, 160.0, -55.0))
+            yield from self.scene('nửa chìm', 3.0, put(0.0, -1.80, 3.87, 0.0))
 
 
 Script()

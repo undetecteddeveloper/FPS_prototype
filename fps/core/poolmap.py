@@ -169,7 +169,8 @@ def is_air(pm: PoolMap, p) -> bool:
     return not any(inside_box(b, p) for b in pm.boxes if b.visible)
 
 
-def _exposed_faces(pm: PoolMap) -> list:
+def _exposed_faces(pm: PoolMap, under: bool = False) -> list:
+    """under=False: the room (everything above the water); under=True: the complementary pieces inside the pool below the surface (G12 `basin_faces`)."""
     px0, px1, pz0, pz1, wy = pm.water
     faces = []
     for bi, b in enumerate(pm.boxes):
@@ -199,6 +200,17 @@ def _exposed_faces(pm: PoolMap) -> list:
                         continue
                     # under the water nothing is ever seen: drop the pieces that lie fully below the surface inside the pool, and clip the pool wall at the surface
                     in_pool = px0 - 1e-3 <= c[0] <= px1 + 1e-3 and pz0 - 1e-3 <= c[2] <= pz1 + 1e-3
+                    if under:
+                        if not in_pool:
+                            continue
+                        if axis == 1:
+                            if plane < wy - 1e-3:
+                                faces.append(f)
+                            continue
+                        hi_y = min(v1, wy - 0.02)                # up to where the room's pool wall starts (no overlapping coplanar strip)
+                        if hi_y > v0 + 1e-3:
+                            faces.append(Face(bi, axis, sign, plane, u0, u1, v0, hi_y))
+                        continue
                     if in_pool:
                         if axis == 1 and plane < wy - 1e-3:
                             continue
@@ -386,6 +398,36 @@ def basin_boxes(pm: PoolMap) -> tuple:
     return basin, steps
 
 
+def basin_faces(pm: PoolMap) -> list:
+    """G12: the faces of the pool basin under the water (floor, steps, walls up to 2 cm below the surface, where the room mesh takes over), for the camera under the water.
+    Horizontal faces under the sloping bottom are cut away (the ramp hides them); the ramp itself is `ramp_quad`."""
+    faces = _exposed_faces(pm, under=True)
+    r = pm.ramp
+    if not r:
+        return faces
+    low = min(r[4], r[5])
+    out = []
+    for f in faces:
+        if f.axis == 1 and f.plane <= low + 1e-3:
+            for u0, u1, v0, v1 in _subtract([(f.u0, f.u1, f.v0, f.v1)], (r[0], r[1], r[2], r[3])):
+                if u1 - u0 > 1e-3 and v1 - v0 > 1e-3:
+                    out.append(Face(f.box, f.axis, f.sign, f.plane, u0, u1, v0, v1))
+        else:
+            out.append(f)
+    return out
+
+
+def ramp_quad(pm: PoolMap):
+    """(four corners, normal) of the sloping pool bottom, or None. The normal (toward the water) matches water.frag's ramp normal."""
+    r = pm.ramp
+    if not r:
+        return None
+    x0, x1, z0, z1, y0, y1 = r
+    k = (y1 - y0) / (z1 - z0)
+    ln = math.sqrt(1.0 + k * k)
+    return ((x0, y0, z0), (x1, y0, z0), (x1, y1, z1), (x0, y1, z1)), (0.0, 1.0 / ln, -k / ln)
+
+
 def pool_bottom_y(pm: PoolMap, x: float, z: float) -> float:
     """Height of the pool bottom at (x, z) (shelf, ramp, deep floor, steps): what the water shader sees and what the feet stand on."""
     tops = [b.hi[1] for b in pm.boxes if b.walk and b.lo[0] <= x <= b.hi[0] and b.lo[2] <= z <= b.hi[2] and b.hi[1] < pm.water[4]]
@@ -407,13 +449,11 @@ def walk_tops(pm: PoolMap) -> list:
 
 
 def pool_terrain(pm: PoolMap, radius: float):
-    """The walkable map for the player: box tops, the sloping pool bottom, the room walls (minus his radius), and the deep water he cannot wade into."""
+    """The walkable map for the player: box tops, the sloping pool bottom (down to the 2 m deep end, G12) and the room walls (minus his radius)."""
     from fps.core.terrain import Terrain
     d = pm.data
     hx, hz = d.room_x / 2.0, d.room_z / 2.0
-    x0, x1, z0, z1, wy = pm.water
-    return Terrain(walk_tops(pm), solid_boxes(pm), (-hx + radius, hx - radius, -hz + radius, hz - radius),
-                   ramps=[pm.ramp] if pm.ramp else [], wade=(x0, x1, z0, z1, wy - d.wade_depth))
+    return Terrain(walk_tops(pm), solid_boxes(pm), (-hx + radius, hx - radius, -hz + radius, hz - radius), ramps=[pm.ramp] if pm.ramp else [])
 
 
 def solid_boxes(pm: PoolMap) -> list:

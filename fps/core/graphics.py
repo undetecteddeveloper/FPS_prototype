@@ -24,11 +24,13 @@ class GraphicsSettings:
     wet: bool = True
     gun_env: bool = True
     dust: bool = True
+    under: int = 1            # G12 under the water: 0 simple, 1 full
+    wetlens: bool = True      # G12 wet lens after surfacing
     aa: int = 0               # MSAA samples (0 / 2 / 4)
     show_fps: bool = False
 
 
-PRESET_FIELDS = ('sim', 'refraction', 'caustics', 'glint', 'shafts', 'splash', 'wet', 'gun_env', 'dust')
+PRESET_FIELDS = ('sim', 'refraction', 'caustics', 'glint', 'shafts', 'splash', 'wet', 'gun_env', 'dust', 'under', 'wetlens')
 
 # (field, label, [(value, text)]) for the F2 panel; 'preset' is the row that applies a whole level
 OPTIONS = (
@@ -43,6 +45,8 @@ OPTIONS = (
     ('splash', 'Giọt nước bắn', [(0, 'Tắt'), (1, 'Ít'), (2, 'Nhiều')]),
     ('wet', 'Sàn ướt, vết chân', [(False, 'Tắt'), (True, 'Bật')]),
     ('gun_env', 'Súng phản chiếu căn phòng', [(False, 'Tắt'), (True, 'Bật')]),
+    ('under', 'Dưới nước', [(0, 'Đơn giản'), (1, 'Đầy đủ')]),
+    ('wetlens', 'Ống kính ướt khi trồi lên', [(False, 'Tắt'), (True, 'Bật')]),
     ('show_fps', 'Hiện FPS', [(False, 'Tắt'), (True, 'Bật')]),
 )
 
@@ -64,7 +68,8 @@ def settings_for(i: int, keep: GraphicsSettings = None) -> GraphicsSettings:
     """The settings of preset `i`; anti-aliasing and the FPS counter are taken from `keep` (they are not part of a preset)."""
     g = level(i)
     s = GraphicsSettings(sim=SIM_SIZES.index((g.sim_cols, g.sim_rows)), refraction=g.refraction, caustics=g.caustics, glint=g.glint,
-                         shafts=SHAFT_SAMPLES.index(g.shaft_steps), splash=SPLASH_SHARE.index(g.splash), wet=g.wet, gun_env=g.gun_env, dust=g.dust)
+                         shafts=SHAFT_SAMPLES.index(g.shaft_steps), splash=SPLASH_SHARE.index(g.splash), wet=g.wet, gun_env=g.gun_env, dust=g.dust,
+                         under=g.under, wetlens=g.wetlens)
     if keep is not None:
         s.aa, s.show_fps = keep.aa, keep.show_fps
     return s
@@ -75,7 +80,7 @@ def resolve(s: GraphicsSettings) -> GraphicsLevel:
     p = preset_of(s)
     cols, rows = SIM_SIZES[s.sim]
     return GraphicsLevel(GRAPHICS_LEVELS[p].name if p is not None else 'Tuỳ chỉnh', cols, rows, s.refraction, s.caustics, s.glint,
-                         SHAFT_SAMPLES[s.shafts], SPLASH_SHARE[s.splash], s.wet, s.gun_env, s.dust)
+                         SHAFT_SAMPLES[s.shafts], SPLASH_SHARE[s.splash], s.wet, s.gun_env, s.dust, s.under, s.wetlens)
 
 
 def preset_of(s: GraphicsSettings):

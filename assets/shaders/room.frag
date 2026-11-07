@@ -16,6 +16,7 @@ uniform vec4 room_prints[24];       // wet footprints: x, z, t0, yaw + 10 * roun
 #include "light_common.glsl"
 #include "sun_window.glsl"
 #include "cube_reflect.glsl"
+#include "underwater.glsl"
 
 in vec4 vertex_color;
 in vec2 metric;
@@ -91,7 +92,8 @@ void main() {
         if (dot(n, to_cam) < 0.0) n = -n;
         lit += albedo * flash_light(world_pos, n, look_flash_world.y) * look_flash_world.x;
     }
-    lit += sun_shaft(look_camera_pos, world_pos);                   // the sunlit dusty air between the eye and this pixel (G10; 0 samples on graphics level Low)
+    bool under = pixel_wet();                                       // G12: this pixel looks through the water (the camera at / under the surface)
+    if (!under) lit += sun_shaft(look_camera_pos, world_pos);       // the sunlit dusty air between the eye and this pixel (G10; 0 samples on graphics level Low)
     float dist = length(look_camera_pos - world_pos);
     float fog = clamp(1.0 - exp(-look_fog.a * dist), 0.0, 1.0);
     vec3 color = tonemap(lit);
@@ -105,5 +107,5 @@ void main() {
         float k = fres * room_wet.w * mix(0.35 * wet, 1.0, puddle);
         color = mix(color, room_reflection(world_pos, r), clamp(k, 0.0, 1.0));
     }
-    frag_color = vec4(mix(color, look_fog.rgb, fog), 1.0);
+    frag_color = vec4(under ? under_fog(color, dist) : mix(color, look_fog.rgb, fog), 1.0);
 }

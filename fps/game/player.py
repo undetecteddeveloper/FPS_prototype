@@ -13,7 +13,7 @@ from fps.core.lens import overscan_fov
 from fps.core.movement import (MoveState, aim_direction, apply_look, clamp_to_bounds, resolve_state, smoothstep,
                       step_horizontal_velocity, step_toward, step_vertical, target_speed, wants_sprint, wish_direction)
 from fps.core.freeaim import FreeLook
-from fps.core.splash import wade_speed_factor, water_depth
+from fps.core.splash import water_depth, water_speed_factor
 from fps.core.spring import Spring, impulse_gain
 from fps.core.sway import SwayInput
 from fps.core.terrain import resolve_move
@@ -162,6 +162,16 @@ class Player(Entity):
             return 0.0
         return water_depth(self.y, w[4])
 
+    @property
+    def eye_y(self) -> float:
+        return self.y + self.camera_pivot.y
+
+    @property
+    def head_under(self) -> bool:
+        """The eye is under the still water level (G12: slower walking; Game also blocks firing then, using the rippled surface)."""
+        w = self.water
+        return w is not None and w[0] <= self.x <= w[1] and w[2] <= self.z <= w[3] and self.eye_y < w[4]
+
     def _ground(self) -> float:
         """Height of the floor he can stand on at his position: the highest surface at most `step_up` above his feet (the plane y = 0 without a terrain)."""
         if self.terrain is None:
@@ -196,8 +206,8 @@ class Player(Entity):
         wish = wish_direction(forward, strafe, self.yaw)
         accel = p.accel_ground if self.on_ground else p.accel_air
         speed = target_speed(intent, p, smoothstep(self.ads_amount)) if has_input else 0.0
-        if self.water is not None and self.on_ground:                 # wading: the deeper the water, the slower the legs (G10)
-            speed *= wade_speed_factor(self.water_depth, self.water[5], self.splash.wade_slow)
+        if self.water is not None and self.on_ground:                 # wading: the deeper the water, the slower the legs (G10); head under: walking on the bottom (G12)
+            speed *= water_speed_factor(self.water_depth, self.water[5], self.splash.wade_slow, self.head_under, self.splash.under_slow)
         if self.on_ground or has_input:       # in the air with no key pressed: keep the momentum
             self.vx, self.vz = step_horizontal_velocity(self.vx, self.vz, wish, speed, accel, dt)
 

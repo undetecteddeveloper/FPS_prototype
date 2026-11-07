@@ -148,21 +148,21 @@ class Script(Entity):
         place(*sp, 0.0)
         walk(1, 0.0)
         check('spawn: standing on the deck', player.on_ground and abs(player.y) < 1e-9 and abs(player.z - sp[2]) < 1e-6)
-        walk(480, forward=1.0)                                            # 8 s at 4.5 m/s: from the south bank down the steps, along the shallow end, down the slope
+        walk(900, forward=1.0)                                            # 15 s: from the south bank down the steps, along the shallow end, down the slope to the deep floor (slower in the water)
         d = pool.data
         wade_y = d.water_y - d.wade_depth
-        z_line = d.slope_z[0] + (d.slope_z[1] - d.slope_z[0]) * (d.pool_floor - wade_y) / (d.pool_floor - d.pool_deep)
-        check('walk north into the pool: down the steps and the slope, stopped where the water is chest-deep', player.on_ground and abs(player.y - wade_y) < 0.05 and abs(player.z - z_line) < 0.15,
-              f'y={player.y:.3f} (giới hạn {wade_y:.2f}) z={player.z:.2f} (vạch {z_line:.2f})')
-        check('... his eyes stay above the water', player.y + player.eye_height > d.water_y + 0.2, f'mắt {player.y + player.eye_height:.2f}')
+        check('G12: walk north into the pool: down the steps and the whole slope onto the 2 m deep floor', player.on_ground and abs(player.y - d.pool_deep) < 0.02 and player.z > d.slope_z[1],
+              f'y={player.y:.3f} (đáy {d.pool_deep:.2f}) z={player.z:.2f}')
+        check('... his eyes end up under the water', player.y + player.eye_height < d.water_y - 0.2, f'mắt {player.y + player.eye_height:.2f}')
         place(0.0, 0.0, 13.5, 180.0)                                      # on the north deck, facing the deep end
         walk(60, forward=1.0, jump=True)
-        walk(30)
-        check('the deep end cannot be entered from the deck either (no swimming yet): he stays on the deck edge', player.on_ground and abs(player.y) < 1e-6 and player.z >= d.pool_z / 2 - 1e-6,
+        for _ in range(4):
+            walk(30)
+        check('G12: jumping in from the north deck lands on the deep floor', player.on_ground and abs(player.y - d.pool_deep) < 0.02 and player.z < d.pool_z / 2,
               f'y={player.y:.3f} z={player.z:.2f}')
-        place(0.0, wade_y, 9.0, 180.0)                                    # safety net: if he ever ends up in the deep end he stands at chest depth...
-        walk(300, forward=1.0)
-        check('... and wades back to the shallows', player.z < 0.0 and player.on_ground, f'z={player.z:.2f} y={player.y:.3f}')
+        place(0.0, d.pool_deep, 9.0, 180.0)
+        walk(600, forward=1.0)
+        check('... and walks back up the slope to the shallows', player.z < 0.0 and player.on_ground, f'z={player.z:.2f} y={player.y:.3f}')
 
         place(-5.2, pool.data.pool_floor, -8.0, 270.0)                   # on the shallow floor, 0.8 m from the west wall, facing west
         walk(30, forward=1.0)
@@ -289,14 +289,16 @@ class Script(Entity):
         water.splash((2.0, water.y, -6.0), 10.0)
         check('a bullet on the water throws up droplets', sp.sim.spawned - before >= 8, f'{sp.sim.spawned - before} giọt')
         speeds = {}
-        for name, (x, y, z, yaw) in (('deck', (0.0, 0.0, -13.5, 90.0)), ('knee', (0.0, d.pool_floor, -7.0, 90.0)), ('chest', (0.0, wade_y + 0.02, 0.9, 90.0))):
-            place(x, y, z, yaw)                                     # walking east (across the pool): never toward the deep-water line
+        for name, (x, y, z, yaw) in (('deck', (0.0, 0.0, -13.5, 90.0)), ('knee', (0.0, d.pool_floor, -7.0, 90.0)), ('chest', (-4.0, wade_y + 0.02, 0.9, 90.0)),
+                                     ('under', (-4.0, d.pool_deep, 9.0, 90.0))):
+            place(x, y, z, yaw)                                     # walking east (across the pool, along a line of equal depth)
             walk(1)
             x0 = player.x
             walk(60, forward=1.0)
             speeds[name] = player.x - x0
         check('wading: slower in knee-deep water, slower still at chest depth', speeds['deck'] > speeds['knee'] > speeds['chest'] > 0.0,
               ', '.join(f'{k} {v:.2f} m/s' for k, v in speeds.items()))
+        check('G12: on the bottom with the head under the water, slower than chest-deep wading', 0.0 < speeds['under'] < speeds['chest'], f"under {speeds['under']:.2f} m/s")
         q0 = water.sim.queue[:] if water.sim else []
         place(0.0, d.pool_floor, -8.0, 0.0)
         game._feet = (player.x, player.z)
@@ -316,6 +318,52 @@ class Script(Entity):
             yield
         yield
         check('landing in the water splashes', sp.sim.spawned - before >= 15, f'{sp.sim.spawned - before} giọt')
+        yield
+
+        # --- G12: the head under the water (through the real Game.update path; waits by TIME)
+        uwd, u = game.params.underwater, game.underwater
+
+        def wait(seconds):
+            t_end = pytime.time() + seconds
+            while pytime.time() < t_end:
+                yield
+
+        place(0.0, d.pool_deep, 9.0, 180.0)                           # standing on the deep floor
+        yield from wait(0.5)
+        check('G12: on the deep floor the eye is under the water, the whole frame wet, the basin drawn', u.eye_under and u.all_wet and not u.basin.is_hidden() and combat.underwater,
+              f'mắt {player.eye_y:.2f}, mặt nước {u.surface:.3f}')
+        check('... the dust motes are hidden, the flat-port zoom has blended in', (game.dust is None or game.dust.root.is_hidden()) and u.zoom_mix > 0.99, f'zoom {u.zoom_mix:.2f}')
+        shots = combat.shots_fired
+        bullets = len(combat.bullets)
+        for _ in range(3):
+            combat.pressed = True                                     # a click (the event Game.input turns 'left mouse down' into)
+            held_keys['left mouse'] = 1
+            yield from wait(0.15)
+        held_keys['left mouse'] = 0
+        nt = game.notice_low.text
+        check('G12: pulling the trigger under the water fires nothing', combat.shots_fired == shots and len(combat.bullets) == bullets and combat.blocked_pulls >= 3,
+              f'{combat.blocked_pulls} lần bóp cò bị từ chối')
+        check('... and shows the line at the bottom', nt.main.enabled and nt.main.text == uwd.no_fire_text and nt.main.y < 0, f'"{nt.main.text}"')
+        worst, last = 0.0, pytime.perf_counter()
+        for lvl in (0, 2, 1, 2):
+            game.set_graphics(lvl, announce=False)
+            for _ in range(6):
+                yield
+                now = pytime.perf_counter()
+                worst = max(worst, now - last)
+                last = now
+        check('G12: switching F2 levels under the water never makes a frame slower than 50 ms', worst < 0.05, f'worst frame {worst * 1000:.1f} ms')
+        game.set_graphics(game.params.graphics.level, announce=False)
+        place(0.0, d.pool_floor, -7.0, 0.0)                           # up in the shallow end: the head comes out of the water
+        yield from wait(0.25)
+        film = game.lens.film[0] if game.lens else (0, 0, 0, 0)
+        check('G12: coming up, the lens is wet (a film running down + drops)', not u.eye_under and u.wetlens.film()[1] > 0.5 and film[1] > 0.5 and len(u.wetlens.drops) > 0,
+              f'mép màng {film[0]:.2f}, {len(u.wetlens.drops)} giọt')
+        yield from wait(uwd.film_time + 0.1)
+        check('... the film has run off after ~film_time, drops are left', u.wetlens.film()[1] == 0.0 and len(u.wetlens.visible_drops()) > 0, f'{len(u.wetlens.visible_drops())} giọt còn')
+        yield from wait(uwd.drop_life * 1.3 + 0.3)
+        check('... and the lens is dry a few seconds later', not u.wetlens.active() and all(game.lens.drops[i][2] == 0.0 for i in range(12)) if game.lens else not u.wetlens.active())
+        check('G12: out of the water: trigger allowed again, dust back, the basin no longer drawn', not combat.underwater and u.basin.is_hidden() and (game.dust is None or not game.dust.root.is_hidden()))
         yield
 
 

@@ -3,10 +3,13 @@
 Per-frame values go through PTA arrays edited in place: calling `set_shader_input` every frame would change the draw state of the whole scene graph.
 `bind` is called for `render` (the world) and the root node of the gun scene, so the two sides can never drift apart.
 """
-from panda3d.core import PTA_LVecBase3f, Vec3
+from panda3d.core import PTA_LVecBase3f, PTA_LVecBase4f, Vec3, Vec4
 
 from fps.core.exposure import sun_vector
 from fps.weapon_data import GunData, LookData
+
+
+UNDER_INPUTS = ('look_under', 'look_under2', 'look_under_fog', 'look_under_abs', 'look_under3')
 
 
 class FrameLight:
@@ -35,6 +38,10 @@ class FrameLight:
         self.flash_color.set_element(0, Vec3(0, 0, 0))
         self.flash_on = False
         self.exposure = 1.0
+        # G12 underwater.glsl inputs (game/underwater.py writes them every frame); all zero = no pixel is wet, every test is skipped
+        self.under = {name: PTA_LVecBase4f.empty_array(1) for name in UNDER_INPUTS}
+        for pta in self.under.values():
+            pta.set_element(0, Vec4(0, 0, 0, 0))
 
     def bind(self, node):
         """Puts all light inputs on one node (PTA arrays: the node keeps a reference, so this only has to run once)."""
@@ -45,7 +52,13 @@ class FrameLight:
         node.set_shader_input('look_ambient_down', self.ambient_down)
         node.set_shader_input('look_flash_pos', self.flash_pos)
         node.set_shader_input('look_flash_color', self.flash_color)
+        self.bind_under(node)
         self._push_static(node)
+
+    def bind_under(self, node):
+        """Only the underwater inputs (the lens quad: it is not under render)."""
+        for name, pta in self.under.items():
+            node.set_shader_input(name, pta)
 
     def _static(self) -> dict:
         p = self.look

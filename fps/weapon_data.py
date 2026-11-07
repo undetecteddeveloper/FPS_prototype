@@ -615,12 +615,14 @@ class GraphicsLevel:
     wet: bool                     # wet deck: puddles mirroring the room, wet footprints
     gun_env: bool                 # the room mirrored on the gun's metal (else the old ambient guess)
     dust: bool                    # dust motes glinting in the sun beams
+    under: int = 1                # G12 under the water: 0 simple (fog only: no caustics on the basin, flat surface seen from below), 1 full (caustics, waves bend the Snell window)
+    wetlens: bool = True          # G12 wet lens after surfacing: water film + drops refracting the image
 
 
 GRAPHICS_LEVELS = (
-    GraphicsLevel('Thấp', 0, 0, False, 0, False, 0, 0.0, False, False, False),
-    GraphicsLevel('Vừa', 128, 256, True, 1, True, 1, 0.6, True, True, False),
-    GraphicsLevel('Cao', 256, 512, True, 2, True, 3, 1.0, True, True, True),
+    GraphicsLevel('Thấp', 0, 0, False, 0, False, 0, 0.0, False, False, False, 0, False),
+    GraphicsLevel('Vừa', 128, 256, True, 1, True, 1, 0.6, True, True, False, 1, True),
+    GraphicsLevel('Cao', 256, 512, True, 2, True, 3, 1.0, True, True, True, 1, True),
 )
 
 
@@ -642,6 +644,7 @@ class SplashData:
     gravity: float = 9.81
     drag: float = 0.5                     # 1/s: air drag on a drop
     wade_slow: float = 0.55               # walking speed multiplier in chest-deep water (1 on the deck; linear with depth between)
+    under_slow: float = 0.38              # G12: walking speed multiplier on the bottom with the head under the water (slower than chest-deep)
     wake_spacing: float = 0.32            # m walked in the water between two pushes of the surface
     wake_push: float = -0.012             # m: strength of one push (scaled by depth and speed)
     wake_radius: float = 0.22             # m
@@ -654,6 +657,34 @@ class SplashData:
     print_spacing: float = 0.62           # m walked between two wet footprints
     print_life: float = 25.0              # s: a footprint dries out in this time
     feet_dry: float = 12.0                # s out of the water until the feet leave no more prints
+
+
+@dataclass
+class UnderwaterData:
+    """G12: the head under the water (core/underwater.py, game/underwater.py, assets/shaders/underwater.glsl, basin.*, lens.frag) and the wet lens after surfacing (core/wetlens.py).
+    The lens PORT is a small window at the eye: a pixel is under the water when its point on the port is below the surface, so near the surface the frame splits in two."""
+    fog_color: tuple = (0.07, 0.30, 0.40)       # colour the murky water turns into far away (display colour, 0..1)
+    turbidity: float = 0.32                     # 1/m: how fast the view fogs up under the water (0.32: half gone at 2.2 m, almost all at 9 m)
+    absorb_scale: float = 1.0                   # multiplies water.absorption on the underwater path (red goes first)
+    port_half: float = 0.05                     # m: half height of the lens port; the frame is split while the surface is within this of the eye
+    wobble: float = 0.0025                      # m: the waterline on the port wobbles this much (lapping water)...
+    wobble_speed: float = 0.0060                # ...plus this much per m/s walked
+    meniscus: float = 0.0035                    # m: thickness of the bright / dark line where the water touches the port
+    zoom: float = 1.22                          # fully under: the image is magnified this much (a flat port: water bends the rays, ~1.33 for a real flat port)
+    warp: float = 0.18                          # fully under: extra fisheye at the edges
+    zoom_time: float = 0.35                     # s to blend the zoom in / out
+    gun_fog: float = 0.6                        # m of water the gun is seen through (tints the gun blue under the water)
+    snell_ripple: float = 1.0                   # how strongly the waves bend the room seen through the Snell window from below
+    no_fire_text: str = 'Không thể bắn ở đây'   # shown when the trigger is pulled with the head under the water
+    no_fire_time: float = 1.6                   # s the line stays
+    # --- wet lens after surfacing (core/wetlens.py) ---
+    film_time: float = 1.0                      # s: the water film runs off the lens top to bottom in this time
+    film_blur: float = 0.006                    # how much the film blurs / wobbles the picture (share of the frame)
+    drops: int = 12                             # drops left on the lens after a full dip (fewer after a partial one)
+    drop_size: float = 0.045                    # radius of a drop (share of the frame width, varies 0.5..1.4x)
+    drop_life: float = 4.5                      # s: a drop dries in about this time (each one 0.6..1.3x)
+    drop_slide: float = 0.035                   # how fast a drop creeps down (share of the frame height per second)
+    drop_refract: float = 0.55                  # how strongly a drop bends the picture like a small lens
 
 
 @dataclass
@@ -675,7 +706,7 @@ class MapData:
     pool_floor: float = -0.62         # pool bottom of the SHALLOW end: 0.5 m of water
     pool_deep: float = -2.12          # pool bottom of the DEEP end: 2.0 m of water (user 7/11/2026: "about 1.5 m deeper"; the bottom slopes, he wades until the water is chest-deep)
     slope_z: tuple = (-4.0, 6.0)      # the bottom slopes from pool_floor at z0 down to pool_deep at z1 (flat before and after)
-    wade_depth: float = 1.25          # m of water at most where he can walk: deeper is blocked like a rope line (chest height; no swimming yet)
+    wade_depth: float = 1.25          # m of water at chest height: the wading slowdown reaches `SplashData.wade_slow` here (G12: deeper water is no longer blocked, he walks on the bottom)
     north_steps: bool = False         # the narrow steps at the north end (G9); off since the north end is 2 m deep: the two handrails stay as a pool ladder
     steps: int = 3                    # steps down into the pool at the south end (full width); the rise is the SHALLOW depth / (steps + 1)
     step_depth: float = 0.45          # tread depth of the south steps (m)
@@ -889,6 +920,13 @@ class AudioData:
     water_land_volume: float = 0.85       # jumping / falling into the water (scales with the fall speed like the tile landing)
     ambience_file: str = 'assets/sounds/pool_ambience.wav'    # looping room tone of the pool hall (silent if the file is missing)
     ambience_volume: float = 0.30
+    # G12 under the water (ElevenLabs drafts in assets/review/water/: each file stays silent until the user approved it and it was copied to assets/sounds/)
+    under_ambience_file: str = 'assets/sounds/under_ambience.wav'   # looping tone with the head under the water (replaces the room tone while under)
+    under_ambience_volume: float = 0.45
+    under_fade: float = 0.25                                         # s: cross-fade between the room tone and the underwater tone
+    submerge_file: str = 'assets/sounds/submerge.wav'               # the head goes under
+    surface_file: str = 'assets/sounds/surface.wav'                 # the head comes up
+    submerge_volume: float = 0.7
 
 
 @dataclass
@@ -902,3 +940,4 @@ class GameParams:
     water: WaterData = field(default_factory=WaterData)
     graphics: GraphicsData = field(default_factory=GraphicsData)
     splash: SplashData = field(default_factory=SplashData)
+    underwater: UnderwaterData = field(default_factory=UnderwaterData)

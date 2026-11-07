@@ -43,6 +43,7 @@ from fps.core.footprints import FootprintTrail  # noqa: E402
 from fps.game.dust import DustMotes  # noqa: E402
 from fps.game.ground import WALK_BOUNDS, build_ground  # noqa: E402
 from fps.game.pool import PoolHall  # noqa: E402
+from fps.game.underwater import Underwater, UnderwaterAudio  # noqa: E402
 from fps.core.sway import Sway, ads_target_for  # noqa: E402
 from fps.game.viewmodel import Viewmodel  # noqa: E402
 from fps.weapon_data import GUNS, M4, GameParams  # noqa: E402
@@ -161,13 +162,18 @@ class Game(Entity):
                 self.gfx = from_json(USER_GRAPHICS.read_text(encoding='utf-8'))
             except (OSError, ValueError) as e:
                 print(f'[đồ hoạ] không đọc được {USER_GRAPHICS.name}: {e}')
-        self.lens = Lens(params.lens, self.viewmodel, samples=self._capped_aa(self.gfx.aa)) if lens else None
+        self.underwater = Underwater(params.underwater, params.water, self.pool, self.light) if self.pool else None   # G12: the camera at / under the surface
+        self._dust_under = False                                              # dust motes hidden because the eye is under the water
+        self.under_audio = UnderwaterAudio(params.audio, ROOT, self.ambience) if self.underwater and sound else None
+        self.lens = Lens(params.lens, self.viewmodel, samples=self._capped_aa(self.gfx.aa), light=self.light) if lens else None
         self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.hud = Hud(params.gun.credit) if hud else None                    # Bodycam style: nothing on screen; only the selftest turns it on to read numbers
         self.debug = DebugPanel(self, self.params_store, USER_PARAMS)         # F1 panel: built lazily the first time it opens; costs nothing while closed
         self.params_store.subscribe(self._on_params_changed)
         self._kits = {gun_name: GunKit(params.gun, self.viewmodel, self.fx, self.audio, self.foley)}     # gun key -> GunKit; `preload_guns` adds the others
         self.notice = Notice()                                                # a short line top-centre (e.g. the settings saved)
+        self.notice_low = Notice((0.0, -0.40), 0.85, params.underwater.no_fire_text)   # G12: a small line at the bottom ("Không thể bắn ở đây")
+        self.combat.on_blocked = lambda: self.notice_low.show(params.underwater.no_fire_text, params.underwater.no_fire_time)
         self.graphics_level = None
         self.gfx_panel = GraphicsPanel(self)                                  # F2: graphics options, built the first time it opens
         self.apply_graphics(self.gfx)
@@ -185,7 +191,9 @@ class Game(Entity):
         for kit in self._kits.values():
             kit.viewmodel.set_env(g.gun_env and self.pool is not None)
         if self.dust:
-            self.dust.set_enabled(g.dust)
+            self.dust.set_enabled(g.dust and not self._dust_under)
+        if self.underwater:
+            self.underwater.set_level(g)
         self._set_aa(self._capped_aa(s.aa))
         window.fps_counter.enabled = s.show_fps
         if announce:
@@ -208,7 +216,7 @@ class Game(Entity):
             vm.move_to_output(win)
         data = self.lens.d
         self.lens.destroy()
-        self.lens = Lens(data, None, samples=samples)
+        self.lens = Lens(data, None, samples=samples, light=self.light)
         for vm in vms:
             vm.move_to_output(self.lens.manager.buffers[-1])
 
@@ -321,10 +329,12 @@ class Game(Entity):
             self.pool.apply_params()
         if 'look' in paths and self.dust:
             self.dust.apply_params()
-        if 'audio' in paths and self.ambience:
-            self.ambience.set_volume(self.params.audio.ambience_volume)
+        if 'audio' in paths and self.ambience and not (self.under_audio and self.under_audio.tone):
+            self.ambience.set_volume(self.params.audio.ambience_volume)      # (with an underwater tone, UnderwaterAudio sets it every frame)
         if 'lens' in paths and self.lens:
             self.lens.apply_params()
+        if ('underwater' in paths or 'water' in paths) and self.underwater:
+            self.underwater.apply_params()
         if any(s.id == 'gun.ads_eye_relief' for s in specs):
             self.sway.ads_target = ads_target_for(self.params.gun)
 
@@ -374,6 +384,8 @@ class Game(Entity):
             self.pool.update(dt)
         if self.dust:
             self.dust.update(dt)
+        if self.underwater:
+            self.combat.underwater = self.underwater.eye_under          # last frame's camera (the camera moves after shooting): one frame late at most
         self.combat.update(min(dt, 0.05), dt)
         if self._draw_pending and dt < 0.1:          # wait for the first normal frame: the long build frame must not count toward the draw time
             self._draw_pending = False
@@ -411,6 +423,17 @@ class Game(Entity):
             up, down = self.pool.local_ambient(cam_pos[0], cam_pos[2])      # the room's baked ambient light at his spot: the gun goes dark where the room is dark
             self.light.set_local_light(self._sun_share, up, down)
         self.light.set_exposure(target_exposure(self.params.lens, self.params.look))
+        if self.underwater:
+            win = application.base.win
+            self.underwater.update(dt, cam_pos, camera.right, camera.up, window.aspect_ratio, (win.get_x_size(), win.get_y_size()), self.player.speed)
+            under = self.underwater.all_wet
+            if self.dust and under != self._dust_under:
+                self._dust_under = under
+                self.dust.set_enabled(resolve(self.gfx).dust and not under)
+            if self.lens:
+                self.lens.set_wet(*self.underwater.lens_inputs())
+            if self.under_audio:
+                self.under_audio.update(dt, self.underwater.eye_under)
         if self.smoke:
             self.smoke.update(min(dt, 0.1))                 # after set_camera: the puffs face this frame's camera
         if self.lens:
@@ -418,6 +441,7 @@ class Game(Entity):
         if self.hud:
             self.hud.update(dt, self.combat)
         self.notice.update(dt)
+        self.notice_low.update(dt)
         if self.debug.is_open:
             self.debug.update(dt)
         self._age += time.dt

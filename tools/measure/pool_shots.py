@@ -2,7 +2,7 @@
 
 Run: .venv\\Scripts\\python.exe -X utf8 tools\\with_game_lock.py .venv\\Scripts\\python.exe -X utf8 tools\\measure\\pool_shots.py [--size 1280x720] [--only spawn,east] [--gun] [--ring]
 Views: spawn (looking along the pool like the photo), down (water at the feet), east (toward the windows), west, stairs (north end: stairs + handrails), pool (standing in the water),
-ceiling, corner (SW corner in the shade), water (close look at the surface). --gun keeps the gun in the picture; --ring drops bullet rings on the water first.
+ceiling, corner (SW corner in the shade), water (close look at the surface); G12: uw_level, uw_up, uw_wall, uw_half, uw_half_down, surfaced. --gun keeps the gun in the picture; --ring drops bullet rings on the water first.
 """
 import argparse
 import sys
@@ -105,7 +105,16 @@ VIEWS = {
     'win_b': (8.6, 0.0, -6.8, 128.0, 0.0),                # close, looking along the wall toward the next pier: the reveal of the window beyond
     'win_c': (9.3, 0.0, -9.0, 150.0, 24.0),               # looking down at the sill
     'win_d': (9.3, 0.0, -6.5, 20.0, -28.0),               # looking up at the lintel from beside the window
+    # G12: the camera under the water (the deep floor is y = -2.12; the slope reaches eye = water level at z = 3.87, feet y = -1.80)
+    'uw_level': (0.0, -2.12, 10.0, 180.0, 0.0),           # on the deep floor looking back along the slope toward the shallow end (murky distance)
+    'uw_up': (0.0, -2.12, 9.0, 160.0, -55.0),             # looking up at the surface: the room in Snell's window, the pool mirrored outside it
+    'uw_wall': (-3.0, -2.12, 8.0, 290.0, 8.0),            # the west wall of the deep end close up (caustics, tiles)
+    'uw_half': (0.0, -1.80, 3.87, 0.0, 0.0),              # eye at the water level: the split frame
+    'uw_half_down': (0.0, -1.78, 3.73, 20.0, 12.0),       # a little higher, looking a little down: more room, the waterline low in the frame
+    'surfaced': (0.0, -0.62, -7.0, 0.0, 4.0),             # just came up (after a dip in the deep end): film running down + drops
+    'surfaced_late': (0.0, -0.62, -7.0, 0.0, 4.0),        # 1.6 s after coming up: the film is gone, the drops are left
 }
+SURFACE_AFTER = {'surfaced': 0.30, 'surfaced_late': 1.6}                       # these views first spend 1 s under the water (deep end), then come up and wait this long
 
 
 def snap(name):
@@ -140,6 +149,10 @@ class Script(Entity):
         for name, (x, y, z, yaw, pitch) in VIEWS.items():
             if only and name not in only:
                 continue
+            if name in SURFACE_AFTER:
+                player.x, player.y, player.z = 0.0, -2.12, 10.0
+                player.vx = player.vz = 0.0
+                yield from self.sec(1.0)
             player.x, player.y, player.z = x, y, z
             player.vx = player.vz = 0.0
             player.yaw, player.pitch = yaw, pitch
@@ -162,6 +175,8 @@ class Script(Entity):
                         point = (x + 1.5 * k - 1.5, game.pool.pm.water[4], z + 4.0 + 1.2 * k)
                     game.pool.water.splash(point, 10.0)
                 yield from self.sec(args.ring_wait)
+            elif name in SURFACE_AFTER:
+                yield from self.sec(SURFACE_AFTER[name])
             else:
                 yield from self.wait(25)
             snap(name)

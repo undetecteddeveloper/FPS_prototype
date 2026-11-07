@@ -14,28 +14,23 @@ def ramp_y(ramp: tuple, z: float) -> float:
 
 
 class Terrain:
-    def __init__(self, tops: list, solids: list, bounds: tuple, ramps: list = (), wade: tuple = None):
+    def __init__(self, tops: list, solids: list, bounds: tuple, ramps: list = ()):
         """tops: [(x0, x1, z0, z1, top)]; solids: [(lo, hi)] boxes; bounds: (x_min, x_max, z_min, z_max) for the centre of the player.
         ramps: [(x0, x1, z0, z1, y0, y1)] floors sloping along z (the pool bottom between the shallow and the deep end).
-        wade: (x0, x1, z0, z1, y_min) or None: in this rectangle (the pool) the water is too deep where the floor is below y_min: walking from wadeable water into it is
-        blocked (like a rope line), and someone who drops in there (jumping from the deck) stands at y_min instead of under the water."""
+        G12: the deep water is no longer blocked (G10 had a 'rope line' at chest depth): he walks down to the 2 m bottom with his head under the water."""
         self.tops = tops
         self.solids = solids
         self.bounds = bounds
         self.ramps = list(ramps)
-        self.wade = wade
 
     def _surfaces(self, x: float, z: float):
-        """Every walkable height at (x, z): box tops, ramps, and the wading floor of the deep water."""
+        """Every walkable height at (x, z): box tops and ramps."""
         for x0, x1, z0, z1, top in self.tops:
             if x0 <= x <= x1 and z0 <= z <= z1:
                 yield top
         for r in self.ramps:
             if r[0] <= x <= r[1] and r[2] <= z <= r[3]:
                 yield ramp_y(r, z)
-        w = self.wade
-        if w is not None and w[0] <= x <= w[1] and w[2] <= z <= w[3]:
-            yield w[4]
 
     def floor_at(self, x: float, z: float, y_limit: float):
         """Highest walkable top at (x, z) that is <= y_limit, or None."""
@@ -47,19 +42,6 @@ class Terrain:
 
     def highest_top(self, x: float, z: float):
         return max(self._surfaces(x, z), default=None)
-
-    def true_floor(self, x: float, z: float):
-        """The highest REAL surface at (x, z) (box tops and ramps, without the wading floor)."""
-        heights = [top for x0, x1, z0, z1, top in self.tops if x0 <= x <= x1 and z0 <= z <= z1]
-        heights += [ramp_y(r, z) for r in self.ramps if r[0] <= x <= r[1] and r[2] <= z <= r[3]]
-        return max(heights, default=None)
-
-    def too_deep(self, x: float, z: float) -> bool:
-        w = self.wade
-        if w is None or not (w[0] <= x <= w[1] and w[2] <= z <= w[3]):
-            return False
-        floor = self.true_floor(x, z)
-        return floor is not None and floor < w[4] - 1e-6
 
     def blocked_by_ledge(self, x: float, z: float, y: float, step_up: float) -> bool:
         """A walkable surface at (x, z) that is higher than the feet can step up to."""
@@ -91,14 +73,11 @@ def resolve_move(t: Terrain, x: float, z: float, y: float, vx: float, vz: float,
     def clamp(px, pz):
         return min(max(px, bx0), bx1), min(max(pz, bz0), bz1)
 
-    deep_here = t.too_deep(x, z)
-
     def blocked(px, pz):
-        # a ledge too high to step up, or (from wadeable water) water too deep to walk into; someone already in the deep part may walk anywhere (back to the shallows)
-        return t.blocked_by_ledge(px, pz, y, step_up) or (not deep_here and t.too_deep(px, pz))
+        return t.blocked_by_ledge(px, pz, y, step_up)                # a ledge too high to step up (the pool edge seen from the bottom)
 
     tx, tz = clamp(x + vx * dt, z + vz * dt)
-    if blocked(tx, tz):                                              # try each axis alone so he slides along the pool edge / the deep-water line
+    if blocked(tx, tz):                                              # try each axis alone so he slides along the pool edge
         ax, az = clamp(x + vx * dt, z)
         bx, bz = clamp(x, z + vz * dt)
         if not blocked(ax, az):

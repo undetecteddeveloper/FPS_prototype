@@ -15,6 +15,7 @@ uniform vec4 vm_env;            // x = 1: mirror the captured room on the metal 
 
 #include "light_common.glsl"
 #include "cube_reflect.glsl"
+#include "underwater.glsl"
 
 in vec3 v_pos;
 in vec3 v_normal;
@@ -84,5 +85,6 @@ void main() {
         float local = clamp(dot(look_ambient_up, vec3(0.333)) / 0.19, 0.25, 1.2);
         color += fres * vm_mat.z * room_reflection(p, r) * vm_env.y * local;
     }
+    if (pixel_wet()) color = under_fog(color, look_under3.z);         // G12: the gun seen through the water in front of the lens
     frag_color = vec4(min(color, 1.0), base.a);
 }

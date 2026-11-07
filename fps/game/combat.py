@@ -85,6 +85,9 @@ class Combat:
         self.last_impact = None
         self.shots_fired = 0
         self.frame_dt = 1.0 / 60.0                 # length of the frame being processed
+        self.underwater = False                    # G12: the head is under the water (Game sets it each frame): the trigger does nothing
+        self.on_blocked = None                     # callable() when the trigger is pulled under the water (Game shows "Không thể bắn ở đây")
+        self.blocked_pulls = 0                     # how many trigger pulls were refused under the water (for the checks)
 
     def set_gun(self, gun, audio, fx, shake, viewmodel, foley, ammo=None):
         """Weapon switch: everything that belongs to the gun is rebuilt (rounds, draw/reload handling, spread, recoil, kick, free aim). Bullets in flight and holes stay.
@@ -132,7 +135,12 @@ class Combat:
         trigger = bool(held_keys['left mouse']) and mouse_ok
         self._update_handling(trigger, mouse_ok, dt if real_dt is None else real_dt)
         # lowering the gun after a sprint (sprint-to-fire), or reloading / drawing, cannot fire yet
-        ready = mouse_ok and self.player.can_fire and self.handling.can_fire
+        ready = mouse_ok and self.player.can_fire and self.handling.can_fire and not self.underwater
+        if self.underwater and mouse_ok and self.pressed:             # G12: under the water the press is dropped (it must not fire on surfacing)
+            self.pressed = False
+            self.blocked_pulls += 1
+            if self.on_blocked:
+                self.on_blocked()
         held = trigger and ready
         pressed = self.pressed and ready
         if pressed and self.foley and self.weapon.out_of_ammo:

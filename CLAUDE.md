@@ -17,7 +17,7 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 ```
 main.py  run.bat  requirements.txt  pytest.ini  CLAUDE.md  CREDITS.txt    <- cửa vào, cấu hình, sổ luật
 fps/        app.py (Game, create_game() dựng tất cả, prune_scene_entities(), main()), weapon_data.py (MỌI thông số, dataclass)
-  core/     toán thuần, KHÔNG import ursina, có pytest: memplan (chọn chế độ theo commit trống), movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, params + param_meta (bảng F1),
+  core/     toán thuần, KHÔNG import ursina, có pytest: underwater + wetlens (G12), memplan (chọn chế độ theo commit trống), movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, params + param_meta (bảng F1),
             freeaim, headcam, gaze, smoke, lens, exposure, easing, poolmap (map dựng từ hộp), lightbake (nướng ánh sáng, numpy), terrain (bậc thang + va chạm), waves (sóng nước), cubemap (ảnh phản chiếu 3×2)
   game/     ghép Ursina/Panda: player, combat, viewmodel, ground, sky, smoke, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake, debug_panel (F1), frame_light, lens, decals, gltf_maps, pool (phòng hồ bơi), water, pool_capture, sysmem (commit trống + crash log, không import ursina)
 assets/     guns/ (glb), sounds/ (wav; source/ = gốc, mp3 ElevenLabs, candidates/), shaders/ (GLSL, light_common.glsl dùng chung; room, water), maps/pool/ (ánh sáng nướng + ảnh phản chiếu, tự sinh)
@@ -34,6 +34,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi console.
 - Thế giới mặc định là phòng hồ bơi trong nhà (G9, `docs/notes/pool-hall.md`): dựng từ hộp, ánh sáng NƯỚNG SẴN (mặt trời cố định), nước phản chiếu căn phòng chụp sẵn.
   G10: nước TRONG (thấy đáy bằng tia khúc xạ dò trong shader), sóng mô phỏng trên GPU, hồ dốc 0,5 → 2 m (lội tới ngực), tia nắng, giọt nước, sàn ướt, bụi; **F2 mở bảng đồ hoạ** (`game/graphics_panel.py`: mức chung, khử răng cưa MSAA Tắt / 2x / 4x, từng hiệu ứng, hiện FPS; lưu `user_graphics.json`). Hiệu ứng mới nào cũng phải có dòng trong `core/graphics.py` (`GraphicsSettings`, `OPTIONS`) và đổi được ngay (không biên dịch lại shader). `--map flat` còn khối đất phẳng trắng cũ để so FPS. Không bia, không bóng đổ động; đừng dựng lại phòng bắn / bia khi chưa được hỏi.
+  G12: đi bộ xuống đáy 2 m, camera dưới nước (`core/underwater.py`, `game/underwater.py`, `underwater.glsl` dùng chung ở mọi shader: pixel nào nhìn qua nước), lòng hồ thành lưới thật (`basin.*`), khung tách đôi ở mặt nước, ống kính ướt khi trồi lên (`core/wetlens.py`), dưới nước không bắn được.
   Sửa hình học map (`MapData`) hay nắng (`sun_dir`, `sun_color`, `sky_irradiance`) thì game tự nướng lại (~60 s). Numpy chỉ dùng lúc nướng và ở test.
 - `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
 
@@ -77,6 +78,6 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - `docs/notes/reload-fx-shaders.md` (G5): rút súng, nạp đạn, tia lửa, tracer, shader súng.
 - `docs/notes/ground-sky.md` (7/11/2026): nền, ánh sáng, bầu trời, Glock, `gltf_patch`, đổi súng / rút súng, những thứ đã xoá.
 - `docs/notes/range-lights-signs.md` (G6; phần phòng/đèn/bia/biển đã xoá, còn đúng: shake, bảng F1, foley, bước chân).
-- `docs/notes/pool-hall.md` (G9): map phòng hồ bơi, nước, ánh sáng nướng sẵn, phản chiếu, bậc thang / va chạm, số đo.
+- `docs/notes/pool-hall.md` (G9-G12): map phòng hồ bơi, camera dưới nước, nước, ánh sáng nướng sẵn, phản chiếu, bậc thang / va chạm, số đo.
 - `docs/notes/bodycam.md` (G7): FreeLook / FreeAim, headcam, lens, exposure, ánh sáng thống nhất, âm thanh ElevenLabs.
 - `docs/notes/ai-assets.md`: sinh tài nguyên AI, credit, skill học trước, thư mục review. `docs/notes/multiplayer.md`: hướng multiplayer.

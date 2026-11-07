@@ -40,9 +40,9 @@ class Notice:
 
     WARM_TEXT = 'Đồ hoạ: Thấp Vừa Cao (F2 đổi) ' + NOTICE_REDUCED      # every glyph the notices use
 
-    def __init__(self):
+    def __init__(self, position=(0.0, 0.44), scale=1.1, warm: str = ''):
         # built with every glyph at start (the font rasterizes them now), then hidden. NOT shown at alpha 0: Ursina's Text ignored that alpha and the line was visible.
-        self.text = UiText(self.WARM_TEXT, (0.0, 0.44), origin=(0, 0), scale=1.1)
+        self.text = UiText(self.WARM_TEXT + warm, position, origin=(0, 0), scale=scale)
         self.text.enabled = False
         self.left = 0.0
 
