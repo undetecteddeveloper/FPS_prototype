@@ -9,8 +9,9 @@ The visual part (playing the clip, blending the pose on cancel) is in `game/view
   ('start', key, speed)   start playing clip `key` (key of GunData.clips)
   ('swap', key)           new magazine seated (rounds updated)
   ('done', key)           clip finished
-  ('ready', key, tail)    draw clip reached `Clip.settle`: the gun is up and still, it can fire / aim from now on; the clip's last `tail` real seconds
-                          (only the hands settling) still play on the viewmodel. Comes INSTEAD of 'done' for a draw clip with `settle`
+  ('ready', key, tail)    the gun can fire / aim / be swapped / reloaded again; the clip's last `tail` real seconds (only the hands settling) still play on the viewmodel.
+                          Comes INSTEAD of 'done' for a draw clip at `Clip.settle`, and for a reload clip at `Clip.settle - ReloadData.ready_lead` (never before the new
+                          magazine is seated). Without `Clip.settle` the clip runs to its end and ends with 'done'
   ('cancel', key, frame)  cancelled mid-way at frame `frame` of the clip
 """
 from enum import Enum
@@ -114,6 +115,21 @@ class Handling:
     def _finish(self):
         self.phase, self.key, self.t = Phase.READY, None, 0.0
 
+    def ready_time(self):
+        """Seconds OF THE CLIP (speed already applied) at which the running clip lets the gun act again, or None to wait for the clip's end.
+        Draw: `Clip.settle`. Reload: `Clip.settle` minus `ReloadData.ready_lead` (real seconds), but not before the new magazine is seated. Holster: the end."""
+        clip = self.clip
+        if clip is None or clip.settle is None:
+            return None
+        if self.phase is Phase.DRAW:
+            return clip.settle_time
+        if self.phase is Phase.RELOAD:
+            t = clip.settle_time - max(self.gun.reload.ready_lead, 0.0) * self.speed
+            if clip.swap_time is not None:
+                t = max(t, clip.swap_time)
+            return min(t, clip.duration)
+        return None
+
     # --- every frame ---
     def update(self, dt: float):
         """`dt` is the real frame time (not capped at 50 ms): visuals run on the Panda clock, so the logic follows it too."""
@@ -125,7 +141,8 @@ class Handling:
             self.swapped = True
             self.loaded = self.weapon.load_magazine()
             self.events.append(('swap', self.key))
-        if self.phase is Phase.DRAW and clip.settle is not None and self.t >= clip.settle_time:
+        ready = self.ready_time()
+        if ready is not None and self.t >= ready and self.t < clip.duration:
             self.events.append(('ready', self.key, max(clip.duration - self.t, 0.0) / self.speed))
             self._finish()
         elif self.t >= clip.duration:

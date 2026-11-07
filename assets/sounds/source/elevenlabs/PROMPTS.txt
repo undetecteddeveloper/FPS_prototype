@@ -52,3 +52,4 @@
 50. [1.5s, influence 0.6] Water dripping from a person's wet clothes onto a wet tiled floor after climbing out of a pool: a few irregular drops and small splats. Quiet, indoor pool hall, no music, no voices.  (water_drip)
 51. [12s, loop, influence 0.4] Ambient room tone of a quiet empty indoor swimming pool hall: soft water lapping against the pool edge and the overflow gutter, faint drips, gentle tiled reverb, a distant ventilation hum. Calm and steady, no music, no voices, no people.  (pool_ambience_loop)
 (43-51: model eleven_text_to_sound_v3, mp3_44100_128, 7/11/2026, G10; ở assets/review/water/, CHƯA duyệt)
+(7/11/2026: người dùng chỉ giữ mục 45 wade_step_deep, 47 water_jump_a, 51 pool_ambience_loop; các bản nháp mục 40-44, 46, 48-50 đã xoá khỏi assets/review/water/)

@@ -105,9 +105,22 @@ Kế hoạch + bản chốt: `docs/sessions/G10.md`. Skill kỹ thuật (nguồn
 - Kiểm: `tools\measure\graphics_panel_check.py` (19 mục: buffer thật có 2 / 4 mẫu, súng sang buffer mới, mọi dòng đổi và quay vòng, lưu file); `tests/test_graphics.py` (mức chung qua lại, "Tuỳ chỉnh", file hỏng thì về mặc định).
 - Bẫy: `Text` của Ursina coi `<` là đầu thẻ định dạng: chuỗi "< Cao >" làm lỗi IndexError trong `align`; dùng "‹ ›".
 
-## G10: tiếng nước (7/11/2026)
-- 9 bản ElevenLabs V3 mới (prompt `PROMPTS.txt` mục 43-51) + 3 bản nháp G9 (mục 40-42) ở `assets/review/water/` (thư mục review bị gitignore). CHƯA DUYỆT: game chưa có tiếng nước nào.
-- Mã đã nối sẵn, nhóm tiếng TUỲ CHỌN (thiếu file thì im, không lỗi): `wade` (bước lội), `wade_deep` (nước sâu từ `audio.wade_deep_from` 0,8 m), `wade_run`, `water_land`, `water_hit` (đạn trúng nước, trễ theo tốc độ âm thanh như `hit_hard`),
-  `drip` (vừa lên bờ), tiếng nền `assets/sounds/pool_ambience.wav` lặp liên tục. Lội thì không còn tiếng bước gạch. Âm lượng ở F1 nhóm "Âm lượng" mục "Nước hồ bơi".
-- Duyệt xong: `.venv\Scripts\python.exe -X utf8 tools\build\prep_water_audio.py` (in kế hoạch + bảng đo), chọn bằng `--set nhóm=bản1,bản2`, rồi `--apply` (giải mã mp3 bằng Panda3D, không cần ffmpeg; ffmpeg không có trên PATH máy này 7/11/2026).
-- Kiểm đường phát: `tools\measure\water_audio_check.py` (6 mục, file wav giả trong thư mục tạm).
+## G10: tiếng nước (người dùng chốt 7/11/2026)
+- Người dùng nghe và CHỈ GIỮ 3 bản ElevenLabs V3 (prompt `PROMPTS.txt` mục 45, 47, 51): `wade_step_deep` cho MỌI bước lội (nước sâu, chạy, "lặn"), `water_jump_a` cho nhảy / rơi xuống hồ, `pool_ambience_loop` làm tiếng nền. 9 bản còn lại (và tiếng đạn trúng nước, nước nhỏ giọt) đã XOÁ cả file lẫn mã: đạn trúng nước giờ chỉ có sóng + giọt, không có tiếng.
+  Còn trong `assets/review/water/` đúng 3 file đó (thư mục review bị gitignore). Dựng ra game: `.venv\Scripts\python.exe -X utf8 tools\build\prep_water_audio.py [--apply]` (giải mã mp3 bằng Panda3D, không cần ffmpeg) -> `assets/sounds/foley/wade_0.wav`, `water_land_0.wav`, `assets/sounds/pool_ambience.wav` (đã dựng, đã commit).
+- HIỆU CHỈNH một bản thu cho mọi kiểu bước (`fps/game/foley.py` `_play_foot`, số trong F1 nhóm "Âm lượng" mục "Nước hồ bơi"):
+  cao độ (tốc độ phát) từ `wade_pitch_shallow` 1,30 (nước ngang mắt cá, nhẹ và cao) xuống `wade_pitch_deep` 1,00 (ngang ngực, đúng bản thu, đầy tiếng) tuyến tính theo độ ngập (`wade_deep_ref` 1,25 m); âm lượng từ `wade_shallow_gain` 0,50 lên 1,0 cùng chiều;
+  chạy: cao độ ×`wade_run_pitch` 1,25 (bước dồn, tiếng ngắn lại) và âm lượng ×`wade_run_gain` 1,15. 3 bản phát luân phiên cho nhóm này (đuôi vẩy nước 0,75 s không bị cắt khi bước dồn).
+  Mức to nhỏ: bản thu to gấp 1,48 lần tiếng bước gạch ở cùng âm lượng (đo RMS, `prep_water_audio.py` in tỉ lệ) nên `wade_volume` 0,30 (≈ 1,3 lần bước gạch ở ngang ngực); tiếng nhảy nước nhỏ hơn bước (0,55 lần) nên `water_land_volume` 0,85; tiếng nền `ambience_volume` 0,30.
+  Đo trong game: nông 1,20 / 0,21, ngang ngực 1,02 / 0,30, chạy nông 1,43 / 0,24 (tốc độ phát / âm lượng).
+- Tiếng nền: file 11,63 s, ghép vòng bằng crossfade 0,6 s cuối vào đầu (đo: chênh lệch tại chỗ nối 0,011, nhỏ hơn chênh lệch trung vị giữa hai mẫu kề nhau 0,015; mức RMS không đổi quanh chỗ nối).
+- Lội thì không còn tiếng bước gạch; lên bờ thì tiếng gạch trở lại. Nhóm tiếng tuỳ chọn: thiếu file thì im, không lỗi.
+- Kiểm: `tools\measure\water_audio_check.py` (8 mục bằng game thật với file thật: tiếng nền lặp, một bản thu cho mọi bước, hiệu chỉnh nông / sâu / chạy, rơi xuống nước, tiếng gạch trở lại).
+
+## Nạp đạn: bắn / ngắm / đổi súng được từ lúc súng về chỗ (người dùng báo 7/11/2026)
+- Triệu chứng: sau khi nạp (cả M4 và Glock) phải chờ ~1,5 s mới bắn / ngắm / đổi súng được. Nguyên nhân đo được: KHÔNG có độ trễ trong mã (sau `done` hành động được sau 0,02 s), mà clip nạp còn chạy tiếp M4 0,73 / 0,60 s, Glock 0,47 / 0,57 s sau mốc `Clip.settle`
+  (súng, băng đạn, cò đã về chỗ; phần đó chỉ là tay thu về, chuyển động khớp < 1 cm / khung), và suốt thời gian đó `Handling` còn bận. Sau khi băng đạn vào (`swap`) clip còn 1,63 s (M4) / 1,3 s (Glock): đúng con số ~1,5 s người dùng cảm thấy.
+- Sửa (cùng cách với clip rút súng): `Handling` phát `('ready', key, tail)` thay `done` ở `Clip.settle − ReloadData.ready_lead` (không bao giờ trước lúc băng đạn vào chỗ); từ đó bắn / ngắm / đổi súng / nạp lại được, `Viewmodel` chạy tiếp phần đuôi, phát súng đầu tiên (Glock) cắt ngang đuôi, M4 vừa bắn vừa để đuôi chạy nốt.
+  Mốc tiếng và rung của clip đều nằm trước `settle` nên không mất; cái đầu vẫn ngẩng lên đúng (cửa sổ nhìn xuống đóng từ trước `settle`). `ReloadData.ready_lead` (F1 nhóm "Nạp đạn": "Nạp xong: bắn sớm hơn", mặc định 0) cho kéo mốc sớm thêm tối đa 0,8 s.
+  Đừng kéo nhiều với Glock: bắn sớm thì bàn tay trái bị kéo giật sang clip bắn (đo: lệch ~8 cm ở 0,1 s trước `settle`, ~22 cm ở 0,25 s trước). M4 không có clip bắn nên không giật, nhưng nạp cạn thì sớm hơn ~0,25 s là lúc tay còn đập tay kéo bolt.
+- Kiểm: `tools\measure\reload_check.py [--gun m4|glock]` (12 mục bằng game thật, thao tác thật: mở khoá đúng lúc `settle`, bắn / ngắm trong 0,03 s, đuôi còn chạy, rồi về tư thế sẵn sàng, chỉ băng đạn đúng được hiện, đổi súng ngay được), `tests/test_handling.py`.

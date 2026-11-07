@@ -20,7 +20,7 @@ from fps.core.footsteps import FootEvent, Footsteps, pick_variant
 from fps.weapon_data import AudioData, GunData
 
 STEP_NAMES = ('step_walk', 'step_run', 'land', 'jump')
-WATER_NAMES = ('wade', 'wade_run', 'wade_deep', 'water_land', 'water_hit', 'drip')     # G10, optional groups (AudioData water sounds)
+WATER_NAMES = {'wade': 3, 'water_land': 2}     # G10, optional groups (AudioData water sounds) -> playback copies; wading steps come ~0.3 s apart and the splash rings longer, so 3 copies
 TELEPORT_DISTANCE = 3.0       # m: a position jump larger than this within one frame is a teleport, not walking
 
 
@@ -56,10 +56,9 @@ class Foley:
             names.update(c.sound for c in cues)
         names.discard(None)
         self.banks = {name: self._load_bank(name, project_root) for name in sorted(names)}
-        for name in WATER_NAMES:                   # G10: optional (silent until the user approves the files)
+        for name, copies in WATER_NAMES.items():   # G10: optional (a missing group is silent)
             if self._has_files(name, project_root):
-                self.banks[name] = self._load_bank(name, project_root)
-        self._was_wading = 0.0                     # water depth last frame (climbing out -> drips)
+                self.banks[name] = self._load_bank(name, project_root, copies)
 
         self.clock = 0.0                           # seconds elapsed (dt added), to check when sounds play
         self.counts = Counter()                    # number of plays per group name (for checks)
@@ -71,14 +70,14 @@ class Foley:
         group = self.audio.sound_files.get(name, name)
         return any((project_root / self.audio.folder).glob(f'{group}_*.wav'))
 
-    def _load_bank(self, name: str, project_root: Path) -> _Bank:
+    def _load_bank(self, name: str, project_root: Path, copies: int = None) -> _Bank:
         folder = project_root / self.audio.folder
         group = self.audio.sound_files.get(name, name)             # logical name -> file group (user-supplied or synthesized sounds)
         files = sorted(folder.glob(f'{group}_*.wav'))
         if not files:
             raise FileNotFoundError(f'thiếu {folder}\\{group}_*.wav: chạy tools\\build\\prep_foley.py (tiếng user_*: tools\\build\\prep_user_audio.py; el_*: tools\\build\\prep_elevenlabs.py)')
         loader = application.base.loader
-        return _Bank([[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(max(1, self.audio.pool))] for f in files])
+        return _Bank([[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(max(1, copies or self.audio.pool))] for f in files])
 
     def resume(self):
         """Weapon switch: this gun's Foley (kept built while another gun was in hand) takes over again. The player moved meanwhile: that is not a step."""
@@ -114,9 +113,14 @@ class Foley:
             if ev.kind == 'land':
                 self.play('water_land', a.water_land_volume * ev.gain / max(a.land_volume, 1e-3))
                 return
-            name = 'wade_run' if ev.run else ('wade_deep' if depth >= a.wade_deep_from else 'wade')
-            pan = a.foot_pan if ev.foot else -a.foot_pan
-            self.play(name, a.wade_volume * (0.6 + 0.4 * min(depth / 1.0, 1.0)), ev.pitch, pan)
+            # ONE recording for every wading step, calibrated by depth (0 ankle .. 1 chest) and by running (user's choice 7/11/2026)
+            k = min(depth / max(a.wade_deep_ref, 0.1), 1.0)
+            volume = a.wade_volume * (a.wade_shallow_gain + (1.0 - a.wade_shallow_gain) * k)
+            pitch = a.wade_pitch_shallow + (a.wade_pitch_deep - a.wade_pitch_shallow) * k
+            if ev.run:
+                volume *= a.wade_run_gain
+                pitch *= a.wade_run_pitch
+            self.play('wade', volume, pitch * ev.pitch, a.foot_pan if ev.foot else -a.foot_pan)
             return
         name = {'step': 'step_run' if ev.run else 'step_walk', 'land': 'land', 'jump': 'jump'}[ev.kind]
         pan = 0.0 if ev.kind == 'land' else (self.audio.foot_pan if ev.foot else -self.audio.foot_pan)
@@ -129,13 +133,6 @@ class Foley:
         pitch = 1.0 + self.rng.uniform(-a.hit_pitch_variation, a.hit_pitch_variation)
         self.pending.append((self.clock + delay, 'hit_hard', volume, pitch))
 
-    def on_water_impact(self, distance: float):
-        """A bullet landed on the water: like `on_impact` (late by the speed of sound, fading with distance) with the water sound."""
-        a = self.audio
-        delay, volume = impact_sound(a, distance)
-        pitch = 1.0 + self.rng.uniform(-a.hit_pitch_variation, a.hit_pitch_variation)
-        self.pending.append((self.clock + delay, 'water_hit', volume * a.water_hit_volume / max(a.hit_hard_volume, 1e-3), pitch))
-
     def on_dry_fire(self):
         """Trigger pulled with the magazine empty: the game has no HUD, so this, together with the bolt lock, is the only way to know the gun is out of ammo."""
         self.play('dry', self.audio.dry_volume)
@@ -147,7 +144,7 @@ class Foley:
         if kind == 'start':
             key, speed = event[1], event[2]
             self.schedule.start(self.audio.cues.get(key, ()), self.gun.clips[key], speed)
-        elif kind == 'done':
+        elif kind in ('done', 'ready'):          # 'ready': the clip's sounds all lie before it (the tail is only the hands settling); anything left plays now
             self._play_cues(self.schedule.flush())
         elif kind == 'cancel':
             self.schedule.cancel(self.audio)
@@ -164,10 +161,6 @@ class Foley:
                 for _, name, volume, pitch in due:
                     self.play(name, volume, pitch)
         p = self.player
-        depth = getattr(p, 'water_depth', 0.0)
-        if self._was_wading > 0.25 and depth <= 0.0:                       # just climbed out: water drips off him
-            self.play('drip', self.audio.drip_volume)
-        self._was_wading = depth
         moved = math.hypot(p.x - self._px, p.z - self._pz)
         self._px, self._pz = p.x, p.z
         if moved > TELEPORT_DISTANCE:

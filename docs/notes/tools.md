@@ -41,3 +41,4 @@
 - Công tắc để đo: F2 / `game.set_graphics(0)` = tắt mọi hiệu ứng G10 (như G9).
 - `tools\measure\graphics_panel_check.py`: bảng đồ hoạ F2 bằng game thật (MSAA thật, mọi dòng, lưu file vào thư mục tạm).
 - `tools\build\prep_water_audio.py [--set nhóm=bản,...] [--apply]`: dựng tiếng nước từ bản duyệt (không cần ffmpeg). `tools\measure\water_audio_check.py`: đường phát tiếng nước bằng game thật.
+- `tools\measure\reload_check.py [--gun m4|glock]`: sau nạp đạn súng dùng lại được từ lúc về chỗ (game thật, thao tác thật). `tools\build\prep_water_audio.py` giờ chỉ dựng 3 tiếng đã chọn (+ in tỉ lệ to nhỏ so với bước gạch); `water_audio_check.py` kiểm cả việc hiệu chỉnh nông / sâu / chạy.

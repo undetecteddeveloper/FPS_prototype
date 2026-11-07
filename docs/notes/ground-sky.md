@@ -67,3 +67,6 @@ Viết cho: người dùng và agent mở phiên sau. Thay thế phần phòng b
 - Ánh nhìn khi nạp: chuyển động theo cubic-bezier kiểu CSS (`core/easing.py`, skill `camera-easing-bezier`): cúi xuống `gaze_enter_ease`, liếc `gaze_glance_ease` (quá đà 4%), ngẩng `gaze_leave_ease`.
   Nhịp của ĐẦU, không phải mắt: liếc 0,3 s + 0,012 s/độ, dừng 0,6-0,85 s, bám tay chậm 0,8/s, ngưỡng liếc 4°; đo mô phỏng: liếc cách nhau ~1,1 s (2-3 chỗ mỗi lần nạp). Ngẩng lên 0,7 s, bắt đầu 0,42 s trước `Clip.settle`.
 - Rung khi di chuyển: đi bộ -40% (`step_*`), chạy -30% (`sprint_*`, `jitter_angle/pos`), `jitter_walk` chỉnh để rung tay lúc đi cũng -40%.
+
+## Nạp đạn cũng mở khoá ở mốc settle (7/11/2026)
+Clip nạp còn chạy 0,5-0,75 s sau khi súng đã về chỗ và game khoá bắn / ngắm / đổi súng suốt đoạn đó (người dùng thấy ~1,5 s kể từ lúc băng đạn vào). Giờ `Handling` phát `ready` ở `Clip.settle` như clip rút súng; chi tiết, số đo và công cụ kiểm: `docs/notes/pool-hall.md` mục \"Nạp đạn: bắn / ngắm / đổi súng được từ lúc súng về chỗ\".

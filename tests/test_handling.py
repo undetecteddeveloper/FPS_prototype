@@ -29,13 +29,62 @@ def test_reload_changes_ammo_only_at_the_swap_frame():
     assert h.busy                                           # but the clip keeps playing (the hand still releasing the magazine, pulling the bolt)
 
 
-def test_reload_finishes_after_the_clip_duration():
+def test_reload_lets_the_gun_act_again_when_it_is_back_in_place_not_when_the_clip_ends():
+    """The clip runs 0.7 s past `settle` (only the hands settling): the gun can fire / aim / swap from settle (user report 7/11/2026: a 1.5 s wait after reloading)."""
     h, w = make(mag=12)
+    clip = M4.clips['reload']
     h.start_reload()
-    run(h, M4.clips['reload'].duration - 0.05)
+    run(h, clip.settle_time - 0.05)
     assert h.phase is Phase.RELOAD and not h.can_fire
     run(h, 0.1)
-    assert h.phase is Phase.READY and h.can_fire
+    assert h.phase is Phase.READY and h.can_fire and not h.busy
+    assert clip.duration - clip.settle_time > 0.5                 # the part of the clip that no longer blocks
+
+
+@pytest.mark.parametrize('gun_key, clip_key', [('m4', 'reload'), ('m4', 'reload_empty'), ('glock', 'reload'), ('glock', 'reload_empty')])
+def test_every_reload_ends_with_ready_and_hands_the_tail_to_the_viewmodel(gun_key, clip_key):
+    from fps.weapon_data import GUNS
+    gun = dataclasses.replace(GUNS[gun_key], reload=ReloadData(speed=1.5))
+    w = Weapon(gun)
+    w.mag, w.reserve = (0 if clip_key == 'reload_empty' else 5), 90
+    h = Handling(gun, w)
+    clip = gun.clips[clip_key]
+    assert clip.swap < clip.settle < clip.end
+    h.start_reload()
+    assert h.key == clip_key
+    run(h, 6.0)
+    events = h.drain()
+    assert [e[0] for e in events] == ['start', 'swap', 'ready']
+    assert events[2][2] == pytest.approx((clip.duration - clip.settle_time) / 1.5, abs=1 / 60)        # tail in real seconds at the reload speed
+    assert w.mag == min(gun.magazine, 5 + 90) if clip_key == 'reload' else w.mag == gun.magazine
+
+
+def test_ready_lead_unlocks_earlier_but_never_before_the_magazine_is_seated():
+    clip = M4.clips['reload']
+    h, w = make(mag=12, ready_lead=0.3)
+    h.start_reload()
+    run(h, clip.settle_time - 0.3 - 0.05)
+    assert h.busy
+    run(h, 0.1)
+    assert not h.busy                                           # 0.3 s earlier than settle
+    h, w = make(mag=12, ready_lead=99.0)                        # absurd lead: clamped to the magazine swap
+    h.start_reload()
+    run(h, clip.swap_time - 0.05)
+    assert h.busy and w.mag == 12
+    run(h, 0.1)
+    assert not h.busy and w.mag == 30                           # unlocked right after the magazine seated
+
+
+def test_holster_still_ends_with_done_and_a_cancelled_reload_still_cancels():
+    h, w = make(mag=12)
+    h.start_holster()
+    run(h, 2.0)
+    assert [e[0] for e in h.drain()] == ['start', 'done']
+    h.start_reload()
+    run(h, 1.0)
+    assert h.cancel()                                           # before settle: still cancellable
+    run(h, 5.0)
+    assert 'ready' not in [e[0] for e in h.drain()]
 
 
 def test_empty_magazine_uses_the_empty_clip_and_it_is_longer():
@@ -189,7 +238,7 @@ def test_events_come_in_order():
     h, w = make(mag=12)
     h.start_reload()
     run(h, 5.0)
-    assert [e[0] for e in h.drain()] == ['start', 'swap', 'done']
+    assert [e[0] for e in h.drain()] == ['start', 'swap', 'ready']
     assert h.drain() == []
 
 

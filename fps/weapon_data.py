@@ -183,6 +183,10 @@ class ReloadData:
     # and the gun follows, so the magazine at the swap (measured on the model: 27-32 degrees below the eye, ~30 cm ahead) sits ~12-16 degrees below screen center, the gun body just below center
     view_pose: tuple = (0.07, 0.105, -0.02, 0.0, 0.0, 2.5)
     view_blend: float = 0.25
+    # The clip keeps playing for 0.5-0.75 s after the gun, magazine and bolt are back (`Clip.settle`): only the hands settling. Shooting / aiming / swapping / reloading again are allowed
+    # from `Clip.settle` minus this many seconds (never before the new magazine is seated); the tail plays on and a shot cuts it. 0 = at settle; larger = earlier (a Glock shot
+    # that early snaps the left hand to the fire clip: a pop of several cm)
+    ready_lead: float = 0.0
 
 
 @dataclass
@@ -861,14 +865,19 @@ class AudioData:
     hit_pitch_variation: float = 0.05     # +- random pitch ratio
     speed_of_sound: float = 343.0         # m/s
     dry_volume: float = 0.55              # trigger pulled with no rounds left
-    # --- G10 water sounds (groups in `folder`: wade_*, wade_run_*, wade_deep_*, water_land_*, water_hit_*, drip_*; OPTIONAL: a missing group is silent until the user approves the files) ---
-    wade_volume: float = 0.45             # one step in the water (scaled up with depth)
-    wade_deep_from: float = 0.8           # m of water from which the deep wading sound is used
-    water_land_volume: float = 0.75       # jumping / falling into the water
-    water_hit_volume: float = 0.55        # a bullet landing on the water (delayed and faded by distance like hit_hard)
-    drip_volume: float = 0.30             # climbing out of the pool: water dripping off him
+    # --- G10 water sounds (user's choice 7/11/2026: ONE wading sound for every step, one for jumping in, one room tone; the other drafts were removed). Groups in `folder`:
+    # wade_* and water_land_* (OPTIONAL: a missing group is silent). The single wading recording is calibrated by depth and speed: a deep slosh at chest depth, higher and
+    # lighter in the shallows, quicker and a little louder when running ---
+    wade_volume: float = 0.30             # one step at chest depth (the recording is 1.48x as loud as a tile step at equal volume: 0.30 -> a fuller sound, ~1.3x a tile step; tools/build/prep_water_audio.py prints the ratio)
+    wade_deep_ref: float = 1.25           # m of water that counts as 'chest depth' (= MapData.wade_depth)
+    wade_shallow_gain: float = 0.50       # volume share of a step in ankle-deep water (it grows linearly with depth up to 1)
+    wade_pitch_shallow: float = 1.30      # playback rate in ankle-deep water (higher = lighter splash)
+    wade_pitch_deep: float = 1.00         # playback rate at chest depth (the recording as it is)
+    wade_run_pitch: float = 1.25          # extra rate when running (shorter, quicker splash: steps come faster)
+    wade_run_gain: float = 1.15           # extra volume when running
+    water_land_volume: float = 0.85       # jumping / falling into the water (scales with the fall speed like the tile landing)
     ambience_file: str = 'assets/sounds/pool_ambience.wav'    # looping room tone of the pool hall (silent if the file is missing)
-    ambience_volume: float = 0.22
+    ambience_volume: float = 0.30
 
 
 @dataclass

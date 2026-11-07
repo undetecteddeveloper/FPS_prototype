@@ -1,10 +1,12 @@
-r"""G10: builds the game's water sounds from the ElevenLabs drafts in assets/review/water/ (decoded by Panda3D itself: no ffmpeg needed).
+r"""G10: builds the game's water sounds from the ElevenLabs drafts the user chose (assets/review/water/, 7/11/2026), decoded by Panda3D itself (no ffmpeg needed):
+  wade_step_deep -> assets/sounds/foley/wade_0.wav        (EVERY wading step: the game calibrates pitch / volume by depth and speed, fps/game/foley.py)
+  water_jump_a   -> assets/sounds/foley/water_land_0.wav  (jumping / falling into the pool)
+  pool_ambience_loop -> assets/sounds/pool_ambience.wav   (room tone, looped by the game: the file is made seamless by a crossfade of its end into its start)
+One-shots: leading silence cut (the splash starts on the step), tail cut once it has died away and faded out, mono 44.1 kHz, same peak as the tile steps.
+Prints a table of lengths and LOUDNESS compared with the tile footsteps (RMS), which is how `AudioData.wade_volume` was calibrated.
+WITHOUT --apply nothing is written.
 
-One-shots -> assets/sounds/foley/<group>_<n>.wav (mono 44.1 kHz): leading silence cut (the splash starts on the step / landing), tail cut once it has died away, short fade, same peak.
-Ambience -> assets/sounds/pool_ambience.wav: kept whole (it was generated as a seamless loop), stereo, quieter peak.
-WITHOUT --apply it only prints the plan and a measurement table: nothing is written until the user has listened to the drafts and approved them (docs/WORKFLOW.md 6).
-
-Run: .venv\Scripts\python.exe -X utf8 tools\build\prep_water_audio.py [--apply] [--set wade=wade_step_a,wade_step_b] [--set water_hit=water_bullet_d] ...
+Run: .venv\Scripts\python.exe -X utf8 tools\build\prep_water_audio.py [--apply]
 """
 import argparse
 import array
@@ -20,26 +22,22 @@ AMBIENCE_OUT = ROOT / 'assets' / 'sounds' / 'pool_ambience.wav'
 RATE = 44100
 HEAD_THRESHOLD = 0.05      # share of the peak where the sound starts
 HEAD_KEEP = 0.004          # s kept before it
-TAIL_THRESHOLD = 0.015     # share of the peak (RMS over 10 ms) below which the sound has died away
-FADE = 0.04                # s
-PEAK = 0.8
+TAIL_THRESHOLD = 0.02      # share of the peak (RMS over 10 ms) below which the sound has died away
+PEAK = 0.85                # like the tile steps (prep_elevenlabs.PEAK['step'])
 AMBIENCE_PEAK = 0.5
-MAX_SECONDS = {'wade': 0.9, 'wade_run': 0.7, 'wade_deep': 1.1, 'water_land': 1.6, 'water_hit': 0.9, 'drip': 1.6}
+LOOP_CROSSFADE = 0.6       # s
+# group -> (max seconds, fade-out seconds): a wading step rings out slowly (a slosh), but not long enough to cover the next step
+SHAPE = {'wade': (0.75, 0.25), 'water_land': (1.6, 0.3)}
 
-# group -> draft names (assets/review/water/<name>_eleven_v3.mp3). The DEFAULT proposal; the user's choice overrides it with --set.
-PLAN = {
-    'wade': ['wade_step_a', 'wade_step_b'],
-    'wade_deep': ['wade_step_deep'],
-    'wade_run': ['wade_run'],
-    'water_land': ['water_jump_a', 'water_land_b'],
-    'water_hit': ['water_bullet_d', 'water_splash_a', 'water_bullet_c'],
-    'drip': ['water_drip'],
-    'ambience': ['pool_ambience_loop'],
+PLAN = {                   # group -> draft name (assets/review/water/<name>_eleven_v3.mp3)
+    'wade': 'wade_step_deep',
+    'water_land': 'water_jump_a',
+    'ambience': 'pool_ambience_loop',
 }
 
 
 def decode(path: Path) -> tuple:
-    """(rate, channels, [int16 samples interleaved]) via Panda's movie audio (it decodes MP3 itself)."""
+    """(rate, channels, int16 samples interleaved) via Panda's movie audio (it decodes MP3 itself)."""
     from panda3d.core import Datagram, Filename, MovieAudio
     cur = MovieAudio.get(Filename.from_os_specific(str(path))).open()
     if cur is None:
@@ -63,22 +61,48 @@ def shape_one_shot(x: list, rate: int, group: str) -> list:
     if peak <= 1e-6:
         return x
     start = next((i for i, v in enumerate(x) if abs(v) >= HEAD_THRESHOLD * peak), 0)
-    start = max(0, start - int(HEAD_KEEP * rate))
-    x = x[start:]
+    x = x[max(0, start - int(HEAD_KEEP * rate)):]
     win = int(0.01 * rate)
     end = len(x)
     for i in range(len(x) - win, 0, -win):                    # from the end back to the last 10 ms window that is still loud
-        rms = math.sqrt(sum(v * v for v in x[i:i + win]) / win)
-        if rms >= TAIL_THRESHOLD * peak:
+        if math.sqrt(sum(v * v for v in x[i:i + win]) / win) >= TAIL_THRESHOLD * peak:
             end = min(len(x), i + win)
             break
-    end = min(end, int(MAX_SECONDS.get(group, 1.5) * rate))
-    x = x[:end]
-    fade = min(int(FADE * rate), len(x))
-    for k in range(fade):
-        x[len(x) - fade + k] *= 1.0 - (k + 1) / fade
+    max_s, fade_s = SHAPE.get(group, (1.5, 0.05))
+    x = x[:min(end, int(max_s * rate))]
+    fade = min(int(fade_s * rate), len(x))
+    for k in range(fade):                                      # smooth (raised-cosine) fade-out
+        x[len(x) - fade + k] *= 0.5 * (1.0 + math.cos(math.pi * (k + 1) / fade))
     g = PEAK / peak
     return [v * g for v in x]
+
+
+def make_loop(frames: list, channels: int, rate: int) -> list:
+    """Seamless loop: the last `LOOP_CROSSFADE` s are blended into the first ones (equal power), and cut off the end. Playing the result around gives a continuous signal."""
+    xf = int(LOOP_CROSSFADE * rate) * channels
+    n = len(frames)
+    if n < 4 * xf:
+        return frames
+    out = list(frames[: n - xf])
+    for i in range(xf):
+        w = i / xf
+        out[i] = frames[i] * math.sqrt(w) + frames[n - xf + i] * math.sqrt(1.0 - w)
+    return out
+
+
+def rms(x: list) -> float:
+    return math.sqrt(sum(v * v for v in x) / max(len(x), 1))
+
+
+def tile_step_rms() -> float:
+    """Mean RMS of the tile footsteps (step_walk_*.wav), the loudness reference for wading."""
+    vals = []
+    for f in sorted(FOLEY.glob('step_walk_*.wav')):
+        with wave.open(str(f), 'rb') as w:
+            data = array.array('h')
+            data.frombytes(w.readframes(w.getnframes()))
+            vals.append(rms([v / 32768.0 for v in data]))
+    return sum(vals) / len(vals) if vals else 0.0
 
 
 def write_wav(path: Path, frames: list, channels: int = 1):
@@ -93,37 +117,33 @@ def write_wav(path: Path, frames: list, channels: int = 1):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('--apply', action='store_true', help='ghi file vào assets/ (chỉ sau khi người dùng đã nghe và duyệt)')
-    ap.add_argument('--set', action='append', default=[], help='nhóm=bản1,bản2 (thay đề xuất mặc định)')
+    ap.add_argument('--apply', action='store_true', help='ghi file vào assets/')
     args = ap.parse_args(argv)
-    plan = {k: list(v) for k, v in PLAN.items()}
-    for item in args.set:
-        group, names = item.split('=')
-        if group not in plan:
-            sys.exit(f'nhóm lạ: {group} (có: {", ".join(plan)})')
-        plan[group] = [n for n in names.split(',') if n]
-    print(f'{"nhóm":12s} {"bản nháp":24s} {"gốc s":>6s} {"sau s":>6s} {"đỉnh":>6s}  -> file')
-    for group, names in plan.items():
-        for i, name in enumerate(names):
-            src = REVIEW / f'{name}_eleven_v3.mp3'
-            if not src.exists():
-                sys.exit(f'thiếu {src}')
-            rate, ch, s = decode(src)
-            if rate != RATE:
-                sys.exit(f'{src.name}: {rate} Hz, cần {RATE}')
-            if group == 'ambience':
-                frames = [v / 32768.0 for v in s]
-                peak = max(abs(v) for v in frames) or 1.0
-                frames = [v * AMBIENCE_PEAK / peak for v in frames]
-                out, n_out, chans = AMBIENCE_OUT, len(frames) // ch, ch
-            else:
-                mono = to_mono(s, ch)
-                frames = shape_one_shot(mono, rate, group)
-                out, n_out, chans = FOLEY / f'{group}_{i}.wav', len(frames), 1
-            print(f'{group:12s} {name:24s} {len(s) / ch / rate:6.2f} {n_out / RATE:6.2f} {max(abs(v) for v in frames):6.2f}  -> {out.relative_to(ROOT)}')
-            if args.apply:
-                write_wav(out, frames, chans)
-    print('ĐÃ GHI.' if args.apply else 'Chưa ghi gì (thêm --apply sau khi người dùng duyệt).')
+    ref = tile_step_rms()
+    print(f'{"nhóm":12s} {"bản":22s} {"gốc s":>6s} {"sau s":>6s} {"đỉnh":>5s} {"RMS":>6s} {"so với bước gạch":>17s}  -> file')
+    for group, name in PLAN.items():
+        src = REVIEW / f'{name}_eleven_v3.mp3'
+        if not src.exists():
+            sys.exit(f'thiếu {src}')
+        rate, ch, s = decode(src)
+        if rate != RATE:
+            sys.exit(f'{src.name}: {rate} Hz, cần {RATE}')
+        if group == 'ambience':
+            frames = [v / 32768.0 for v in s]
+            peak = max(abs(v) for v in frames) or 1.0
+            frames = make_loop([v * AMBIENCE_PEAK / peak for v in frames], ch, rate)
+            out, chans = AMBIENCE_OUT, ch
+            length = len(frames) / ch / RATE
+        else:
+            frames = shape_one_shot(to_mono(s, ch), rate, group)
+            out, chans = FOLEY / f'{group}_0.wav', 1
+            length = len(frames) / RATE
+        r = rms(frames)
+        ratio = f'{r / ref:5.2f}x' if group != 'ambience' and ref else '      -'
+        print(f'{group:12s} {name:22s} {len(s) / ch / rate:6.2f} {length:6.2f} {max(abs(v) for v in frames):5.2f} {r:6.3f} {ratio:>17s}  -> {out.relative_to(ROOT)}')
+        if args.apply:
+            write_wav(out, frames, chans)
+    print('ĐÃ GHI.' if args.apply else 'Chưa ghi gì (thêm --apply).')
 
 
 if __name__ == '__main__':

@@ -116,7 +116,6 @@ class Game(Entity):
         self.dust = DustMotes(params.look, self.light, self.pool) if self.pool and effects else None    # G10: dust glinting in the sun beams
         self.ambience = None                                                   # G10: looping room tone of the pool hall (only once the user approved the file)
         if self.pool and sound:
-            self.pool.water.on_splash = lambda point, distance: self.foley.on_water_impact(distance) if self.foley else None
             amb = ROOT / params.audio.ambience_file
             if amb.exists():
                 self.ambience = application.base.loader.load_sfx(Filename.from_os_specific(str(amb)))
