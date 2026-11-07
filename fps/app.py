@@ -434,6 +434,8 @@ class Game(Entity):
                 self.lens.set_wet(*self.underwater.lens_inputs())
             if self.under_audio:
                 self.under_audio.update(dt, self.underwater.eye_under)
+            if self.foley:
+                self.foley.under = self.underwater.eye_under                 # the foley plays its muffled twins while the head is under
         if self.smoke:
             self.smoke.update(min(dt, 0.1))                 # after set_camera: the puffs face this frame's camera
         if self.lens:

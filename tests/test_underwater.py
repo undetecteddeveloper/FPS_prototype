@@ -155,3 +155,22 @@ def test_no_shot_under_the_water_and_the_notice_hook(monkeypatch):
     for _ in range(5):
         c.update(1 / 60)
     assert c.shots_fired >= 1                                                           # the same gun fires as soon as the head is out
+
+
+def test_foley_bank_plays_the_muffled_copy_only_under_the_water():
+    import random
+    from fps.game import gltf_patch
+    gltf_patch.apply()
+    from fps.game.foley import _Bank
+    normal = [[object(), object()] for _ in range(3)]
+    muffled = [[object(), object()] for _ in range(3)]
+    bank = _Bank(normal, muffled)
+    rng = random.Random(1)
+    for _ in range(20):
+        v, s = bank.next_sound(rng, under=False)
+        assert s in normal[v]
+        v, s = bank.next_sound(rng, under=True)
+        assert s in muffled[v]
+    plain = _Bank(normal)                                                                # no twins (an old install): the normal copy, no error
+    v, s = plain.next_sound(rng, under=True)
+    assert s in normal[v]

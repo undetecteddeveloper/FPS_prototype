@@ -46,12 +46,15 @@ Tool versions: Panda3D 1.10.16 (pip wheel ships p3openal_audio AND p3fmod_audio 
 - `AudioManager.configure_filters(FilterProperties)` (lowpass, highpass, echo, reverb...) is implemented ONLY by the FMOD backend; OpenAL returns False.
   https://docs.panda3d.org/1.7/python/DSP_Effects , https://www.panda3d.org/reference/cxx/classFilterProperties.html - medium.
   verified-in-project 2026-11-07 (scratch script: create_AudioManager with audio-library-name p3openal_audio -> configure_filters False; p3fmod_audio -> True, sounds load).
-- Without FMOD: pre-filter copies of the sounds (one-pole / biquad lowpass on the WAV samples at load) and switch / crossfade copies. Typical game cutoff when submerged ~500-1000 Hz
+- FMOD status (searched 2026-11-07): Panda 1.10 p3fmod_audio links FMOD Ex (2014, fmodex64.dll); an upgrade to FMOD Core exists only as a Panda pull request (panda3d/panda3d#1032), merge not confirmed: no drop-in newer FMOD. Latest FMOD Engine 2.03.x (June 2026). Python alternative cyminiaudio 0.1.1 (new, small) would replace the whole audio path. - low
+- Without FMOD (CHOSEN, G12): pre-filter copies of the sounds (lowpass on the WAV samples) and switch / crossfade copies. Typical game cutoff when submerged ~500-1000 Hz
   (no canonical number found; forum practice) - low.
 - ElevenLabs sound effects price (help centre): API 100 credits per generation with auto duration, 20 credits / s when the duration is set (max 30 s); the web app 40 / s and 4 takes.
   https://help.elevenlabs.io/hc/en-us/articles/25735337678481 - medium - unverified (the Composio call does not report credits).
 
 ## Verified in this project (G12, 2026-11-07; docs/notes/pool-hall.md G12)
+- Audio: zero-phase FFT low-pass (|H| = 1/sqrt(1+(f/fc)^8), fc 400 Hz) in a BUILD tool (numpy never imported by the game), muffled twins in a SEPARATE folder (a `_uw` suffix would match the loader's `group_*.wav` glob), RMS rescaled to 0.5x; the loop tone filtered CIRCULARLY and built from whole-period hum / FFT-synth noise stays seamless; Foley swaps banks by a flag. verified-in-project (tests/test_prep_underwater.py, tools/measure/water_audio_check.py). Whether it SOUNDS right was not judged by me: the user listens.
+- ElevenLabs v3 text prompts for underwater ambience / submerge / surface: all 6 drafts rejected by the user (2026-11-07). Synthesizing from existing sounds is the chosen plan; low confidence for retrying AI sound here.
 - Port-line split (one render, every shader evaluates `port_h` from gl_FragCoord, the lens from its sampled render uv): one consistent waterline, bent by the fisheye. verified-in-project (shots g9_uw_half*_g12).
 - PITFALL: eye 2 cm above the water -> the default 0.1 m near plane clips the surface right in front: a second, straight boundary appears. Fix: near plane 0.01 m while the eye is within 0.3 m of the surface. verified-in-project.
 - Basin as real geometry (22 quads + ramp) under the water node inherits its shader inputs (child node); shaded by the SAME shade_basin as the refracted view from above -> both views agree. Hidden while no pixel is wet; drawn hidden 3 frames at start so its shader compiles then. verified-in-project.

@@ -1,7 +1,9 @@
 r"""G10: the water sounds in the REAL game with sound on and the real files (assets/sounds/foley/wade_0.wav, water_land_0.wav, assets/sounds/pool_ambience.wav):
   - the room tone loops; wading plays the ONE wading recording instead of tile steps; jumping in plays the water landing; back on the deck the tile steps return;
   - the calibration: the same recording is played higher and lighter in the shallows, lower and fuller at chest depth, and quicker / louder when running;
-  - the groups the user removed (water_hit, drip, wade_run, wade_deep) no longer exist.
+  - the groups the user removed (water_hit, drip, wade_run, wade_deep) no longer exist;
+  - G12, the head under the water: every foley bank has its muffled twin (assets/sounds/foley_under/), the underwater tone fades in over the room tone and out again, the sounds played under the
+    water are the muffled copies and the ones above the water are not.
 Reads the playback rate and volume of each sound that Foley plays (Foley.last_sound). No file is written.
 
 Run: .venv\Scripts\python.exe -X utf8 tools\with_game_lock.py .venv\Scripts\python.exe -X utf8 tools\measure\water_audio_check.py      (exit code = number of failures)
@@ -100,6 +102,33 @@ class S(Entity):
         yield from self.sec(2.5)
         held_keys['w'] = 0
         check('back on the deck the tile steps return', f.counts['step_walk'] + f.counts['step_run'] > tiles0 and p.y == 0.0, f'y={p.y:.2f}')
+
+        # --- G12: the head under the water
+        ua = game.under_audio
+        in_bank = lambda sound, name, twin: any(sound is c for group in (f.banks[name].voices_under if twin else f.banks[name].voices) for c in group)
+        check('G12: every foley bank has a muffled twin', all(b.voices_under is not None and len(b.voices_under) == len(b.voices) for b in f.banks.values()), f'{len(f.banks)} nhóm')
+        check('G12: the underwater tone loads and starts silent beside the room tone', ua is not None and ua.tone is not None and ua.tone.get_loop() and ua.tone.get_volume() < 0.001
+              and abs(game.ambience.get_volume() - a.ambience_volume) < 0.01, f'tone {ua.tone.get_volume() if ua and ua.tone else None}, room {game.ambience.get_volume():.2f}')
+        p.x, p.y, p.z, p.yaw = -2.0, d.pool_deep, 9.0, 90.0
+        p.vx = p.vz = 0.0
+        p._apply_view()
+        game._feet = (p.x, p.z)
+        held_keys['w'] = 1
+        yield from self.sec(1.5)
+        held_keys['w'] = 0
+        check('G12: under the water the tone replaced the room tone (cross-fade done)', f.under and ua.mix > 0.99 and abs(ua.tone.get_volume() - a.under_ambience_volume) < 0.02 and game.ambience.get_volume() < 0.01,
+              f'mix {ua.mix:.2f}, tone {ua.tone.get_volume():.2f}, room {game.ambience.get_volume():.2f}')
+        check('G12: the wading sound played under the water is the muffled copy', f.last_sound is not None and in_bank(f.last_sound, 'wade', True) and not in_bank(f.last_sound, 'wade', False))
+        p.x, p.y, p.z, p.yaw = 0.0, d.pool_floor, -7.0, 90.0
+        p.vx = p.vz = 0.0
+        p._apply_view()
+        game._feet = (p.x, p.z)
+        held_keys['w'] = 1
+        yield from self.sec(1.5)
+        held_keys['w'] = 0
+        check('G12: out of the water the room tone is back and the tone is silent', not f.under and ua.mix < 0.01 and ua.tone.get_volume() < 0.01 and abs(game.ambience.get_volume() - a.ambience_volume) < 0.01,
+              f'mix {ua.mix:.2f}, room {game.ambience.get_volume():.2f}')
+        check('G12: the wading sound above the water is the normal copy', f.last_sound is not None and in_bank(f.last_sound, 'wade', False) and not in_bank(f.last_sound, 'wade', True))
 
 
 S()

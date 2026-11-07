@@ -920,13 +920,12 @@ class AudioData:
     water_land_volume: float = 0.85       # jumping / falling into the water (scales with the fall speed like the tile landing)
     ambience_file: str = 'assets/sounds/pool_ambience.wav'    # looping room tone of the pool hall (silent if the file is missing)
     ambience_volume: float = 0.30
-    # G12 under the water (ElevenLabs drafts in assets/review/water/: each file stays silent until the user approved it and it was copied to assets/sounds/)
+    # G12 under the water (tools/build/prep_underwater.py; the ElevenLabs drafts were dropped by the user 7/11/2026): every foley sound has a muffled twin in `folder_under` (the Foley swaps to it while
+    # the eye is under the surface), the room tone is cross-faded with an underwater tone. A missing file / folder is silent / unchanged. No separate sound for going under / coming up (user's choice).
+    folder_under: str = 'assets/sounds/foley_under'
     under_ambience_file: str = 'assets/sounds/under_ambience.wav'   # looping tone with the head under the water (replaces the room tone while under)
     under_ambience_volume: float = 0.45
     under_fade: float = 0.25                                         # s: cross-fade between the room tone and the underwater tone
-    submerge_file: str = 'assets/sounds/submerge.wav'               # the head goes under
-    surface_file: str = 'assets/sounds/surface.wav'                 # the head comes up
-    submerge_volume: float = 0.7
 
 
 @dataclass

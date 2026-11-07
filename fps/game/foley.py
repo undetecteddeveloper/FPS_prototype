@@ -25,19 +25,24 @@ TELEPORT_DISTANCE = 3.0       # m: a position jump larger than this within one f
 
 
 class _Bank:
-    """Every variant of one sound group; each variant has `pool` copies that play in rotation."""
+    """Every variant of one sound group; each variant has `pool` copies that play in rotation. `voices_under` = the same files muffled (G12, tools/build/prep_underwater.py), or None."""
 
-    def __init__(self, voices: list):
+    def __init__(self, voices: list, voices_under: list = None):
         self.voices = voices                       # [[AudioSound, ...], ...]
+        self.voices_under = voices_under
         self.cursor = [0] * len(voices)
+        self.cursor_under = [0] * len(voices)
         self.last = None
 
-    def next_sound(self, rng: random.Random):
+    def next_sound(self, rng: random.Random, under: bool = False):
         v = pick_variant(rng, len(self.voices), self.last)
         self.last = v
-        sounds = self.voices[v]
-        sound = sounds[self.cursor[v]]
-        self.cursor[v] = (self.cursor[v] + 1) % len(sounds)
+        if under and self.voices_under is not None:
+            sounds, cursor = self.voices_under[v], self.cursor_under
+        else:
+            sounds, cursor = self.voices[v], self.cursor
+        sound = sounds[cursor[v]]
+        cursor[v] = (cursor[v] + 1) % len(sounds)
         return v, sound
 
 
@@ -60,6 +65,7 @@ class Foley:
             if self._has_files(name, project_root):
                 self.banks[name] = self._load_bank(name, project_root, copies)
 
+        self.under = False                         # G12: the eye is under the water: every sound plays from its muffled twin (Game sets it each frame)
         self.clock = 0.0                           # seconds elapsed (dt added), to check when sounds play
         self.counts = Counter()                    # number of plays per group name (for checks)
         self.log = deque(maxlen=512)               # (clock, name, volume, variant) of the most recent sounds
@@ -77,7 +83,11 @@ class Foley:
         if not files:
             raise FileNotFoundError(f'thiếu {folder}\\{group}_*.wav: chạy tools\\build\\prep_foley.py (tiếng user_*: tools\\build\\prep_user_audio.py; el_*: tools\\build\\prep_elevenlabs.py)')
         loader = application.base.loader
-        return _Bank([[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(max(1, copies or self.audio.pool))] for f in files])
+        n = max(1, copies or self.audio.pool)
+        voices = [[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(n)] for f in files]
+        twins = [project_root / self.audio.folder_under / f.name for f in files]
+        under = [[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(n)] for f in twins] if all(t.exists() for t in twins) else None
+        return _Bank(voices, under)
 
     def resume(self):
         """Weapon switch: this gun's Foley (kept built while another gun was in hand) takes over again. The player moved meanwhile: that is not a step."""
@@ -91,7 +101,7 @@ class Foley:
         bank = self.banks.get(name)
         if bank is None:
             return
-        variant, sound = bank.next_sound(self.rng)
+        variant, sound = bank.next_sound(self.rng, self.under)
         if fit_hz > 0.0 and sound.length() > 0.0:
             pitch *= min(max(sound.length() * fit_hz, 0.85), 1.2)
         sound.set_volume(min(max(volume, 0.0), 1.0))

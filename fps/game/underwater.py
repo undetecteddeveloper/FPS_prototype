@@ -124,40 +124,26 @@ class Underwater:
 
 
 class UnderwaterAudio:
-    """Underwater tone cross-faded with the room tone, and a sound when the head goes under / comes up. Every file is optional: until the user approved a draft
-    (assets/review/water/) and it was copied to assets/sounds/, that part is silent. No low-pass filter (OpenAL cannot; the user chose not to switch to FMOD, G12)."""
+    """The underwater tone cross-faded with the room tone while the eye is under the surface. The tone file is optional (tools/build/prep_underwater.py builds it): without it nothing changes.
+    The foley sounds swap to their muffled twins in Foley (`Foley.under`); no low-pass filter at run time (OpenAL cannot; the user chose pre-filtered copies, G12)."""
 
     def __init__(self, audio, root, room_tone=None):
         from panda3d.core import Filename
         from ursina import application
         self.a, self.room_tone = audio, room_tone
-        loader = application.base.loader
-
-        def load(rel, loop=False):
-            path = root / rel
-            if not path.exists():
-                return None
-            s = loader.load_sfx(Filename.from_os_specific(str(path)))
-            s.set_loop(loop)
-            return s
-        self.tone = load(audio.under_ambience_file, loop=True)
-        self.down, self.up = load(audio.submerge_file), load(audio.surface_file)
-        self.mix = 0.0                       # 0 room tone .. 1 underwater tone
-        self.under = False
-        if self.tone is not None:
+        path = root / audio.under_ambience_file
+        self.tone = None
+        if path.exists():
+            self.tone = application.base.loader.load_sfx(Filename.from_os_specific(str(path)))
+            self.tone.set_loop(True)
             self.tone.set_volume(0.0)
             self.tone.play()
+        self.mix = 0.0                       # 0 room tone .. 1 underwater tone
 
     def update(self, dt: float, under: bool):
         a = self.a
-        if under != self.under:
-            self.under = under
-            s = self.down if under else self.up
-            if s is not None:
-                s.set_volume(a.submerge_volume)
-                s.play()
         self.mix = uw.step_toward(self.mix, 1.0 if under else 0.0, a.under_fade, dt)
         if self.tone is not None:
             self.tone.set_volume(a.under_ambience_volume * self.mix)
-        if self.room_tone is not None and self.tone is not None:
-            self.room_tone.set_volume(a.ambience_volume * (1.0 - self.mix))
+            if self.room_tone is not None:
+                self.room_tone.set_volume(a.ambience_volume * (1.0 - self.mix))

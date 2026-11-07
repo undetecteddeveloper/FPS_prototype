@@ -59,4 +59,4 @@
 55. [2s, influence 0.6] Submerging into pool water heard from a camera on the head: a soft plunge, water closing over the microphone, bubbles rising, then quiet muffled underwater sound. Single event, no music, no voices.  (submerge_b)
 56. [2s, influence 0.6] A person's head coming up out of swimming pool water: water streaming off the head and splashing back, the muffled underwater sound suddenly opens up into the airy echo of a tiled indoor pool hall. One event, no gasp, no music, no voices.  (surface_a)
 57. [2s, influence 0.6] Surfacing from underwater in an indoor pool, heard from a head-mounted camera: a bright splash of water pouring off, drips falling back onto the surface, then the clear reverberant pool hall. Single event, no breathing, no music, no voices.  (surface_b)
-(52-57: model eleven_text_to_sound_v3, mp3_44100_128, 7/11/2026, G12; ở assets/review/water/, CHƯA duyệt)
+(52-57: model eleven_text_to_sound_v3, mp3_44100_128, 7/11/2026, G12; ở assets/review/water/; người dùng LOẠI cả 6 bản 7/11/2026, tiếng dưới nước dựng bằng tools/build/prep_underwater.py)
