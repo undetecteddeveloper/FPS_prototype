@@ -1,7 +1,7 @@
-"""Shot effects: muzzle flash (inside the gun view) and tracers (in the world).
+"""Shot effects: muzzle light, gun smoke and tracers.
 
-Flash: a star facing the camera + two crossed planes along the barrel, additive blend, plus a point light that lights the gun and hands
-(pushed into the gun shader via `Viewmodel.set_flash_light`). Attached to the `sway` node so it follows the gun's kick, sway and aim.
+Flash: ONLY a short point light at the muzzle that lights the gun, hands and the ground (pushed into the gun shader via `Viewmodel.set_flash_light`); the old
+star / flame cards looked fake and were removed. What a shot shows is the gunpowder smoke (game/smoke.py, world space) blown out of the muzzle and the ejection port.
 Tracer: a light streak trailing the real bullet (same position, same drop), starting at the muzzle and converging on the bullet path from the eye.
 Textures are built in code at startup (no external assets). Values live in weapon_data.FlashData / TracerData; the maths is in core/fx.py.
 """
@@ -32,31 +32,6 @@ def _gl_texture(img: Image.Image) -> NodePath:
     t.set_wrap_u(SamplerState.WM_clamp)
     t.set_wrap_v(SamplerState.WM_clamp)
     return t
-
-
-def star_texture(size: int = 128):
-    """Muzzle-flash star: hot white core, orange halo, six long rays and four short rays at offset angles."""
-    def pixel(x, y):
-        u, v = (x + 0.5) / size * 2 - 1, (size - y - 0.5) / size * 2 - 1
-        r, th = math.hypot(u, v), math.atan2(v, u)
-        core = math.exp(-(r / 0.20) ** 2)
-        halo = 0.38 * math.exp(-(r / 0.52) ** 2)
-        long_rays = abs(math.cos(3 * th + 0.35)) ** 40 * (1 - min(r, 1)) ** 1.5
-        short_rays = abs(math.cos(2 * th + 0.8)) ** 60 * (1 - min(r, 1)) ** 2 * 0.55
-        edge = 1.0 - smoothstep((r - 0.80) / 0.20)
-        a = min(1.0, core + halo + long_rays * 0.95 + short_rays) * edge
-        return (255, int(255 * (0.92 - 0.30 * r)), int(255 * (0.70 - 0.55 * r)), int(255 * a))
-    return _gl_texture(_rgba_image(size, size, pixel))
-
-
-def flame_texture(w: int = 48, h: int = 128):
-    """Flame along the barrel: v = 0 at the muzzle, v = 1 at the tip; wide at the base, tapering."""
-    def pixel(x, y):
-        u, t = (x + 0.5) / w * 2 - 1, 1 - (y + 0.5) / h
-        width = 0.62 * (1 - t) ** 0.55 + 0.05
-        a = math.exp(-((u / width) ** 2) * 2.4) * (1 - t) ** 1.2
-        return (255, int(255 * (0.90 - 0.4 * t)), int(255 * (0.62 - 0.5 * t)), int(255 * min(a, 1.0)))
-    return _gl_texture(_rgba_image(w, h, pixel))
 
 
 def glow_texture(head_color, size: int = 64):
@@ -100,7 +75,7 @@ def _card(parent: NodePath, name: str, frame: tuple, texture) -> NodePath:
     return np_
 
 
-# --- muzzle flash ---
+# --- muzzle flash: only a short light now (the visible part of a shot is the gun smoke, game/smoke.py) ---
 class MuzzleFlash:
     def __init__(self, viewmodel, gun: GunData, rng: random.Random):
         self.vm = viewmodel
@@ -109,38 +84,18 @@ class MuzzleFlash:
         mx, my, mz = (a + b for a, b in zip(gun.muzzle, gun.hip_offset))
         self.muzzle = viewmodel.sway.attach_new_node('muzzle')
         self.muzzle.set_pos(mx, my, mz)
-        self.root = self.muzzle.attach_new_node('muzzle_flash')
-        self.root.set_pos(0, 0, self.data.forward)
-        _additive(self.root)
-
-        # CardMaker builds the card in the local XY plane (x = horizontal, y = vertical, normal +z) because Ursina uses y-up; the barrel axis is +z.
-        # Cards are placed with an explicit matrix (row 0 = image of the horizontal axis, row 1 = image of the vertical axis, row 2 = normal):
-        #   star: plane perpendicular to the barrel axis (the player looks down the barrel from behind), rotates around the barrel axis
-        #   two planes along the barrel: both contain the barrel axis, 90 degrees apart
-        self.star = _card(self.root, 'star', (-0.5, 0.5, -0.5, 0.5), star_texture())
-        flame = flame_texture()
-        self.flames = [_card(self.root, f'flame{i}', (-0.5, 0.5, 0.0, 1.0), flame) for i in range(2)]   # along: 0 at the muzzle .. 1 at the tip
-        self._roll = 0.0
-        self.root.hide()
-
         self.age = None                                    # None = off
         self._fresh = False
-        self._size = 1.0
         self.fired = 0                                     # number of flashes (for checks)
 
     @property
     def active(self) -> bool:
         return self.age is not None
 
-    def fire(self, ads_amount: float):
-        d = self.data
-        ads = 1.0 + (d.ads_scale - 1.0) * smoothstep(ads_amount)
-        self._size = ads * (1.0 + self.rng.uniform(-d.size_jitter, d.size_jitter))
-        self._roll = self.rng.uniform(0, 2 * math.pi)
+    def fire(self, ads_amount: float = 0.0):
         self.age = 0.0
-        self._fresh = True                                 # flash frame: draw full intensity, age not yet subtracted
+        self._fresh = True                                 # flash frame: full intensity, age not yet subtracted
         self.fired += 1
-        self.root.show()
 
     def update(self, dt: float):
         d = self.data
@@ -151,25 +106,12 @@ class MuzzleFlash:
         else:
             self.age += dt
         k = fx.flash_envelope(self.age, d.life)
+        pos = self.muzzle.get_pos(self.vm.cam_np) + Vec3(0, 0, d.forward)
         if k <= 0.0:
             self.age = None
-            self.root.hide()
-            self.vm.set_flash_light(self.muzzle.get_pos(self.vm.cam_np), (0, 0, 0))
+            self.vm.set_flash_light(pos, (0, 0, 0))
             return
-        r, g, b = d.color
-        for n in (self.star, *self.flames):
-            n.set_color_scale(r, g, b, k)
-        shrink = 1.0 - 0.3 * (self.age / d.life)
-        size = d.size * self._size * shrink
-        c, sn = math.cos(self._roll), math.sin(self._roll)
-        self.star.set_mat(Mat4(c * size, sn * size, 0, 0, -sn * size, c * size, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
-        w = d.width * self._size * shrink
-        length = d.length * self._size * (0.6 + 0.4 * k)
-        # card 0: wide along (c, sn, 0); card 1: wide along (-sn, c, 0); both long along +z (barrel axis)
-        self.flames[0].set_mat(Mat4(c * w, sn * w, 0, 0, 0, 0, length, 0, -sn, c, 0, 0, 0, 0, 0, 1))
-        self.flames[1].set_mat(Mat4(-sn * w, c * w, 0, 0, 0, 0, length, 0, -c, -sn, 0, 0, 0, 0, 0, 1))
-        light = tuple(ch * d.light_power * k for ch in d.light_color)
-        self.vm.set_flash_light(self.muzzle.get_pos(self.vm.cam_np) + Vec3(0, 0, d.forward), light)
+        self.vm.set_flash_light(pos, tuple(ch * d.light_power * k for ch in d.light_color))
 
 
 # --- tracer ---
@@ -271,10 +213,15 @@ class Tracers:
 class Effects:
     """Combat's bridge: each shot calls `on_shot`, each frame calls `update`."""
 
-    def __init__(self, gun: GunData, viewmodel, rng: random.Random = None):
+    def __init__(self, gun: GunData, viewmodel, rng: random.Random = None, smoke=None):
         self.gun = gun
         self.vm = viewmodel
         self.flash = MuzzleFlash(viewmodel, gun, rng or random.Random())
+        self.smoke = smoke                                 # game.smoke.GunSmoke (shared by both guns, lives in the world) or None
+        self.port = None
+        if gun.smoke.ejection_port is not None:
+            self.port = viewmodel.sway.attach_new_node('ejection_port')
+            self.port.set_pos(*(a + b for a, b in zip(gun.smoke.ejection_port, gun.hip_offset)))
         self.tracers = Tracers(gun)
         self.burst = 0                                     # which shot of the current burst this is
         self._rest = 1e9                                   # seconds since the last shot
@@ -289,11 +236,6 @@ class Effects:
         Without this the FIRST shot makes two consecutive frames slow, 25-40 ms (and since bullets move per frame, the hit point is off by a few mm).
         `prepare_scene` is not enough: hidden nodes are skipped."""
         self._warm = 3
-        tiny = Mat4(0.001, 0, 0, 0, 0, 0.001, 0, 0, 0, 0, 0.001, 0, 0, 0, 0, 1)
-        self.flash.root.show()
-        for n in (self.flash.star, *self.flash.flames):
-            n.set_mat(tiny)
-            n.set_color_scale(1, 1, 1, 1.0)
         for node, glow in self.tracers.free:
             for n in (node, glow):
                 n.set_mat(Mat4(0.001, 0, 0, 0, 0, 0.001, 0, 0, 0, 0, 0.001, 0, 0, 1.6, 3.0, 1))
@@ -301,15 +243,14 @@ class Effects:
                 n.show()
 
     def _end_warm_up(self):
-        self.flash.root.hide()
         for node, glow in self.tracers.free:
             node.hide()
             glow.hide()
 
-    def muzzle_offset(self) -> tuple:
-        """Muzzle position relative to the eye, in world coordinates. Measured in the gun scene (its own FOV), so it is multiplied by the lens factor so that
-        the streak's start point lies exactly where the muzzle appears on screen."""
-        p = self.flash.muzzle.get_pos(self.vm.cam_np)
+    def muzzle_offset(self, node=None) -> tuple:
+        """Muzzle (or `node`) position relative to the eye, in world coordinates. Measured in the gun scene (its own FOV), so it is multiplied by the lens factor so that
+        the point lies exactly where the muzzle appears on screen."""
+        p = (node or self.flash.muzzle).get_pos(self.vm.cam_np)
         k = fx.lens_ratio(camera.fov, self.vm.current_fov)
         v = camera.right * (p.x * k) + camera.up * (p.y * k) + camera.forward * p.z
         return (v[0], v[1], v[2])
@@ -318,8 +259,26 @@ class Effects:
         self.burst = 1 if self._rest > self.gun.tracer.burst_reset else self.burst + 1
         self._rest = 0.0
         self.flash.fire(ads_amount)
+        muzzle = self.muzzle_offset()
+        if self.smoke is not None:
+            self._emit_smoke(bullet, muzzle)
         if fx.is_traced(self.burst, self.gun.tracer.every):
-            self.tracers.spawn(bullet, self.muzzle_offset())
+            self.tracers.spawn(bullet, muzzle)
+
+    def _emit_smoke(self, bullet, muzzle: tuple):
+        """Smoke leaves the muzzle along the bullet's direction, and the ejection port toward the gun's upper right (camera frame -> world)."""
+        eye = camera.world_position
+        origin = (eye[0] + muzzle[0], eye[1] + muzzle[1], eye[2] + muzzle[2])
+        v = bullet.vel
+        n = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) or 1.0
+        port = port_dir = None
+        if self.port is not None:
+            o = self.muzzle_offset(self.port)
+            port = (eye[0] + o[0], eye[1] + o[1], eye[2] + o[2])
+            dx, dy, dz = self.gun.smoke.port_dir
+            w = camera.right * dx + camera.up * dy + camera.forward * dz
+            port_dir = (w[0], w[1], w[2])
+        self.smoke.emit(self.gun.smoke, origin, (v[0] / n, v[1] / n, v[2] / n), port, port_dir)
 
     def update(self, dt: float):
         if self._warm:

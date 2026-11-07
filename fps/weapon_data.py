@@ -187,16 +187,10 @@ class ViewLightData:
 
 @dataclass
 class FlashData:
-    """Muzzle flash (drawn in the gun scene): a star facing the camera + two crossed planes along the barrel + a point light that lights the gun and hand.
-    Each shot is randomly rotated and resized slightly; it lives `life` seconds then fades (at 750 RPM the shots overlap into a continuous flicker)."""
+    """Muzzle flash: ONLY a short point light at the muzzle that lights the gun, hands and ground (no visible flame card: the visible part of a shot is the smoke, SmokeData).
+    It lives `life` seconds then fades (at 750 RPM the shots overlap into a continuous flicker)."""
     life: float = 0.055                   # s
-    size: float = 0.21                    # m: star diameter (in the gun scene; muzzle is 0.73 m from the eye)
-    size_jitter: float = 0.25             # +- random size ratio per shot
-    length: float = 0.20                  # m: length of the two crossed planes along the barrel
-    width: float = 0.07                   # m: width of the two crossed planes
-    forward: float = 0.025                # m: nudged forward of the muzzle so it is not buried in the flash hider
-    color: tuple = (1.0, 0.86, 0.52)
-    ads_scale: float = 0.35               # when fully aimed, the flash is only this size (so it does not hide the sights)
+    forward: float = 0.025                # m: the light sits this far in front of the muzzle
     light_color: tuple = (1.0, 0.62, 0.28)
     light_power: float = 1.5              # multiplies the light color at its brightest
     light_attenuation: tuple = (1.0, 0.0, 40.0)   # constant, linear, and quadratic (per meter) terms: lit up to ~0.3 m around the muzzle
@@ -380,6 +374,45 @@ class HeadCamData:
     glance_drift_freq: float = 0.5        # Hz
     glance_seat_nod: float = 1.2          # deg: small nod when the magazine seats (Clip.swap)
     glance_follow: float = 1.0            # the gun follows the glance part (sign flipped): 1 = the gun stays still relative to the body and moves up to the middle of the frame on screen
+    # GAZE while reloading (core/gaze.py): the look jumps between what the hands work on (saccades), rests, follows the hand slowly; each reload a little different
+    gaze_hand_weight: float = 0.65        # 0 = look at the gun, 1 = look at the left hand (it carries the magazine); the target is the point in between
+    gaze_threshold: float = 2.5           # deg: the target must move this far from where the gaze rests before the next glance
+    gaze_time: float = 0.10               # s: base duration of a glance
+    gaze_time_per_deg: float = 0.008      # s per degree of glance amplitude (a 15 deg glance takes ~0.22 s)
+    gaze_overshoot: float = 0.07          # a glance overshoots its point by up to this share, then settles back
+    gaze_dwell_min: float = 0.18          # s: the gaze rests at least this long on a point ...
+    gaze_dwell_max: float = 0.45          # s: ... and at most this long before it may jump again
+    gaze_pursuit: float = 2.5             # 1/s: while resting, the gaze creeps toward the moving hand at this rate
+    gaze_jitter: float = 0.15             # +- share: each reload draws its own depth, tempo and a side offset (x8 deg)
+    gaze_max_yaw: float = 14.0            # deg: the gaze never turns further sideways than this
+
+
+@dataclass
+class SmokeData:
+    """Gunpowder smoke (maths: core/smoke.py, drawing: game/smoke.py): soft white puffs that live in the WORLD (walking on leaves them behind).
+    Each shot blows `puffs` puffs out of the muzzle along the barrel and `port_puffs` smaller ones out of the ejection port; the air brakes them quickly
+    (velocity relative to the wind decays as exp(-drag t)), warm gas rises a little, they swell and fade within about `life` seconds; a puff that reaches the ground spreads sideways."""
+    puffs: int = 5                        # muzzle puffs per shot
+    speed: float = 9.0                    # m/s: muzzle puff speed along the barrel
+    speed_jitter: float = 0.35            # +- random ratio of the speed per puff
+    cone: float = 14.0                    # deg: random spread of the puff direction around the barrel axis
+    drag: float = 7.0                     # 1/s
+    rise: float = 0.35                    # m/s^2: buoyancy of the warm gas
+    turbulence: float = 0.30              # m/s: random drift added per puff (smooth, not per frame)
+    life: float = 1.0                     # s: a puff is gone after this (+- life_jitter)
+    life_jitter: float = 0.30             # +- ratio
+    size: float = 0.05                    # m: radius at birth
+    growth: float = 0.45                  # m: radius added by the end of life (grows like sqrt(age))
+    opacity: float = 0.42                 # peak opacity of one puff
+    color: tuple = (0.55, 0.56, 0.57)     # lit by the sun / sky like the ground: shows as a pale grey-white (pure white smoke vanishes on the white ground)
+    ground_spread: float = 0.6            # hitting the ground: this share of the downward speed turns into outward speed along the ground
+    port_puffs: int = 2                   # ejection-port puffs per shot (0 = none)
+    port_speed: float = 1.2               # m/s
+    port_size: float = 0.03               # m
+    port_opacity: float = 0.22
+    ejection_port: tuple = (0.088, -0.060, 0.25)   # port position in the camera frame at rest, like `muzzle` (hip_offset not included); None = no port smoke.
+    #                                                the default is the M4's: right side of the receiver behind the handguard (estimated from the model: ~2 cm right of the bore, 25 cm from the eye)
+    port_dir: tuple = (0.55, 0.83, 0.0)   # puff direction out of the port, camera frame (x right, y up, z forward)
 
 
 @dataclass
@@ -400,6 +433,7 @@ class GunData:
     shake: ShakeData = field(default_factory=ShakeData)
     free_aim: FreeAimData = field(default_factory=FreeAimData)
     head: HeadCamData = field(default_factory=HeadCamData)
+    smoke: SmokeData = field(default_factory=SmokeData)
     # aiming (ADS)
     ads_time: float = 0.19                # s to go in / out
     ads_fov: float = 84.5                 # horizontal world FOV when fully aimed: with the lens distortion reduced (LensData.fisheye_ads), the center is magnified ~13%
@@ -478,6 +512,7 @@ class LookData:
     exposure: float = 1.0                     # multiplies the auto exposure (LensData); the ACES tone curve is shared by the world and the gun
     fog_color: tuple = (0.50, 0.57, 0.66)     # haze, also the sky colour behind the far edge of the ground
     fog_density: float = 0.0040               # exp: ~33% at 100 m, ~55% at 200 m
+    wind: tuple = (0.6, 0.0, 0.25)            # m/s: light steady wind (x right, y up, z forward of the spawn view); the gun smoke drifts with it
     ground_color: tuple = (1.0, 1.0, 1.0)     # pure white ground (decided by the user)
     detail_strength: float = 0.0              # strength of the noise on the ground (0 = plain, one flat colour)
     # a thin grid on the ground: on a plain white floor there is nothing to show that the player is moving
@@ -510,6 +545,11 @@ class LensData:
     exposure_key: float = 0.70            # local brightness that corresponds to exposure 1
     exposure_min: float = 0.55
     exposure_max: float = 2.2
+    # ALL camera shake (head bob, steps, jump / landing, shots, reload beats, idle drift, the reload glance) moves the WHOLE lens frame (image + dark rim + distortion
+    # centre) instead of the world camera: the rotation part becomes a shift / tilt of the frame, the position part is turned into an angle at `shake_pos_ref`.
+    shake_scale: float = 1.0              # multiplies the whole frame motion (0 = steady frame)
+    shake_pos_ref: float = 0.5            # m: a head shift of x metres moves the frame like a turn of atan(x / shake_pos_ref)
+    shake_glance: float = 0.45            # the reload glance (~18 deg down on the M4) moves the frame by this share of a real turn: ~1/8 of the frame height (user choice 'medium')
 
 
 @dataclass(frozen=True)
@@ -588,6 +628,8 @@ GLOCK = GunData(
     # measured with tools/measure/g8_measure.py (camera frame at rest, hip_offset not included)
     ads_sights=((0.0612, -0.0226, 0.2502), (0.0612, -0.0199, 0.4209)),
     muzzle=(0.0612, -0.0410, 0.4278),
+    # pistol: a smaller puff; the ejection port is on the top right of the slide, ~2/3 of the way forward (estimated from the slide bounds)
+    smoke=SmokeData(puffs=4, speed=7.0, size=0.04, growth=0.35, opacity=0.34, life=0.85, ejection_port=(0.072, -0.016, 0.35)),
 )
 
 GUNS = {'m4': M4, 'glock': GLOCK}

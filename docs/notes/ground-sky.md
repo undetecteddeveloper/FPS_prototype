@@ -21,3 +21,18 @@ Viết cho: người dùng và agent mở phiên sau. Thay thế phần phòng b
   `tests/test_glock_model.py` kiểm các điều này; đổi file hoặc phiên bản thư viện thì chạy lại.
 - Số đo bằng `tools/measure/g8_measure.py` (điểm ngắm, miệng nòng), mốc âm thanh đo bằng cách pose từng 2 khung rồi theo dõi băng đạn và slide (ghi trong `GLOCK_SOUND_CUES`). `hip_offset` z +0,15 và `ads_eye_relief` 0,5 là số đặt thử, người chơi chỉnh tiếp.
 - Tác giả / giấy phép của file CHƯA RÕ: ghi ở `CREDITS.txt`, cần người dùng điền trước khi phát hành.
+
+## Rung vào ống kính, ánh nhìn khi nạp, khói súng, đổi súng (7/11/2026, chiều)
+- Rung kiểu Bodycam: camera thế giới đứng yên theo hướng nhìn; toàn bộ rung (đầu / thân, bước, nhảy / chạm đất, bắn, mốc nạp, trôi khi đứng, ánh nhìn khi nạp) cộng thành một tư thế,
+  `core/lens.frame_shake` đổi ra độ dịch + nghiêng của CẢ khung ảnh (thế giới + súng + viền tối + tâm méo) trong `lens.frag`. Mép khung hé đen khi lắc mạnh (viền tối che bớt).
+  Súng nằm trong ảnh nên lắc cùng khung (không còn tư thế "súng đi theo" riêng). Quy đổi: dịch đầu x mét như xoay atan(x / `lens.shake_pos_ref`); độ dịch nhân (1 + độ méo mắt cá) để giữa khung lắc như trước.
+  Chỉnh ở F1, nhóm "Ống kính lắc": `shake_scale` (0 = khung đứng yên), `shake_glance` (0,45: cúi nhìn băng trượt khung ~1/8 chiều cao, người dùng chọn "vừa").
+- Ánh nhìn khi nạp (`core/gaze.py`): nhìn vào điểm giữa tay trái (cầm băng) và thân súng (`Viewmodel.gaze_angles`, `gaze_hand_weight`). Chuyển điểm nhìn bằng cú LIẾC
+  (đường minimum-jerk: chậm - nhanh - chậm, hơi quá đà), dừng nhìn 0,18-0,45 s, trong lúc dừng bám theo tay chậm; mỗi lần nạp độ sâu / nhịp / độ lệch khác nhẹ (`gaze_jitter`). Giới hạn mềm (tanh) thay vì kẹp cứng.
+  Cúi xuống ~`glance_in_time`, ngẩng về `glance_out_time` (huỷ nạp: `glance_cancel_time`). Tích phân bước con 1/240 s nên 30 và 240 FPS cho cùng đường nhìn.
+- Khói thuốc súng: toán `core/smoke.py` (sức cản mũ chính xác theo bước, bốc lên, gió `look.wind`, trôi mượt, chạm đất thì loang; nòng + cửa nhả vỏ), vẽ `game/smoke.py` + `smoke.vert|frag`:
+  MỘT lần vẽ, tối đa 128 búi, không texture, búi to sát mắt tự mờ (`FILL_FADE`, đỡ tốn tốc độ tô của card tích hợp), sắp xếp xa -> gần trên CPU. Màu xám trắng nhạt (khói trắng tinh biến mất trên nền trắng).
+  Đo trên máy này: M4 xả liên tục 86 búi trung bình 94-100 FPS (thấp nhất ~70), Glock 128 FPS. Cửa nhả vỏ M4 / Glock là số ƯỚC LƯỢNG (`SmokeData.ejection_port`).
+  Tia lửa (hình ngôi sao + 2 mặt phẳng) đã bỏ; còn lại ánh lóe ngắn (đèn điểm ở nòng) chiếu súng, tay, đất.
+- Đổi súng: chỉ clip NẠP mới thu hẹp vùng súng tự do (`Player.reloading`); cất / rút không còn kéo súng về tâm. FreeLook, FreeAim, Sway, HeadCam, Shake được GIỮ khi đổi súng (chỉ thay dữ liệu), nên súng mới ra đúng chỗ súng cũ đang chĩa và khung không giật.
+- Bảng F1 thêm nhóm "Khói thuốc súng", "Ánh lóe đầu nòng", "Ống kính lắc", và các thanh `gun.head.gaze_*`.

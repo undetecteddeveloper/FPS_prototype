@@ -31,6 +31,7 @@ from fps.game.hud import Hud, setup_fonts  # noqa: E402
 from fps.game.lens import Lens  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
+from fps.game.smoke import GunSmoke  # noqa: E402
 from fps.game.ground import WALK_BOUNDS, build_ground  # noqa: E402
 from fps.core.sway import Sway, ads_target_for  # noqa: E402
 from fps.game.viewmodel import Viewmodel  # noqa: E402
@@ -83,10 +84,11 @@ class Game(Entity):
             params.gun.free_aim.barrel_aim = False
         self.light = FrameLight(params.look, params.gun)                       # one shared light source for the world and the gun
         self.viewmodel = Viewmodel(params.gun, ROOT, self.light)
-        self.fx = Effects(params.gun, self.viewmodel) if effects else None
+        self.smoke = GunSmoke(params.look, self.light) if effects else None        # gunpowder smoke: one world-space pool shared by both guns
+        self.fx = Effects(params.gun, self.viewmodel, smoke=self.smoke) if effects else None
         self.shake = Shake(params.gun.shake) if shake else None                # purely visual shake (does not change bullet direction)
         self.head = HeadCam(params.gun.head) if shake else None               # head + body motion on the image: uses the `shake` flag because it is also purely visual camera motion
-        self.shake_view = ShakeView(self.shake, self.head) if shake else None
+        self.shake_view = ShakeView(self.shake, self.head, params.lens) if shake else None      # all of it moves the LENS FRAME, not the world camera
         self.combat = Combat(params, self.player, self.world['colliders'], audio=self.audio, fx=self.fx, shake=self.shake)
         self.combat.aim_source = self._barrel_direction
         self.combat.foley = self.foley
@@ -125,17 +127,20 @@ class Game(Entity):
         self.light.gun = gun
         old_vm, old_fx = self.viewmodel, self.fx
         self.viewmodel = Viewmodel(gun, ROOT, self.light)
-        self.fx = Effects(gun, self.viewmodel) if self._effects else None
+        self.fx = Effects(gun, self.viewmodel, smoke=self.smoke) if self._effects else None
         if self.lens:
             self.viewmodel.move_to_output(self.lens.manager.buffers[-1])
-        self.shake = Shake(gun.shake) if self._shake_on else None
-        self.head = HeadCam(gun.head) if self._shake_on else None
-        self.shake_view = ShakeView(self.shake, self.head) if self._shake_on else None
+        if self.shake is not None:                      # keep the running shake / head state (rebuilding it would jolt the lens frame mid-switch): only swap the data
+            self.shake.d = gun.shake
+            self.head.d = self.head.gaze.d = gun.head
         self.audio = GunAudio(gun, ROOT) if self._sound and gun.shot_sound else None
         self.foley = Foley(self.params.audio, gun, self.player, ROOT) if self._sound else None
         self.combat.set_gun(gun, self.audio, self.fx, self.shake, self.viewmodel, self.foley, self._ammo.get(name))
         self.combat.aim_source = self._barrel_direction
-        self.sway = Sway(gun.sway, ads_target_for(gun))
+        self.sway.d = gun.sway                          # same for the sway state (lag, bob phase): the new gun comes up where the old one was going
+        if hasattr(self.sway.lag, 'd'):
+            self.sway.lag.d = gun.sway
+        self.sway.ads_target = ads_target_for(gun)
         old_vm.destroy()
         if old_fx:
             old_fx.destroy()
@@ -166,7 +171,7 @@ class Game(Entity):
         return view_to_world(p.yaw, p.pitch, barrel_view_dir(self.viewmodel.barrel_pose, gun.ads_sights, self.viewmodel.current_fov, camera.fov))
 
     def update(self):
-        # fixed order: player (look/move) -> fire + reload (uses the view direction just updated) -> hand animation -> sway -> head + shake -> gun -> light, lens
+        # fixed order: player (look/move) -> fire + reload (uses the view direction just updated) -> hand animation -> sway -> head + shake (-> lens frame) -> gun -> light, lens
         dt = time.dt
         self.player.tick()
         if self.look:
@@ -188,19 +193,24 @@ class Game(Entity):
         sway_pose = self.sway.update(step, inp)
         if self.foley:
             self.foley.update(dt, self.sway.phase)       # after sway: footsteps play exactly when the gun reaches the lowest point of the bob
-        visual = ()
+        frame = (0.0, 0.0, 0.0)
         if self.shake_view:
             p = self.player
             cy, sy = math.cos(math.radians(p.yaw)), math.sin(math.radians(p.yaw))
-            # after combat (this frame's Handling.t) and after sway (footstep phase): gun glance while reloading + bob / jump / landing
-            self.head.update(step, inp, self.sway.phase, p.vx * cy - p.vz * sy, p.vx * sy + p.vz * cy, reload_state(self.combat.handling))
-            visual = (self.shake_view.apply(p.ads_amount),)                         # world camera shake + the gun's follow pose
-        self.viewmodel.update(self.combat.gun_kick.pose, sway_pose, self.combat.free_aim.pose(self.player.ads_amount), self.player.free_look.pose(), visual=visual)
+            rs = reload_state(self.combat.handling)
+            gaze = self.viewmodel.gaze_angles(self.params.gun.head.gaze_hand_weight) if rs is not None else None
+            # after combat (this frame's Handling.t) and after sway (footstep phase): reload gaze + bob / jump / landing
+            self.head.update(step, inp, self.sway.phase, p.vx * cy - p.vz * sy, p.vx * sy + p.vz * cy, rs, gaze)
+            if self.lens:
+                frame = self.shake_view.frame_offset(p.ads_amount, camera.fov, window.aspect_ratio, self.lens.current_fisheye(p.ads_amount))
+        self.viewmodel.update(self.combat.gun_kick.pose, sway_pose, self.combat.free_aim.pose(self.player.ads_amount), self.player.free_look.pose())
         cam_pos, forward = camera.world_position, camera.forward
         self.light.set_camera(cam_pos, camera.right, camera.up, forward)
         self.light.set_exposure(target_exposure(self.params.lens, self.params.look))
+        if self.smoke:
+            self.smoke.update(min(dt, 0.1))                 # after set_camera: the puffs face this frame's camera
         if self.lens:
-            self.lens.update(dt, self.player.ads_amount, inp.look[0])
+            self.lens.update(dt, self.player.ads_amount, inp.look[0], frame)
         if self.hud:
             self.hud.update(dt, self.combat)
         if self.debug.is_open:

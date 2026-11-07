@@ -15,17 +15,17 @@ Pose = (x right, y up, z forward, pitch up, yaw right, roll right), metres and d
      landing: pushed down by fall speed (pitch down + y down + random roll), then bounces back once. The old landing nod lived
      in the body spring (omega 7, as slow as a nod), so it never produced a real jolt;
    - slow drift and breathing while standing still.
-2. Glance at the gun while reloading (`glance_*`, does NOT multiply aim): the head tilts down to look at the magazine, then comes back up. The curve is a PURE function of the clip time
-   (`Handling.t`), so it is independent of FPS and matches the clip at any `ReloadData.speed`: it starts after `glance_in_delay`, takes `glance_in_time`, and holds (slight drift
-   + small nod when the magazine seats), begins to rise `glance_out_lead` seconds BEFORE `Clip.settle` (as the Viewmodel's reload view fades out)
-   and is fully back after `glance_out_time`, i.e. ~0.5 s before the gun is ready to fire. Reloading empty has a later `settle`, so it holds longer by itself.
-   Cancel: slides from the current pose to 0 in `glance_cancel_time` (smoothstep). The mouse still turns normally during the glance.
+2. Gaze while reloading (`glance_*` + `gaze_*`, does NOT multiply aim; core/gaze.py): the glance window opens `glance_in_delay` after the reload starts and closes
+   `glance_out_lead` seconds BEFORE `Clip.settle` (as the Viewmodel's reload view fades out). Inside it the gaze jumps (saccades: minimum-jerk, slight overshoot) between the
+   points the hands work on (`gaze_target`, from Viewmodel.gaze_point) and rests on each; the first dip takes ~`glance_in_time`, the look back up `glance_out_time`
+   (`glance_cancel_time` when the reload is cancelled). Small nod when the magazine seats. The mouse still turns normally during the glance.
    Gun: the hand holds the gun against the body, so when the head tilts down the gun barely moves in the world; on screen the gun rises toward the centre of the frame:
    the glance uses `glance_follow` (~1, pivoting about the eye like the camera) instead of the `gun_follow` 0.55 of normal motion.
 """
 import math
 from dataclasses import dataclass
 
+from fps.core.gaze import ReloadGaze
 from fps.core.movement import MoveState, smoothstep
 from fps.core.shake import smooth_noise
 from fps.core.spring import Spring, impulse_gain
@@ -116,15 +116,17 @@ class HeadCam:
         self._pose = ZERO
         self._glance_pose = ZERO
         self._ads = 0.0
+        self.gaze = ReloadGaze(data, data.seed)
+        self._window = False
 
     def _random(self) -> float:
         """Value in [-1, 1], deterministic from the seed (noise at integer points = cell value)."""
         self._events += 1
         return smooth_noise(self.d.seed, 60, float(self._events))
 
-    def update(self, dt: float, inp: SwayInput, phase: float, lateral: float = 0.0, forward: float = 0.0, reload: ReloadState = None):
+    def update(self, dt: float, inp: SwayInput, phase: float, lateral: float = 0.0, forward: float = 0.0, reload: ReloadState = None, gaze_target: tuple = None):
         """`phase` = Sway.phase (footstep phase); `lateral` / `forward` = velocity in the player's frame (m/s, right / forward);
-        `reload` = reload_state(combat.handling) for this frame (None when not reloading)."""
+        `reload` = reload_state(combat.handling) for this frame (None when not reloading); `gaze_target` = (pitch, yaw) degrees of the point the hands work on, or None."""
         if dt <= 0.0:
             return
         d = self.d
@@ -156,7 +158,7 @@ class HeadCam:
         if inp.landed > 0:
             k = gain * min(inp.landed / d.land_reference_speed, d.land_max)
             jo.kick([0.0, -d.land_y * k, 0.0, -d.land_pitch * k, 0.3 * d.land_roll * self._random() * k, d.land_roll * self._random() * k])
-        self._update_glance(dt, reload, gain)
+        self._update_glance(dt, reload, gain, gaze_target)
         jo.step(dt)
 
         # --- footsteps, hand tremor, airborne: smooth intensity changes (stopping abruptly does not jerk) ---
@@ -207,31 +209,34 @@ class HeadCam:
         jx = jo.x
         self._pose = (x + jx[0], y + jx[1], jx[2], pitch + sp.x[1] + jx[3], yaw + sp.x[2] + jx[4], roll + sp.x[0] + jx[5])
 
-    def _update_glance(self, dt: float, rs: ReloadState, gain: float):
+    def _update_glance(self, dt: float, rs: ReloadState, gain: float, target: tuple = None):
         d = self.d
         reloading = rs is not None
-        if self._reloading and not reloading:                       # just finished or cancelled: slide back from the current pose
-            self._release_from, self._release_t = self.glance, 0.0
         if reloading and not self._reloading:
             self._last_elapsed = -1.0
+        cancelled = self._reloading and not reloading and self._window          # reload ended while the gaze was still down: cancelled
         self._reloading = reloading
-        self._release_t += dt
-        cancel = d.glance_cancel_time
-        w = self._release_from * (1.0 - smoothstep(self._release_t / cancel)) if cancel > 0 else 0.0
+        open_at, close_at = d.glance_in_delay, (rs.settle_time - d.glance_out_lead) if reloading else 0.0
+        window = reloading and open_at <= rs.elapsed < close_at
+        since = 0.0
+        if window and not self._window:
+            since = rs.elapsed - open_at                                     # the window opened this long before the end of the frame
+        elif reloading and not window and self._window:
+            since = rs.elapsed - close_at
+        self._window = window
+        leave = d.glance_cancel_time if cancelled else d.glance_out_time
+        pitch, yaw = self.gaze.update(dt, window, target, enter_time=d.glance_in_time, leave_time=leave, since=since)
+        w = self.gaze.engaged()                                              # how far down the gaze is: drives the small eye shift + roll
         if reloading:
-            w = max(w, glance_weight(d, rs))                         # reloading again while sliding back: no jerk
             swap, now = rs.swap_time, rs.elapsed
             if swap is not None and self._last_elapsed < swap <= now:
-                self.jolt.kick([0.0, 0.0, 0.0, -d.glance_seat_nod * gain * w, 0.0, 0.0])    # magazine seats: small nod
+                self.jolt.kick([0.0, 0.0, 0.0, -d.glance_seat_nod * gain * max(w, 0.3), 0.0, 0.0])    # magazine seats: small nod
             self._last_elapsed = now
         self.glance = w
-        if w <= 0.0:
+        if w <= 0.0 and abs(pitch) < 1e-4 and abs(yaw) < 1e-4:
             self._glance_pose = ZERO
             return
-        v = self.t * d.glance_drift_freq
-        drift_p = d.glance_drift * smooth_noise(d.seed, 70, v)
-        drift_y = d.glance_drift * smooth_noise(d.seed, 71, v)
-        self._glance_pose = (0.0, d.glance_y * w, d.glance_z * w, (-d.glance_pitch + drift_p) * w, (d.glance_yaw + drift_y) * w, d.glance_roll * w)
+        self._glance_pose = (0.0, d.glance_y * w, d.glance_z * w, pitch, yaw, d.glance_roll * w)
 
     def _scale(self) -> float:
         return 1.0 + (self.d.ads_multiplier - 1.0) * self._ads

@@ -79,6 +79,51 @@ def test_shader_uses_the_same_formula():
     assert 'vec2 q = vec2(p.x, p.y / lens_warp.x);' in src
 
 
+# --- frame shake (the whole lens frame moves instead of the world camera) ---
+HFOV = 96.0
+REF = 2.0
+
+
+def test_frame_shake_zero_pose_is_no_move():
+    assert lens.frame_shake((0.0,) * 6, HFOV, ASPECT, REF) == pytest.approx((0.0, 0.0, 0.0))
+
+
+def test_frame_shake_yaw_right_moves_content_left():
+    a = 3.0
+    dx, dy, roll = lens.frame_shake((0.0, 0.0, 0.0, 0.0, a, 0.0), HFOV, ASPECT, REF)
+    assert dx < 0.0
+    assert dx == pytest.approx(-math.tan(math.radians(a)) / math.tan(math.radians(HFOV / 2)))
+    assert dy == pytest.approx(0.0) and roll == pytest.approx(0.0)
+
+
+def test_frame_shake_pitch_up_moves_content_down_using_the_aspect():
+    b = 2.0
+    _, dy, _ = lens.frame_shake((0.0, 0.0, 0.0, b, 0.0, 0.0), HFOV, ASPECT, REF)
+    tan_half_v = math.tan(math.radians(HFOV / 2)) / ASPECT
+    assert dy < 0.0
+    assert dy == pytest.approx(-math.tan(math.radians(b)) / tan_half_v)
+
+
+def test_frame_shake_position_is_an_equivalent_angle():
+    y, x = 0.03, -0.02
+    from_pos = lens.frame_shake((x, y, 0.5, 0.0, 0.0, 0.0), HFOV, ASPECT, REF)
+    from_angle = lens.frame_shake((0.0, 0.0, 0.0, math.degrees(math.atan(y / REF)), math.degrees(math.atan(x / REF)), 0.0), HFOV, ASPECT, REF)
+    assert from_pos == pytest.approx(from_angle)
+    assert from_pos[1] < 0.0 and from_pos[0] > 0.0          # head up -> content down; head left -> content right
+
+
+def test_frame_shake_roll_right_turns_content_ccw():
+    _, _, roll = lens.frame_shake((0.0, 0.0, 0.0, 0.0, 0.0, 4.0), HFOV, ASPECT, REF)
+    assert roll == pytest.approx(math.radians(4.0)) and roll > 0.0
+
+
+def test_shader_declares_frame_shake_and_moves_the_frame_before_the_lens():
+    src = (ROOT / 'assets' / 'shaders' / 'lens.frag').read_text(encoding='utf-8')
+    assert 'uniform vec3 lens_shake;' in src
+    assert 'float f = (1.0 + k * r2) / (1.0 + k);' in src
+    assert src.index('lens_shake.x') < src.index('vec2 q = vec2(p.x, p.y / lens_warp.x);')
+
+
 # --- light ---
 LOOK = LookData()
 LENS = LensData()

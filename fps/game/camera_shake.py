@@ -1,30 +1,34 @@
-"""Applies camera shake (core/shake.py) to the screen: world camera and gun.
+"""Turns all camera shake into motion of the LENS FRAME (Bodycam: the chest camera swims, the dark rim and the distortion centre travel with the image).
 
-Shake is applied only to `camera.position/rotation` (relative to `player.camera_pivot`). `Player.aim_ray()` reads yaw/pitch/height from the
-`Player` itself, not from the camera: aim ray, bullet direction, spread and recoil do not see the shake. Only the rendered image shakes.
-Signs measured with the real projection (tools/selftests/g6_shake_selftest.py re-checks them): rotation_x positive = looking down, rotation_y positive = turn right,
-rotation_z positive = tilt right (the point on the right side of the screen goes UP).
+The world camera is NOT moved any more: `camera.position/rotation` stay at the player's view, and `Player.aim_ray()` reads yaw/pitch/height from the `Player`,
+so the aim ray, bullet direction, spread and recoil never see the shake. The pose the camera would have had (core/shake.py: shots, reload beats; core/headcam.py:
+body, steps, jump / landing, idle drift, the reload gaze) is summed here and converted by `core.lens.frame_shake` into a shift + tilt of the whole composited
+image (world AND gun) inside assets/shaders/lens.frag. The gun is part of that image, so it moves with the frame: it gets no separate follow pose any more.
 """
-from ursina import camera
-
+from fps.core.headcam import HeadCam
+from fps.core.lens import frame_shake
 from fps.core.shake import Shake
+from fps.weapon_data import LensData
 
 
 class ShakeView:
-    def __init__(self, shake: Shake, head=None):
+    def __init__(self, shake: Shake, head: HeadCam = None, lens: LensData = None):
         self.shake = shake
-        self.head = head                 # core.headcam.HeadCam: head + body motion and glancing at the gun during reload; also image-only (Game.update calls head.update before apply)
+        self.head = head
+        self.lens = lens or LensData()
 
-    def apply(self, ads: float) -> tuple:
-        """Sets shake + head motion on the world camera; returns the extra pose for the gun (fed to Viewmodel.update, `visual`).
-        The glance part of HeadCam follows `glance_follow` (~1), so when looking down at the gun, the gun rises to the middle of the frame instead of sticking to the lens."""
-        sh = self.shake
-        camera_pose = sh.camera_pose(ads) if sh.active else (0.0,) * 6
-        gun_pose = sh.gun_pose(ads) if sh.active else (0.0,) * 6
+    def pose(self, ads: float) -> tuple:
+        """Camera pose (x right, y up, z forward, pitch up, yaw right, roll right; metres, degrees) the frame should express this frame."""
+        sh, d = self.shake, self.lens
+        total = list(sh.camera_pose(ads)) if sh is not None and sh.active else [0.0] * 6
         if self.head is not None:
-            camera_pose = tuple(a + b for a, b in zip(camera_pose, self.head.camera_pose()))
-            gun_pose = tuple(a + b for a, b in zip(gun_pose, self.head.gun_pose()))
-        x, y, z, pitch_up, yaw_right, roll_right = camera_pose
-        camera.position = (x, y, z)
-        camera.rotation = (-pitch_up, yaw_right, roll_right)
-        return gun_pose
+            for i, (m, g) in enumerate(zip(self.head.move_pose(), self.head.glance_pose())):
+                total[i] += m + g * d.shake_glance
+        return tuple(c * d.shake_scale for c in total)
+
+    def frame_offset(self, ads: float, hfov: float, aspect: float, fisheye: float = 0.0) -> tuple:
+        """(dx, dy, roll) for Lens.update. The old camera shake was seen through the fisheye, which magnifies the centre (1 + fisheye) times:
+        the shift is multiplied by that so the centre of the frame swims as much as before."""
+        dx, dy, roll = frame_shake(self.pose(ads), hfov, aspect, self.lens.shake_pos_ref)
+        k = 1.0 + fisheye
+        return dx * k, dy * k, roll

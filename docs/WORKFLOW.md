@@ -31,7 +31,8 @@ Viết cho: người dùng và các agent mở phiên sau. Luật kỹ thuật c
 
 ## 3. Subagent
 - Chỉ chia khi: việc tách được, KHÔNG đụng chung file, và mỗi việc đủ lớn để bù chi phí khởi động nguội.
-- Đáng song song: sinh tài nguyên, toán thuần + pytest, tra cứu. KHÔNG song song: nhiều agent cùng mở game (máy chỉ chạy một cửa sổ; luôn bọc `tools\with_game_lock.py`).
+- Đáng song song: sinh tài nguyên, tra cứu. KHÔNG song song: nhiều agent cùng mở game HOẶC cùng chạy pytest / nạp model (máy chỉ chạy một cửa sổ; luôn bọc `tools\with_game_lock.py`).
+  Ngày 7/11/2026 máy ĐƠ CỨNG phải bật lại khi 2 subagent và agent chính cùng chạy game + pytest: máy 8 GB RAM, Intel UHD 620 dùng chung RAM. Người dùng chốt: làm TUẦN TỰ, mỗi lúc một tiến trình nặng.
 - Luật quản lý: mỗi subagent nhận (a) danh sách file nó được sửa, (b) mục tiêu đo được, (c) mẫu báo cáo ngắn. Không ai sửa file ngoài danh sách; agent chính ghép và chạy cổng kiểm tra. Hai việc cần cùng một file thì làm tuần tự.
 - Việc cơ học (đổi tên, dựng cắt âm, chạy lô tài nguyên) giao model rẻ; thiết kế và ghép giữ ở agent chính.
 - Agent chính không bao giờ nói "xong" thay subagent: đọc kết quả, chạy lại kiểm tra.

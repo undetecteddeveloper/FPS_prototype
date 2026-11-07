@@ -19,8 +19,8 @@ fps/                    gói mã nguồn (import dạng `from fps.core.movement 
   app.py                Game, create_game() (dựng tất cả; tools gọi lại hàm này), prune_scene_entities(), main()
   weapon_data.py        MỌI thông số (dataclass)
   core/                 toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps,
-                        params + param_meta (bảng F1), freeaim, headcam, lens, exposure
-  game/                 phần ghép Ursina/Panda: player, combat, viewmodel, ground (nền đất), sky (bầu trời + mây), hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake,
+                        params + param_meta (bảng F1), freeaim, headcam, gaze (ánh nhìn khi nạp), smoke, lens, exposure
+  game/                 phần ghép Ursina/Panda: player, combat, viewmodel, ground (nền đất), sky (bầu trời + mây), smoke (khói súng), hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake,
                         debug_panel (F1), frame_light, lens, decals, gltf_maps
 assets/                 tài nguyên: guns/ (glb), sounds/ (wav; source/ = file gốc, mp3 ElevenLabs, candidates/), shaders/ (GLSL, light_common.glsl dùng chung)
 tests/                  pytest
@@ -35,7 +35,8 @@ backups/  shots/        file lưu cũ của bảng F1 / ảnh chụp của bài 
 ## Quy ước
 - Mọi thông số súng/recoil/spread/sway nằm trong `fps/weapon_data.py` (dataclass). Không rải số ra module khác.
 - Toán mới thì tách ra `fps/core/` (không import ursina) để pytest được; chỉ phần cần Ursina/Panda mới vào `fps/game/`.
-- Thứ tự mỗi khung hình cố định trong `Game.update`: `player.tick()` -> `combat.update()` -> `sway.update()` -> `head.update` + `shake_view.apply` -> `viewmodel.update(kick, sway, free_aim, free_look, visual=...)` -> `light.set_camera/set_exposure` -> `lens.update`.
+- Thứ tự mỗi khung hình cố định trong `Game.update`: `player.tick()` -> `combat.update()` -> `sway.update()` -> `head.update` + `shake_view.frame_offset` -> `viewmodel.update(kick, sway, free_aim, free_look)` -> `light.set_camera/set_exposure` -> `smoke.update` -> `lens.update(..., frame)`.
+  Camera thế giới KHÔNG rung: mọi rung (bước, nhảy, bắn, nạp, ánh nhìn khi nạp) thành dịch + nghiêng cả khung ống kính (`game/camera_shake.py`, `core/lens.frame_shake`, `lens.frag`).
   Đừng để từng đối tượng tự `update` riêng (thứ tự Ursina không đảm bảo, bắn sẽ dùng hướng nhìn của khung trước).
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi trong console.
 - Thế giới là MỘT khối đất phẳng trắng + lưới + bầu trời mây (không bia, không phòng, không bóng đổ); đừng dựng lại phòng bắn khi chưa được hỏi.

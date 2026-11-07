@@ -8,6 +8,8 @@ The gun lives in its OWN scene graph, drawn by its own camera (a second display 
 Node chain: root -> sway -> rig -> actor.   `sway` receives the gun kick, sway, bob, sprint pose and ADS (summed in `update`);
 `rig` only aligns the model so that FPS_Camera sits at the camera origin.
 """
+import math
+import re
 from pathlib import Path
 
 from direct.actor.Actor import Actor
@@ -68,6 +70,7 @@ class Viewmodel:
         self._set_up_shading()
         self._set_up_camera(base)
         self._hide_reload_props()
+        self._set_up_gaze()
 
     # --- build ---
     def _set_up_shading(self):
@@ -193,6 +196,28 @@ class Viewmodel:
     def _center(self, node):
         lo, hi = node.get_tight_bounds(self.actor)
         return (lo + hi) / 2
+
+    def _set_up_gaze(self):
+        """Two points the reload gaze looks between: the left hand (it carries the magazine) and the gun body (midway between the rear sight and the muzzle)."""
+        names = [j.get_name() for j in self.actor.getJoints()]
+        hand = re.compile(r'^LeftHand_\d+$')
+        name = next((n for n in names if hand.match(n)), None)
+        self._gaze_hand = self.actor.exposeJoint(None, 'modelRoot', name) if name else None
+        self._gaze_gun = self.sway.attach_new_node('gaze_gun')
+        g = self.gun
+        if g.ads_sights and g.muzzle:
+            mid = [(a + b) / 2 + h for a, b, h in zip(g.ads_sights[0], g.muzzle, g.hip_offset)]
+            self._gaze_gun.set_pos(*mid)
+
+    def gaze_angles(self, hand_weight: float) -> tuple:
+        """(pitch up, yaw right) in degrees, seen from the gun camera, of the point between the gun body and the left hand (`hand_weight` 0 gun .. 1 hand)."""
+        gun = self._gaze_gun.get_pos(self.cam_np)
+        p = gun
+        if self._gaze_hand is not None:
+            hand = self._gaze_hand.get_pos(self.cam_np)
+            p = gun + (hand - gun) * min(max(hand_weight, 0.0), 1.0)
+        z = max(p.z, 0.05)
+        return math.degrees(math.atan2(p.y, z)), math.degrees(math.atan2(p.x, z))
 
     # --- animation: still pose, playing a clip, cancelling ---
     def _ready_frame(self) -> tuple:

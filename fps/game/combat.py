@@ -98,7 +98,7 @@ class Combat:
         self.accuracy = Accuracy(gun.accuracy)
         self.recoil = CameraRecoil(gun.recoil, self.rng)
         self.gun_kick = GunKick(gun.kick, self.rng)
-        self.free_aim = FreeAim(gun.free_aim)
+        self.free_aim.d = gun.free_aim              # keep the free-aim state (rest pose, drift): the new gun comes up where the old one was pointing
         self.reload_requested = False
         self.pressed = False
 
@@ -120,6 +120,7 @@ class Combat:
         if wants and not sprinting:                    # no reload while sprinting: a sprint pose not yet fully lowered still counts as sprinting
             h.start_reload()
         self.player.ads_blocked = h.busy
+        self.player.reloading = h.phase is Phase.RELOAD      # only a real reload narrows the free-aim zone; drawing / holstering keeps the Bodycam aim
 
     # --- per frame ---
     def update(self, dt: float, real_dt: float = None):

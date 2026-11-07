@@ -30,6 +30,9 @@ class Lens:
         self.frame = PTA_LVecBase3f.empty_array(1)
         self.frame.set_element(0, Vec3(data.fisheye, 0.0, 0.0))
         self.quad.set_shader_input('lens_frame', self.frame)
+        self.shake = PTA_LVecBase3f.empty_array(1)          # frame shake (dx, dy, roll), written in place every frame like lens_frame
+        self.shake.set_element(0, Vec3(0.0, 0.0, 0.0))
+        self.quad.set_shader_input('lens_shake', self.shake)
         self.t = 0.0
         self.turn = 0.0                                     # smoothed turn speed (deg/s)
         self.apply_params()
@@ -56,12 +59,14 @@ class Lens:
         d = self.d
         return d.fisheye + (d.fisheye_ads - d.fisheye) * smoothstep(min(max(ads, 0.0), 1.0))
 
-    def update(self, dt: float, ads: float, yaw_step: float):
-        """`yaw_step` = degrees of horizontal mouse turn in this frame (for rolling shutter and blur when turning)."""
+    def update(self, dt: float, ads: float, yaw_step: float, shake: tuple = (0.0, 0.0, 0.0)):
+        """`yaw_step` = degrees of horizontal mouse turn in this frame (for rolling shutter and blur when turning).
+        `shake` = core.lens.frame_shake(...) result (dx, dy, roll): moves and tilts the whole lens frame on the screen; zero = no shake."""
         self.t += dt
         if dt > 0.0:
             self.turn += (yaw_step / dt - self.turn) * min(dt / 0.04, 1.0)
         self.frame.set_element(0, Vec3(self.current_fisheye(ads), self.t % 1000.0, self.turn))
+        self.shake.set_element(0, Vec3(*shake))
 
     def destroy(self):
         self.manager.cleanup()

@@ -37,6 +37,7 @@ class Player(Entity):
         self.ads = False                      # holding the aim button
         self.ui_open = False                  # debug panel F1 open: left / right mouse no longer fire / aim
         self.ads_blocked = False              # reloading / drawing the gun: the aim button has no effect (the hand animation does not match the aim pose)
+        self.reloading = False                # a reload clip is running (Combat sets it): narrows the free-aim zone; drawing / holstering does not
         self.ads_amount = 0.0                 # 0 hip .. 1 fully aimed; spread (spread.py) interpolates on this value
         self.sprint_amount = 0.0              # 0 .. 1 progress of lowering the gun into the sprint pose; only back at 0 can it fire
         self.landed = 0.0                     # landing speed (m/s) if the player touched down this frame
@@ -95,9 +96,12 @@ class Player(Entity):
         return SwayInput(self.state, self.speed, self.ads_amount, self.sprint_amount, look, self.eye_dy, self.landed, self.jumped)
 
     def set_gun(self, gun):
-        """Weapon switch: the next gun's aim / sprint times and free-look data apply from now on."""
+        """Weapon switch: the next gun's aim / sprint times and free-look data apply from now on. The free-look STATE (where the gun points off-centre)
+        is kept, so the new gun is drawn exactly where the old one was pointing."""
         self.gun = gun
-        self.free_look = FreeLook(gun.free_aim)
+        fl = self.free_look
+        fl.d = gun.free_aim
+        fl.spring.omega, fl.spring.zeta = gun.free_aim.hand_omega, gun.free_aim.hand_zeta
         self.ads_blocked = False
 
     # --- loop (Game.update calls it, so the update order is explicit: player -> shooting -> sway -> gun -> HUD) ---
@@ -108,7 +112,7 @@ class Player(Entity):
         dt = min(time.dt, MAX_DT)
         self.step(dt, **self.read_keys())
         # zone shrinks / head chases the gun: the screen turns while the gun keeps its direction in the world
-        reloading = self.ads_blocked and not self.ads
+        reloading = self.reloading and not self.ads
         cam_yaw, cam_up = self.free_look.step(dt, self.ads_amount, self.sprint_amount, reloading, self.speed > self.p.moving_speed_threshold)
         self._turn_view(cam_yaw, cam_up)
         self.free_look.track(before)
