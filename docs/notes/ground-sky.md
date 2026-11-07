@@ -37,6 +37,17 @@ Viết cho: người dùng và agent mở phiên sau. Thay thế phần phòng b
 - Đổi súng: chỉ clip NẠP mới thu hẹp vùng súng tự do (`Player.reloading`); cất / rút không còn kéo súng về tâm. FreeLook, FreeAim, Sway, HeadCam, Shake được GIỮ khi đổi súng (chỉ thay dữ liệu), nên súng mới ra đúng chỗ súng cũ đang chĩa và khung không giật.
 - Bảng F1 thêm nhóm "Khói thuốc súng", "Ánh lóe đầu nòng", "Ống kính lắc", và các thanh `gun.head.gaze_*`.
 
+## Rút súng / đổi súng không hiện sai tư thế (7/11/2026)
+- Lỗi người dùng thấy: lúc mở game và lúc đổi súng, viewmodel hiện tư thế idle gốc của gói model (cao, giữa khung, chưa qua tư thế Bodycam) một lúc rồi mới nhảy về tư thế thiết kế. Nguyên nhân đo được:
+  `Viewmodel.prewarm` (vẽ thử cho GPU nóng máy) đẩy 2 khung RA MÀN HÌNH khi súng chưa có sway nào (ở lúc mở game các khung này dài ~1 s vì biên dịch shader), rồi thêm một khung ở tư thế sẵn sàng
+  trước khi clip rút súng bắt đầu. Ảnh chụp trước/sau nằm ở scratchpad phiên này, không lưu.
+- Sửa: `Viewmodel.hide_until_draw()` (gọi trong `Game.__init__` khi `draw=True` và trong `_apply_gun`) ẩn nhánh `sway` (tia lửa / cửa nhả vỏ cũng treo ở đó); `on_event('start', ...)` gọi `reveal()` NGAY khung tạo tư thế đầu của clip rút súng.
+  `prewarm` vẫn vẽ súng (tạm `show`) nhưng khi ống kính vẽ súng vào buffer riêng thì CỬA SỔ NGHỈ các khung đó (`win.set_active(False)`), nên không khung nào ra màn hình. Không có ống kính (`lens=False`, chỉ công cụ) thì vẫn vẽ lên cửa sổ như cũ.
+  Nếu `start_draw()` trả False (đang bận) thì `Game` gọi `reveal()` để súng không bị ẩn mãi. Mặc định Viewmodel KHÔNG ẩn (công cụ / selftest `draw=False` thấy súng ngay).
+- Đứng hình khi đổi súng VẪN CÒN (không đổi): đo ở máy này `_apply_gun` ~1,0-1,5 s lần đầu nạp một khẩu (`Viewmodel()` ~1,1 s: nạp glb + dựng xương hoạt ảnh bằng Python trong `gltf_patch`), lần sau 0,05-0,5 s. Hết chỗ người chơi thấy súng sai, chỉ còn thế giới đứng yên.
+  Muốn bỏ hẳn: nạp sẵn súng kia lúc mở game (tốn thêm ~1,3 s mở game và RAM) hoặc lưu cache xương hoạt ảnh; chưa làm, chờ người dùng chọn.
+- Kiểm: `tools\measure\swap_check.py` (mở game + 3 lần đổi súng; khung đầu tiên hiện súng trên màn hình phải chạy clip `draw`; trên mã cũ trượt cả 4 lần).
+
 ## Sửa lần 2 (7/11/2026, tối)
 - Dải đen ở mép khi khung trượt: VẼ DƯ MÉP (`lens.overscan` 0,22). Thế giới và súng được vẽ với tan(nửa FOV) x 1,22 (`core/lens.overscan_fov`; `camera.fov` và FOV súng là FOV VẼ,
   `Player.view_fov` là FOV HIỆN), ống kính lấy phần giữa (`src /= lens_motion.w`). Độ trượt nén mềm tới 0,9 x overscan (`soft_limit`), nên chỉ còn viền bo tròn. Đổi lại ảnh mềm hơn ~20%.

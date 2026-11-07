@@ -84,6 +84,8 @@ class Game(Entity):
             params.gun.free_aim.barrel_aim = False
         self.light = FrameLight(params.look, params.gun)                       # one shared light source for the world and the gun
         self.viewmodel = Viewmodel(params.gun, ROOT, self.light)
+        if draw:
+            self.viewmodel.hide_until_draw()          # the first frames (window opening, shader warm-up) show no gun; it appears with the draw clip
         self.smoke = GunSmoke(params.look, self.light) if effects else None        # gunpowder smoke: one world-space pool shared by both guns
         self.fx = Effects(params.gun, self.viewmodel, smoke=self.smoke) if effects else None
         self.shake = Shake(params.gun.shake) if shake else None                # purely visual shake (does not change bullet direction)
@@ -127,6 +129,7 @@ class Game(Entity):
         self.light.gun = gun
         old_vm, old_fx = self.viewmodel, self.fx
         self.viewmodel = Viewmodel(gun, ROOT, self.light)
+        self.viewmodel.hide_until_draw()                # until the draw clip starts, the new gun must not show its idle pose (a switch always draws)
         self.fx = Effects(gun, self.viewmodel, smoke=self.smoke) if self._effects else None
         if self.lens:
             self.viewmodel.move_to_output(self.lens.manager.buffers[-1])
@@ -181,7 +184,8 @@ class Game(Entity):
         self.combat.update(min(dt, 0.05), dt)
         if self._draw_pending and dt < 0.1:          # wait for the first normal frame: the long build frame must not count toward the draw time
             self._draw_pending = False
-            self.combat.handling.start_draw()
+            if not self.combat.handling.start_draw():
+                self.viewmodel.reveal()              # the draw could not start (a clip is running): never leave the gun hidden
         for event in self.combat.handling.drain():
             self.viewmodel.on_event(event)
             if self.foley:

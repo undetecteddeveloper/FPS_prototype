@@ -144,8 +144,9 @@ class SwayData:
     bob_blend: float = 10.0               # 1/s: amplitude slides to the new level; stopping abruptly does not jerk
     # hip rest pose: low and near the middle of the frame, not aimed. Added to hip_offset; blends to 0 when aiming
     rest_pose: tuple = (-0.050, -0.112, 0.020, 0.0, 0.0, -3.0)
-    # sprint pose (gun lowered, muzzle angled); blended by player.sprint_amount
-    sprint_pose: tuple = (-0.01, -0.012, 0.02, -7.0, -16.0, 10.0)
+    # sprint pose, ADDED to rest_pose and blended by player.sprint_amount: the gun drops below the camera and out of the frame (user 7/11/2026), pulled back a little and the muzzle tipped down.
+    # Measured on both guns (rear sight, front sight, muzzle): >= 55 deg below the view axis, the frame's bottom edge is at 30 deg, so lens shake / bob (<= ~10 deg) never bring it back
+    sprint_pose: tuple = (-0.01, -0.30, -0.10, -25.0, -16.0, 10.0)
     # inertia from vertical camera motion (jump, crouch, stand up, fall)
     vlag_gain: float = 0.05
     vlag_max: float = 0.03                # m

@@ -1,10 +1,11 @@
+import math
 from dataclasses import replace
 
 import pytest
 
 from fps.core.movement import MoveState, smoothstep, target_speed
 from fps.core.sway import Sway, SwayInput, ads_pose, apply_pose
-from fps.weapon_data import M4, PlayerParams, SwayData
+from fps.weapon_data import GUNS, M4, PlayerParams, SwayData
 
 S = MoveState
 D = SwayData(rest_pose=(0.0,) * 6)      # measure each component separately; the normal holding pose is checked in test_freeaim
@@ -274,8 +275,20 @@ def test_sprint_pose_blends_in_and_ads_removes_it():
 
 def test_sprint_pose_lowers_and_tilts_the_barrel_down():
     x, y, z, pitch_up, yaw_right, roll = D.sprint_pose
-    assert y < -0.01 and pitch_up < -3 and yaw_right < -10         # lowered, barrel tipped down, angled to the left
-    assert abs(y) < 0.06 and abs(pitch_up) < 15                    # but not too far: the gun must stay in the frame
+    assert y < -0.2 and pitch_up < -15 and yaw_right < -10         # dropped well below the eye, barrel tipped down, angled to the left
+
+
+@pytest.mark.parametrize('name', sorted(GUNS))
+def test_sprint_pose_takes_the_gun_out_of_the_frame(name):
+    """User 7/11/2026: while sprinting the viewmodel goes below the camera and leaves the view. The measured points of each gun (rear sight, front sight, muzzle) must sit
+    below the bottom edge of the gun camera's frame by a margin that covers lens shake / bob / head follow (about 10 degrees)."""
+    gun = GUNS[name]
+    half_vfov = math.degrees(math.atan(math.tan(math.radians(gun.view_fov / 2)) / (16 / 9)))      # 16:9 screen
+    pose = tuple(r + s for r, s in zip(gun.sway.rest_pose, gun.sway.sprint_pose))
+    for point in (*gun.ads_sights, gun.muzzle):
+        x, y, z = apply_pose(tuple(c + h for c, h in zip(point, gun.hip_offset)), pose)
+        angle_up = math.degrees(math.atan2(y, max(z, 0.02)))                                        # above the view axis (negative = below)
+        assert angle_up < -(half_vfov + 10.0)
 
 
 # --- vertical inertia and landing ---

@@ -148,7 +148,7 @@ META = {
     'gun.sway.bob_crouch_multiplier': p('Bob khi ngồi đi', 'nhân biên độ', 0, 2, 0.05),
     'gun.sway.bob_min_speed': p('Tốc độ tối thiểu để bob', 'm/s; chậm hơn thì bob nhỏ dần', 0.2, 4, 0.1, 'A'),
     'gun.sway.bob_blend': p('Độ mượt của bob', 'lớn = biên độ đổi nhanh', 1, 30, 0.5, 'A'),
-    'gun.sway.sprint_pose': pose('Tư thế chạy', ((-0.1, 0.1, 0.005), (-0.1, 0.1, 0.005), (-0.1, 0.1, 0.005), (-30, 30, 0.5),
+    'gun.sway.sprint_pose': pose('Tư thế chạy', ((-0.1, 0.1, 0.005), (-0.6, 0.1, 0.005), (-0.3, 0.1, 0.005), (-60, 30, 0.5),
                                                  (-40, 40, 0.5), (-30, 30, 0.5)), adv='A A  A'),
     'gun.sprint_in_time': p('Thời gian hạ súng khi chạy', 'giây', 0.05, 0.6, 0.01),
     'gun.sprint_out_time': p('Thời gian đưa súng lên', 'giây; cũng là độ trễ trước khi bắn được lúc đang chạy', 0.05, 0.8, 0.01),

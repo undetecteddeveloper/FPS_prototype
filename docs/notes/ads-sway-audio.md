@@ -11,7 +11,10 @@
 - Nhún chạm đất: `Player._dip` hạ `camera_pivot.y` (đỉnh `land_dip_per_speed` x tốc độ rơi, ~3,9 cm khi nhảy) và `aim_ray()` lấy gốc tia từ chỗ camera đang ở.
 - Sprint-to-fire (`PlayerParams.sprint_blocks_fire` = True): bóp cò khi đang chạy thì thôi chạy (đi bộ), súng đưa lên trong `sprint_out_time`, rồi mới bắn (đo 0,26 s); `Combat` nhớ cú bóp lúc chưa sẵn sàng (bắn đơn
   không mất phát). Đặt False thì bắn thẳng từ tư thế chạy: `g3_selftest` làm vậy để đo độ tản của trạng thái chạy (`accuracy.sprint` chỉ có hiệu lực khi False). Bấm ngắm cũng cắt chạy.
-- Tư thế chạy `SwayData.sprint_pose` là số chỉnh bằng mắt (ảnh `shots\g4_sprint.png`): hạ quá tay thì súng văng khỏi màn hình (xoay quanh mắt kéo thân súng xuống ~19 cm với y -0,09 và pitch -20).
+- Tư thế chạy `SwayData.sprint_pose` (CỘNG vào `rest_pose`, trộn theo `sprint_amount`): từ 7/11/2026 người dùng muốn súng RỜI HẲN khung hình khi chạy ("viewmodel xuống dưới camera, ẩn khỏi góc nhìn"): `(-0,01; -0,30; -0,10; -25°; -16°; 10°)`
+  (trước đó chỉ hạ ~1 cm, pitch -7°). Đo cho cả M4 và Glock bằng các điểm đã đo (mắt ngắm sau, đầu ruồi, miệng nòng): nằm thấp hơn trục nhìn ≥ 55°, mép dưới khung ở 30° (khung dọc 60°),
+  nên rung ống kính / bob (≤ ~10°) không kéo súng trở lại; `tests/test_sway.py::test_sprint_pose_takes_the_gun_out_of_the_frame` giữ biên 10° đó. Ảnh chụp: `tools\measure\g8_shots.py --only sprint [--gun m4]`.
+  Thanh F1 "Tư thế chạy" đã nới biên (y tới -0,6; z tới -0,3; pitch tới -60°). Hạ súng 0,2 s (`sprint_in_time`), đưa lên 0,25 s (`sprint_out_time`, cũng là độ trễ sprint-to-fire) giữ nguyên: nếu hành trình dài thấy gắt thì chỉnh hai số này.
 - Âm thanh: `fps/game/gun_audio.py` phát từ nhóm 8 bản luân phiên (tiếng 0,5 s, nhịp 0,08 s) với cao độ ngẫu nhiên ±3%. `assets\sounds\m4_shot.wav` dựng bằng `tools\build\prep_sound.py` từ `assets\sounds\source\m4_shot_original.wav`
   (file gốc 2 s, mở đầu im 48 ms làm tiếng trễ ~3 khung: cắt đầu và đuôi, mờ dần 80 ms). Tắt tiếng: `--mute`; selftest tắt bằng `create_game(sound=False)`. Không nghe được loa nên `tools\selftests\audio_selftest.py` kiểm gián tiếp
   (trình phát thật không phải âm câm, độ dài, số lần phát, trạng thái PLAYING); CREDITS ghi rõ nguồn/giấy phép tiếng súng CHƯA có.

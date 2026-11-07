@@ -57,6 +57,7 @@ class Viewmodel:
         self._empty = 0.0                             # 0 bolt closed .. 1 bolt locked back (empty magazine)
         self._view = 0.0                              # 0 .. 1 separate view for the reload clip (wide FOV, gun raised)
         self._fov = None
+        self._hidden = False                          # kept out of the picture until the draw clip starts (`hide_until_draw`); visible by default so tools / tests see it at once
         self.overscan = 0.0                           # drawn wider by this much (same as the world camera) when the lens crops; Game sets it
 
         # the file is in cm and faces -z: convert to metres and turn 180 degrees so it looks toward +z
@@ -245,13 +246,38 @@ class Viewmodel:
         self._bundle.force_update()
         self._update_mags()
 
+    def hide_until_draw(self):
+        """Keep the gun out of the picture until the draw clip starts (user 7/11/2026). Before that it stands in the pack's idle pose (or, while the model is still loading and
+        no sway frame has run yet, in the raw pose the file was authored in): the long model-load frame of a weapon switch / the first frames of the game must never show it.
+        `on_event('start', ...)` shows it again, in the same frame that poses the first frame of the clip. Muzzle flash and ejection port hang under `sway`, so they hide with it."""
+        self._hidden = True
+        self.sway.hide()
+
+    def reveal(self):
+        if self._hidden:
+            self._hidden = False
+            self.sway.show()
+
     def prewarm(self, frames: int = 2):
-        """Render a few frames with every magazine visible so its draw state reaches the GPU now, not in the first frame of the first reload (a 45 ms hitch)."""
-        engine = application.base.graphicsEngine
+        """Render a few frames with every magazine visible so its draw state reaches the GPU now, not in the first frame of the first reload (a 45 ms hitch).
+        The gun is drawn even when it is hidden for the player, and when the lens draws it into its own buffer the window sits these frames out: nothing reaches the screen
+        (these frames used to show the gun in the pack's idle pose, for ~1 s while the shaders compiled at start-up)."""
+        base = application.base
+        engine, win = base.graphicsEngine, base.win
+        quiet = self.output is not win
+        self.sway.show()
+        if quiet:
+            win.set_active(False)
         if self.mag_groups:
             self._set_mags(True, True)
-        for _ in range(frames):
-            engine.render_frame()
+        try:
+            for _ in range(frames):
+                engine.render_frame()
+        finally:
+            if quiet:
+                win.set_active(True)
+            if self._hidden:
+                self.sway.hide()
         if self.mag_groups:
             self._mags_state = None
             self._update_mags()
@@ -280,6 +306,7 @@ class Viewmodel:
         """Event from core.handling.Handling: ('start', key, speed) / ('swap', key) / ('done', key) / ('cancel', key, frame)."""
         name = event[0]
         if name == 'start':
+            self.reveal()                                # the first clip after `hide_until_draw` is the draw: poses its first frame below, so the gun appears already in motion
             self._play(event[1], event[2])
         elif name == 'done':
             self.hold_ready_pose()

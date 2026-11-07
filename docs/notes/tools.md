@@ -17,6 +17,7 @@
 - NHIỀU GAME CÙNG LÚC làm các bài đo theo thời gian (nhịp bắn, FPS) trượt oan. Khi có nhiều agent/terminal: bọc mọi lần mở cửa sổ game bằng
   `.venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh gốc>` (ổ khoá toàn máy, tự chờ tới lượt). Máy nóng/bận hạ xung: mục "FPS trung bình >= 60" của g3 tụt 59 -> 45 sau nhiều lần chạy liền;
   chạy lại một mình khi máy yên (g3 yên = 62 FPS, sát ngưỡng). `tools\measure\room_perf.py` đo FPS có/không bóng xen kẽ trong cùng một lần chạy (đáng tin hơn số tuyệt đối).
+- Rút súng / đổi súng: `tools\measure\swap_check.py` (ghi từng khung engine vẽ lúc mở game + 3 lần đổi súng, kiểm khung đầu tiên hiện súng chạy clip `draw`; in thời gian đứng hình; thoát mã 1 nếu trượt), `tools\measure\g8_shots.py --only hip,sprint [--gun m4|glock]` (chụp `shots\g8_<súng>_*.png`).
 - Đo FPS: `tools\measure\perf_scenarios.py` (11 tình huống ở 1366x768, ngưỡng tổng 60, từng tình huống 55), `tools\measure\perf_profile.py idle|fire|ads_fire|reload` (hàm Python tốn nhất), `tools\measure\bodycam_shots.py` (chụp `shots\bc_*.png`).
 - Công cụ dựng/đo: `tools\build\prep_sound.py` (dựng `assets\sounds\m4_shot.wav` từ file gốc), `tools\build\prep_foley.py [--check]` (tổng hợp 37 file `assets\sounds\foley\*.wav` bằng mã thuần),
   `tools\build\prep_user_audio.py` (cắt hai file của người dùng thành `assets\sounds\foley\user_*.wav`), `tools\measure\sway_sim.py` (mô phỏng sway: lệch cực đại / quá đà / thời gian ổn định, thuần toán),
