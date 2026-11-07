@@ -280,6 +280,10 @@ class Effects:
         self._rest = 1e9                                   # seconds since the last shot
         self._warm_up()
 
+    def destroy(self):
+        """Weapon switch: the tracer pool lives under `render` (the muzzle flash goes away with the old viewmodel)."""
+        self.tracers.root.remove_node()
+
     def _warm_up(self):
         """Draw every effect (tiny, nearly transparent) for the first few frames so textures and draw state reach the GPU as the game starts.
         Without this the FIRST shot makes two consecutive frames slow, 25-40 ms (and since bullets move per frame, the hit point is off by a few mm).

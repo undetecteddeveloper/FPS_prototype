@@ -94,6 +94,12 @@ class Player(Entity):
         self._mouse = [0.0, 0.0]
         return SwayInput(self.state, self.speed, self.ads_amount, self.sprint_amount, look, self.eye_dy, self.landed, self.jumped)
 
+    def set_gun(self, gun):
+        """Weapon switch: the next gun's aim / sprint times and free-look data apply from now on."""
+        self.gun = gun
+        self.free_look = FreeLook(gun.free_aim)
+        self.ads_blocked = False
+
     # --- loop (Game.update calls it, so the update order is explicit: player -> shooting -> sway -> gun -> HUD) ---
     def tick(self):
         before = tuple(self.free_look.offset)

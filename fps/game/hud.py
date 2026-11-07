@@ -1,4 +1,4 @@
-"""HUD (for checks only: `create_game(hud=True)`; the real game has NO Bodycam-style HUD, see Game in app.py): FPS, dynamic crosshair, ammo count, fire mode, hit marker, distance of the last target hit, credit.
+"""HUD (for checks only: `create_game(hud=True)`; the real game has NO Bodycam-style HUD, see Game in app.py): FPS, dynamic crosshair, ammo count, fire mode, credit.
 
 Font: Segoe UI Semilight ships with Windows (it has full Vietnamese diacritics), thinner and sharper than Ursina's default OpenSans.
 Each text line gets a black copy offset by 1 px as a shadow, so it stays readable on a bright sky.
@@ -107,15 +107,6 @@ class Hud:
                                           scale=(w, h)), ux, uy))
         self._update_crosshair(1.0, 2.0, 0.0, snap=True)
 
-        # hit marker: four diagonal ticks around the centre
-        self.hit_marker = []
-        d = 0.020
-        for sx, sy in ((1, 1), (-1, 1), (-1, -1), (1, -1)):
-            self.hit_marker.append(Entity(parent=ui, model='quad', color=color.rgba(1, 1, 1, 0), z=-0.001,
-                                          position=(sx * d, sy * d), scale=(0.016, 0.003),
-                                          rotation_z=45 if sx * sy > 0 else -45))
-        self.last_hit = UiText('', (0, -0.07), origin=(0, 0), scale=1.15)
-
         self._frames = 0
         self._elapsed = 0.0
 
@@ -160,13 +151,3 @@ class Hud:
         self.reload_bar.scale_x = max(RELOAD_BAR_WIDTH * h.progress, 0.0001)
 
         self._update_crosshair(dt, combat.spread_now, combat.player.ads_amount)
-
-        a = combat.hit_marker_alpha
-        for e in self.hit_marker:
-            e.color = color.rgba(1, 1, 1, a)
-
-        if combat.last_hit_left > 0:
-            self.last_hit.text = f'{combat.last_hit_distance:.0f} m'
-            self.last_hit.set_alpha(min(1.0, combat.last_hit_left / 0.5))
-        else:
-            self.last_hit.text = ''

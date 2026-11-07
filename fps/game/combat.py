@@ -1,4 +1,4 @@
-"""Combat loop: trigger -> shot -> bullet flight -> hit test -> feedback (hit marker, target flash, bullet hole).
+"""Combat loop: trigger -> shot -> bullet flight -> hit test -> feedback (impact sound, bullet hole).
 
 Bullets start at the eye position, along the direction the BARREL points (`aim_source`, see core/freeaim.py), plus a very small mechanical spread.
 Each shot: take the CURRENT spread -> fire -> random recoil kick (part into the camera, the rest makes the gun drift), gun kick.
@@ -10,14 +10,13 @@ from dataclasses import dataclass
 
 from ursina import color, held_keys, mouse
 
-from fps.core.ballistics import advance, distance_between, first_hit, moving_hit
+from fps.core.ballistics import advance, distance_between, first_hit
 from fps.core.freeaim import FreeAim
 from fps.core.handling import Handling, Phase
 from fps.core.movement import MoveState
 from fps.core.recoil import CameraRecoil, GunKick
 from fps.core.spread import Accuracy, random_in_cone
-from fps.game.decals import HoleDecals
-from fps.game.targets import Target, hole_texture
+from fps.game.decals import HoleDecals, hole_texture
 from fps.core.weapon import Weapon
 from fps.weapon_data import GameParams
 
@@ -43,7 +42,7 @@ class Impact:
     point: tuple
     normal: tuple
     distance: float         # bullet path length from the eye to the hit point
-    owner: object           # Target, GROUND, or the Entity of the terrain
+    owner: object           # the Entity of the ground
     origin: tuple
 
 
@@ -57,12 +56,11 @@ class ShotInfo:
 
 
 class Combat:
-    def __init__(self, params: GameParams, player, targets: list, static_boxes: list, rng: random.Random = None,
+    def __init__(self, params: GameParams, player, static_boxes: list, rng: random.Random = None,
                  audio=None, fx=None, shake=None):
         self.gun = params.gun
         self.fb = params.feedback
         self.player = player
-        self.targets = targets
         self.static_boxes = static_boxes           # [(lo, hi, owner)]
         self.rng = rng or random.Random()
         self.audio = audio                         # GunAudio or None (muted)
@@ -81,20 +79,28 @@ class Combat:
         self.spread_now = self.accuracy.angle(player.state, player.ads_amount)   # for the dynamic crosshair
         self.last_shot = None
         self.decals = HoleDecals(self.fb, hole_texture())
-        for t in targets:
-            if t.patrol is not None:
-                self.decals.prepare_owner(t.root)
         self.bullets = []
         self.pressed = False                       # just pulled the trigger (mouse-press event, used for semi-auto)
         self.require_locked_mouse = True           # do not fire once the player released the mouse with Esc
-        self.hit_marker_left = 0.0
-        self.last_hit_distance = None
-        self.last_hit_left = 0.0
         self.last_impact = None
         self.shots_fired = 0
-        self.target_hits = 0
-        self.frame_dt = 1.0 / 60.0                 # length of the frame being processed (moving targets interpolate their position with this frame)
-        self._hit_frac = 1.0                       # fraction of the frame where the bullet just hit (for the hole on a moving target)
+        self.frame_dt = 1.0 / 60.0                 # length of the frame being processed
+
+    def set_gun(self, gun, audio, fx, shake, viewmodel, foley, ammo=None):
+        """Weapon switch: everything that belongs to the gun is rebuilt (rounds, draw/reload handling, spread, recoil, kick, free aim). Bullets in flight and holes stay.
+        `ammo` = (mag, reserve, auto) remembered for this gun, or None for a fresh one."""
+        self.gun = gun
+        self.audio, self.fx, self.shake, self.viewmodel, self.foley = audio, fx, shake, viewmodel, foley
+        self.weapon = Weapon(gun)
+        if ammo is not None:
+            self.weapon.mag, self.weapon.reserve, self.weapon.auto = ammo
+        self.handling = Handling(gun, self.weapon)
+        self.accuracy = Accuracy(gun.accuracy)
+        self.recoil = CameraRecoil(gun.recoil, self.rng)
+        self.gun_kick = GunKick(gun.kick, self.rng)
+        self.free_aim = FreeAim(gun.free_aim)
+        self.reload_requested = False
+        self.pressed = False
 
     def request_reload(self):
         """R key. Takes effect on the next frame if reloading is possible (see `_update_handling`)."""
@@ -119,11 +125,6 @@ class Combat:
     def update(self, dt: float, real_dt: float = None):
         """`dt` is clamped to 50 ms for physics; `real_dt` is the true frame time (the reload clip runs on the Panda clock)."""
         self.frame_dt = dt
-        for t in self.targets:             # moving targets go first: bullets this frame hit-test against target positions step by step
-            t.update(dt)
-        self.hit_marker_left = max(0.0, self.hit_marker_left - dt)
-        self.last_hit_left = max(0.0, self.last_hit_left - dt)
-
         self._step_bullets(dt)           # old bullets advance first, new ones are spawned after (they already advanced to the end of the frame)
 
         mouse_ok = (mouse.locked or not self.require_locked_mouse) and not self.player.ui_open       # debug panel (F1) open: the mouse belongs to the panel
@@ -171,8 +172,8 @@ class Combat:
         self.spread_now = self.accuracy.angle(self.player.state, self.player.ads_amount)
 
     def _boxes(self) -> list:
-        """Static boxes for this frame: still targets + walls/columns/ground. Moving targets are handled separately, step by step (`_advance`)."""
-        return [(*t.aabb(), t) for t in self.targets if not t.moving] + self.static_boxes
+        """Boxes bullets hit: the ground slab."""
+        return self.static_boxes
 
     def _fire(self, origin, direction, age: float):
         speed = self.gun.muzzle_velocity
@@ -181,41 +182,25 @@ class Combat:
         if self.fx:
             self.fx.on_shot(bullet, self.player.ads_amount)
         # the bullet is spawned at time (end of frame - age) and then advances itself to the end of the frame
-        if self._advance(bullet, age, self._boxes(), self.frame_dt - age):
+        if self._advance(bullet, age, self._boxes()):
             self.bullets.append(bullet)
 
     def _step_bullets(self, dt: float):
         if not self.bullets:
             return
         boxes = self._boxes()
-        self.bullets = [b for b in self.bullets if self._advance(b, dt, boxes, 0.0)]
+        self.bullets = [b for b in self.bullets if self._advance(b, dt, boxes)]
 
-    def _advance(self, bullet: Bullet, dt: float, boxes: list, t_begin: float = 0.0) -> bool:
+    def _advance(self, bullet: Bullet, dt: float, boxes: list) -> bool:
         """Advance the bullet by dt seconds. Returns False if the bullet is gone (it hit something or expired).
 
         A long frame is split into steps <= MAX_BULLET_STEP: the hit point of each step is found on the chord, so the error is at most g*dt^2/8 versus
-        the true arc; a 40 ms hitch (e.g. the first frame that shows the muzzle flash) gives 2-3 mm error at 10 m without splitting.
-
-        `t_begin` (s from the start of the frame) is when the bullet starts this segment. A moving target moves from `x_start` to `x_end` during the frame, so each small step
-        tests the bullet against the target box at the EXACT position at the start of the step, and the box moves along within the step (`moving_hit`: exact for uniform motion,
-        without the error `target speed x dt` that comes from using the end-of-frame position)."""
+        the true arc; a 40 ms hitch (e.g. the first frame that shows the muzzle flash) gives 2-3 mm error at 10 m without splitting."""
         steps = max(1, math.ceil(dt / MAX_BULLET_STEP - 1e-9))
         step = dt / steps
-        movers = [t for t in self.targets if t.moving]
-        frame = max(self.frame_dt, 1e-9)
-        for i in range(steps):
+        for _ in range(steps):
             new_pos, new_vel = advance(bullet.pos, bullet.vel, self.gun.bullet_gravity, step)
-            hit = first_hit(bullet.pos, new_pos, boxes)
-            if movers:
-                f0 = min(max((t_begin + i * step) / frame, 0.0), 1.0)
-                f1 = min(max((t_begin + (i + 1) * step) / frame, 0.0), 1.0)
-                for t in movers:
-                    x0, x1 = t.x_at(f0), t.x_at(f1)
-                    lo, hi = t.aabb_at_x(x0)
-                    h = moving_hit(bullet.pos, new_pos, lo, hi, (x1 - x0, 0.0, 0.0), t)
-                    if h and (hit is None or h.t < hit.t):
-                        hit = h
-                        self._hit_frac = f0 + (f1 - f0) * h.t
+            hit = first_hit(bullet.pos, new_pos, boxes, ground_y=None)       # the ground is a finite slab among `boxes`, not an infinite plane
             if hit:
                 bullet.alive, bullet.end_pos = False, hit.point
                 self._on_hit(bullet, hit)
@@ -232,23 +217,5 @@ class Combat:
         distance = distance_between(bullet.origin, hit.point)
         self.last_impact = Impact(hit.point, hit.normal, distance, hit.owner, bullet.origin)
         if self.foley:
-            self.foley.on_impact(isinstance(hit.owner, Target), distance)
-        if isinstance(hit.owner, Target):
-            self.target_hits += 1
-            hit.owner.flash()
-            self.hit_marker_left = self.fb.hit_marker_duration
-            self.last_hit_distance = distance
-            self.last_hit_left = self.fb.last_hit_display_time
-            # The hole sits where the bullet hit ON the target at impact; the target has moved on to the end of the frame, so shift the hole along to keep it in place on the target surface
-            point = hit.point
-            if hit.owner.patrol is not None:
-                shift = hit.owner.x_end - hit.owner.x_at(self._hit_frac)
-                point = (point[0] + shift, point[1], point[2])
-            self.decals.add(point, hit.normal, distance, parent=hit.owner.root)
-        else:
-            self.decals.add(hit.point, hit.normal, distance, tint=DUST_TINT)
-
-    # --- state for the HUD ---
-    @property
-    def hit_marker_alpha(self) -> float:
-        return self.hit_marker_left / self.fb.hit_marker_duration if self.fb.hit_marker_duration else 0.0
+            self.foley.on_impact(distance)
+        self.decals.add(hit.point, hit.normal, distance, tint=DUST_TINT)

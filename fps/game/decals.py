@@ -1,13 +1,14 @@
 """Bullet holes merged into meshes: one draw call for the whole pool, instead of one Entity (one draw call) per hole. A pool of 200 Entities made FPS drop steadily as shots were fired.
 
-Each owner has one mesh: holes on walls / floor / still targets share one mesh; each moving target gets its own mesh attached to `target.root` so its holes follow it. Each hole is 4 vertices;
+All holes share one mesh. Each hole is 4 vertices;
 when full, the oldest hole is reused (circular buffer). Unused holes are 4 coincident vertices, so nothing is drawn. The mesh is re-uploaded to the GPU only when a new hole is added.
 """
 import math
 
+from PIL import Image, ImageDraw
 from panda3d.core import (Geom, GeomNode, GeomTriangles, GeomVertexData, GeomVertexFormat, GeomVertexWriter, OmniBoundingVolume,
                           TransparencyAttrib)
-from ursina import Entity, scene
+from ursina import Entity, Texture, scene
 
 from fps.core.ballistics import hole_size
 from fps.weapon_data import FeedbackParams
@@ -72,51 +73,41 @@ class _Batch:
             tw.add_data2(tu, tv)
 
 
+def hole_texture() -> Texture:
+    size = 64
+    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    c = size / 2
+    d.ellipse([c - 30, c - 30, c + 30, c + 30], fill=(25, 20, 15, 90))     # faint smoke halo
+    d.ellipse([c - 17, c - 17, c + 17, c + 17], fill=(15, 12, 10, 190))
+    d.ellipse([c - 9, c - 9, c + 9, c + 9], fill=(5, 5, 5, 255))
+    return Texture(img, filtering='mipmap')
+
+
 class HoleDecals:
-    def __init__(self, params: FeedbackParams, texture, mover_capacity: int = 48):
+    def __init__(self, params: FeedbackParams, texture):
         self.params = params
         self.texture = texture
-        self.mover_capacity = mover_capacity
         self.static = _Batch(params.max_holes, scene, texture)
-        self.by_owner = {}                 # target.root -> _Batch
         self.used = 0
         self.last_position = None          # last hole placed, world coordinates (for checks)
-        self.last_local = None             # last hole placed, relative to the object it is attached to
-        self.last_parent = None
         self.last_size = 0.0
 
     @property
     def entities(self) -> list:
         """The Entities that carry the meshes, so the world shader can be assigned to them."""
-        return [self.static.entity, *(b.entity for b in self.by_owner.values())]
+        return [self.static.entity]
 
-    def prepare_owner(self, parent):
-        """Create the mesh for a moving target while the game is built: creating it during shooting would stutter."""
-        batch = _Batch(self.mover_capacity, parent, self.texture)
-        self.by_owner[parent] = batch
-        return batch
-
-    def add(self, point, normal, distance: float, parent=None, tint=None):
-        """`parent` = target.root if the hole must follow a moving object."""
+    def add(self, point, normal, distance: float, tint=None):
         fb = self.params
         offset = 0.02 + 0.0002 * distance      # nudge off the surface: far away the depth resolution is coarse (~1 cm at 150 m)
         world = tuple(p + n * offset for p, n in zip(point, normal))
         size = hole_size(distance, fb.hole_base_size, fb.hole_size_per_meter)
         rgba = (tint.r, tint.g, tint.b, tint.a) if tint is not None else WHITE
-        batch = self.by_owner.get(parent) if parent is not None else None
-        if batch is not None:
-            root = parent.world_position
-            local = (world[0] - root[0], world[1] - root[1], world[2] - root[2])
-            batch.write(local, normal, size, rgba)
-        else:
-            batch = self.static
-            batch.write(world, normal, size, rgba)
+        self.static.write(world, normal, size, rgba)
         self.used = min(self.used + 1, self.params.max_holes)
         self.last_position = world
-        self.last_local = tuple(a - b for a, b in zip(world, parent.world_position)) if parent is not None else world
         self.last_size = size
-        self.last_parent = parent
-        return batch
 
     @property
     def count(self) -> int:

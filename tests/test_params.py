@@ -105,9 +105,6 @@ def test_format_value_uses_vietnamese_decimal_comma(store):
     assert format_value(store.by_id['gun.rpm'], 750.0) == '750'
     assert format_value(store.by_id['gun.magazine'], 30) == '30'
     assert format_value(store.by_id['player.sprint_blocks_fire'], True) == 'Bật'
-    assert format_value(store.by_id['look.shadows'], True) == 'Thật'
-    assert format_value(store.by_id['look.shadows'], 'fake') == 'Giả'
-    assert format_value(store.by_id['look.shadows'], False) == 'Tắt'
 
 
 # --- setting values ---
@@ -122,8 +119,8 @@ def test_set_writes_into_the_live_object(store):
     assert gun.tracer.every == 5 and isinstance(gun.tracer.every, int)
     store.set(store.by_id['player.sprint_blocks_fire'], False)
     assert store.root.player.sprint_blocks_fire is False
-    store.set(store.by_id['look.shadows'], 'fake')
-    assert store.root.look.shadows == 'fake'
+    store.set(store.by_id['look.sun_color[1]'], 0.5)
+    assert store.root.look.sun_color[1] == 0.5 and isinstance(store.root.look.sun_color, tuple)
 
 
 def test_set_clamps_to_range_and_rejects_wrong_types(store):
@@ -137,10 +134,6 @@ def test_set_clamps_to_range_and_rejects_wrong_types(store):
             store.set(s, bad)
     with pytest.raises(ValueError):
         store.set(store.by_id['player.sprint_blocks_fire'], 1)         # 1 is not a bool
-    with pytest.raises(ValueError):
-        store.set(store.by_id['look.shadows'], 1)                       # 1 == True, but it is not a valid True choice
-    with pytest.raises(ValueError):
-        store.set(store.by_id['look.shadows'], 'real')
     with pytest.raises(ValueError):
         store.set(store.by_id['gun.tracer.every'], 2.5)
     assert store.root.gun.rpm == s.lo                                   # an error changes nothing
@@ -181,7 +174,7 @@ def test_defaults_are_snapshotted_before_changes_and_m4_stays_clean():
 # --- save / load ---
 def test_save_load_roundtrip(tmp_path, store):
     for sid, v in (('gun.rpm', 820), ('gun.kick.peak[1]', 0.01), ('gun.tracer.every', 4), ('player.sprint_blocks_fire', False),
-                   ('look.shadows', 'fake'), ('look.lamp_color[1]', 0.5), ('gun.recoil.right_scale', -0.5)):
+                   ('look.fog_density', 0.01), ('look.sun_color[1]', 0.5), ('gun.recoil.right_scale', -0.5)):
         store.set(store.by_id[sid], v)
     want = {s.id: store.get(s) for s in store.specs}
     path = tmp_path / 'user_params.json'
@@ -192,7 +185,7 @@ def test_save_load_roundtrip(tmp_path, store):
     rep = other.load(path)
     assert rep.ok and rep.applied == 7 and not rep.ignored
     assert {s.id: other.get(s) for s in other.specs} == want
-    assert other.root.look.shadows == 'fake' and other.root.gun.kick.peak[1] == 0.01 and other.root.gun.tracer.every == 4
+    assert other.root.look.fog_density == 0.01 and other.root.gun.kick.peak[1] == 0.01 and other.root.gun.tracer.every == 4
     assert isinstance(other.root.gun.kick.peak, tuple) and isinstance(other.root.gun.tracer.every, int)
 
 
@@ -231,7 +224,7 @@ def test_unknown_keys_are_ignored_and_reported(store):
 def test_wrong_types_are_ignored_not_fatal(store):
     rep = store.apply_dict({'version': 1, 'values': {
         'gun.rpm': 'nhanh', 'gun.ads_time': None, 'player.sprint_blocks_fire': 'yes', 'gun.kick.peak[1]': [1, 2],
-        'gun.tracer.every': 2.5, 'look.shadows': 'maybe', 'gun.accuracy.stand': float('nan'), 'gun.muzzle_velocity': 650}})
+        'gun.tracer.every': 2.5, 'look.fog_density': 'dày', 'gun.accuracy.stand': float('nan'), 'gun.muzzle_velocity': 650}})
     assert rep.ok and rep.applied == 1 and len(rep.ignored) == 7
     assert store.root.gun.muzzle_velocity == 650 and store.root.gun.rpm == M4.rpm
 
@@ -263,12 +256,12 @@ def test_save_into_missing_folder_reports_instead_of_raising(tmp_path, store):
 
 
 def test_saved_file_is_utf8_json_with_plain_values(tmp_path, store):
-    store.set(store.by_id['look.shadows'], 'fake')
+    store.set(store.by_id['look.fog_density'], 0.01)
     store.set(store.by_id['player.sprint_blocks_fire'], False)
     path = tmp_path / 'x.json'
     store.save(path)
     values = json.loads(path.read_text(encoding='utf-8'))['values']
-    assert values == {'look.shadows': 'fake', 'player.sprint_blocks_fire': False}
+    assert values == {'look.fog_density': 0.01, 'player.sprint_blocks_fire': False}
 
 
 # --- live numbers: modules must RE-READ the number on every use ---

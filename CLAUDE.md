@@ -6,9 +6,9 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. CÁCH LÀM VI�
 ## Lệnh
 - Chạy game: bấm đúp `run.bat` (hoặc `.venv\Scripts\python.exe main.py`; cửa sổ không viền phủ kín màn hình). Tuỳ chọn: `--novsync`, `--window --size 1280x720`, `--quit-after 5` (tự thoát, để kiểm tra), `--mute`, `--defaults` (bỏ qua `user_params.json`).
 - Test thuần (toán + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest` (~20 s).
-- Bài kiểm tra bằng game thật (thoát mã 1 nếu trượt): `tools\selftests\g1_selftest.py` ... `g7_selftest.py`, `audio_selftest.py`; chạy tất cả: `tools\selftests\run_selftests.py` (> 10 phút: chạy nền).
+- Bài kiểm tra bằng game thật `tools\selftests\*`: HIỆN KHÔNG CHẠY ĐƯỢC (dựng bằng bia và phòng bắn đã xoá 7/11/2026; người dùng bảo không cần; xem `docs/notes/ground-sky.md`). Cổng kiểm tra dùng pytest + chạy game thật.
   Dạng chạy: `.venv\Scripts\python.exe -X utf8 tools\selftests\g3_selftest.py`. NHIỀU GAME CÙNG LÚC làm bài đo thời gian trượt oan: bọc bằng `.venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh gốc>` (ổ khoá toàn máy).
-- Đo FPS: `tools\measure\perf_scenarios.py` (11 tình huống, ngưỡng tổng 60, từng tình huống 55); máy nóng/bận cho số thấp bất thường (đo lại một mình khi máy yên).
+- Đo FPS: `tools\measure\g8_perf.py --gun glock|m4` (6 tình huống, ngưỡng 55; `perf_scenarios.py` cũ dựng bằng bia nên không còn chạy); máy nóng/bận cho số thấp bất thường (đo lại một mình khi máy yên).
 - Công cụ đo/dựng: `tools\measure\` (đo clip, điểm ngắm, miệng nòng, FPS, chụp ảnh) và `tools\build\` (dựng WAV: `prep_sound`, `prep_foley`, `prep_user_audio`, `prep_elevenlabs`). Danh mục đầy đủ + công tắc tắt để đo (`free_aim=False`, `lens=False`...): `docs/notes/tools.md`.
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15).
 
@@ -19,9 +19,9 @@ fps/                    gói mã nguồn (import dạng `from fps.core.movement 
   app.py                Game, create_game() (dựng tất cả; tools gọi lại hàm này), prune_scene_entities(), main()
   weapon_data.py        MỌI thông số (dataclass)
   core/                 toán thuần, KHÔNG import ursina, có pytest: movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, breath,
-                        room, patrol, signs, params + param_meta (bảng F1), freeaim, headcam, lens, exposure
-  game/                 phần ghép Ursina/Panda: player, combat, targets, viewmodel, shooting_range, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake,
-                        lamp_shadows, signs, debug_panel (F1), frame_light, lens, decals, gltf_maps
+                        params + param_meta (bảng F1), freeaim, headcam, lens, exposure
+  game/                 phần ghép Ursina/Panda: player, combat, viewmodel, ground (nền đất), sky (bầu trời + mây), hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake,
+                        debug_panel (F1), frame_light, lens, decals, gltf_maps
 assets/                 tài nguyên: guns/ (glb), sounds/ (wav; source/ = file gốc, mp3 ElevenLabs, candidates/), shaders/ (GLSL, light_common.glsl dùng chung)
 tests/                  pytest
 tools/                  selftests/ (bài kiểm tra bằng game thật), measure/ (đo, chụp), build/ (dựng âm thanh), with_game_lock.py
@@ -38,6 +38,7 @@ backups/  shots/        file lưu cũ của bảng F1 / ảnh chụp của bài 
 - Thứ tự mỗi khung hình cố định trong `Game.update`: `player.tick()` -> `combat.update()` -> `sway.update()` -> `head.update` + `shake_view.apply` -> `viewmodel.update(kick, sway, free_aim, free_look, visual=...)` -> `light.set_camera/set_exposure` -> `lens.update`.
   Đừng để từng đối tượng tự `update` riêng (thứ tự Ursina không đảm bảo, bắn sẽ dùng hướng nhìn của khung trước).
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi trong console.
+- Thế giới là MỘT khối đất phẳng trắng + lưới + bầu trời mây (không bia, không phòng, không bóng đổ); đừng dựng lại phòng bắn khi chưa được hỏi.
 - Commit trên nhánh `dev`. Chỉ push khi người dùng nói. `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
 - Comment và docstring trong mã viết bằng TIẾNG ANH (đã dịch toàn bộ mã hiện có 6/11/2026, xem `docs/WORKFLOW.md` 6c; mã mới phải giữ như vậy). Chữ cho người dùng (HUD, bảng F1, tên mục selftest, thông báo) và file `.md` vẫn tiếng Việt.
 - Mức hỏi người dùng theo cỡ việc (nhỏ: tối đa 1 vòng ngắn; lớn: luôn 2 vòng ý tưởng + kỹ thuật): `docs/WORKFLOW.md` 1b. Luật này thắng luật chung "tự quyết kỹ thuật" khi làm dự án này.
@@ -77,5 +78,6 @@ backups/  shots/        file lưu cũ của bảng F1 / ảnh chụp của bài 
 - [`docs/notes/recoil-spread-kick.md`](docs/notes/recoil-spread-kick.md): G3: recoil, độ tản, bloom, kick súng. Mở khi đụng tới giật, độ tản, tâm ngắm, kick.
 - [`docs/notes/ads-sway-audio.md`](docs/notes/ads-sway-audio.md): G4: ngắm (ADS), sway, bob, chạy nước rút, tiếng súng. Mở khi đụng tới ngắm, sway, bob, sprint, gun_audio.
 - [`docs/notes/reload-fx-shaders.md`](docs/notes/reload-fx-shaders.md): G5: rút súng, nạp đạn, tia lửa, tracer, shader. Mở khi đụng tới nạp / rút súng, animation, tia lửa, tracer, shader súng.
-- [`docs/notes/range-lights-signs.md`](docs/notes/range-lights-signs.md): G6: phòng tập, đèn, bóng, bia chạy, biển, shake, bảng F1, âm thanh foley. Mở khi đụng tới phòng, đèn, bóng, bia chạy, biển, bảng F1, foley, bước chân.
+- [`docs/notes/ground-sky.md`](docs/notes/ground-sky.md): 7/11/2026: nền đất trắng + lưới, ánh sáng mặt trời, bầu trời có mây, Glock 17 mới (gói animation), những thứ đã xoá. Mở khi đụng tới nền, ánh sáng, bầu trời, Glock, `gltf_patch`.
+- [`docs/notes/range-lights-signs.md`](docs/notes/range-lights-signs.md): G6 (PHẦN PHÒNG, ĐÈN, BÓNG, BIA, BIỂN ĐÃ BỊ XOÁ; còn đúng: shake, bảng F1, âm thanh foley). Mở khi đụng tới shake, bảng F1, foley, bước chân.
 - [`docs/notes/bodycam.md`](docs/notes/bodycam.md): G7: kiểu Bodycam (chuột đưa súng, đạn theo nòng, camera đầu, ống kính, ánh sáng, hiệu năng, âm thanh ElevenLabs). Mở khi đụng tới FreeLook / FreeAim, headcam, lens, exposure, ánh sáng thống nhất, âm thanh G7.

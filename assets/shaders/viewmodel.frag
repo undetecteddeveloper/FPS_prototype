@@ -1,5 +1,5 @@
-// Rifle + hands: NO lamp of their own. Each point is converted to world coordinates (camera + position in camera space), then receives exactly the ceiling lamps, shadows, ambient light, muzzle flash
-// and tone curve of the world (light_common.glsl): walking into a dark place darkens the rifle, and the rifle body is lit on the side facing the lamp.
+// Gun + hands: NO light of their own. Each point is converted to world coordinates (camera + position in camera space), then receives exactly the sun, ambient light, muzzle flash
+// and tone curve of the world (light_common.glsl): turning away from the sun darkens the gun, and the gun body is lit on the side facing the sun.
 // Uses the normal map from the glb file; the tangent frame is computed from derivatives, so the mesh needs no tangent column.
 uniform sampler2D p3d_Texture0;
 uniform sampler2D vm_normal_tex;
@@ -50,19 +50,17 @@ void main() {
     float dist = length(local);
     vec3 v_dir = -local / max(dist, 1e-4);
 
-    float spec, bounce;
-    // passes a distance >= the soft-shadow threshold: the rifle is very close to the camera, but 1 shadow sample is enough for it
-    float light = gather_lamps(p, n_w, v_dir, max(dist, look_shadow_lod.x), vm_mat.y, spec, bounce);
-    vec3 ambient = mix(look_ambient_down, look_ambient_up, n_w.y * 0.5 + 0.5) + look_bounce * bounce * (1.0 - 0.4 * max(n_w.y, 0.0));
-    vec3 diffuse = ambient + look_lamp_color * light;
-    vec3 lit = base.rgb * diffuse;
-    lit += look_lamp_color * spec * vm_mat.x * (0.35 + base.rgb);
+    float ndl = max(dot(n_w, look_sun_dir), 0.0);
+    float spec = (ndl > 0.0 && vm_mat.y > 0.0) ? pow(max(dot(n_w, normalize(look_sun_dir + v_dir)), 0.0), vm_mat.y) : 0.0;
+    vec3 ambient = ambient_at(n_w);
+    vec3 lit = base.rgb * (ambient + look_sun_color * ndl);
+    lit += look_sun_color * spec * vm_mat.x * (0.35 + base.rgb);
 
-    // faint reflection: where there is light, the metal edges pick up the local ambient light; in dark places it disappears
+    // faint reflection: the metal edges pick up the sky and the sun
     float fres = pow(1.0 - max(dot(n_w, v_dir), 0.0), 4.0);
     vec3 r = reflect(-v_dir, n_w);
-    lit += fres * vm_mat.z * mix(look_ambient_down, look_ambient_up, r.y * 0.5 + 0.5) * 6.0
-         + fres * vm_mat.z * look_lamp_color * (light + bounce * 0.02) * 0.35;
+    lit += fres * vm_mat.z * ambient_at(r) * 6.0
+         + fres * vm_mat.z * look_sun_color * ndl * 0.35;
 
     if (look_flash_color.r > 0.0) lit += base.rgb * flash_light(p, n_w, vm_flash_falloff);
 

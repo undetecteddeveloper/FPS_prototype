@@ -307,12 +307,6 @@ class FreeAimData:
     idle_roll: float = 0.45
     idle_freq: float = 0.22               # Hz
     ads_scale: float = 0.30               # when fully aimed: rest drift + slow drift are reduced to this (the kick part is kept)
-    stress_per_shot: float = 0.045        # stress added per shot (0..1): firing a lot makes the hand shake
-    stress_decay: float = 0.10            # /s
-    tremor_freq: float = 8.5              # Hz
-    tremor_angle: float = 0.45            # deg: hand tremor at stress level 1
-    tremor_pos: float = 0.0016            # m
-    tremor_reload: float = 2.2            # hand tremor is multiplied by this while reloading (the reload clips have only two variants, so tremor makes each reload differ)
 
 
 @dataclass
@@ -437,8 +431,8 @@ class GunData:
     # per-gun model / animation hooks; the defaults keep the M4 behaviour
     ready_pose: tuple = None              # (anim, frame) of the ready pose (bolt closed); None = last frame of the 'draw' clip (M4)
     locked_pose: tuple = None             # (anim, frame) of the pose with the slide/bolt locked open (empty magazine); None = first frame of 'reload_empty' (M4)
-    spare_mag_node: str = None            # Panda node shown ONLY while a reload clip runs (the spare magazine); None = the M4 logic (Mag2 + bullet stay hidden)
-    fire_clips: tuple = ()                # (clip key of a normal shot, clip key of the last round); played on every shot. () = no shot clip (the M4 kicks in code only)
+    mag_nodes: tuple = None               # (glob of the magazine nodes seated in the ready pose, glob of those seated in the locked-slide pose); each state draws only its own. None = the M4 logic (Mag2 + bullet stay hidden)
+    fire_clips: tuple = ()                # (clip key of a normal shot[, clip key of the last round]); played on every shot. () = no shot clip (the M4 kicks in code only)
     fire_clip_speed: float = 1.5          # play rate of the shot clip (the clip is slower than the fire interval at full rate)
     materials: dict = None                # material name -> (specular, gloss, env, albedo) multipliers of ViewLightData; None = the M4 table in game/viewmodel.py
     sound_cues: dict = None               # clip key -> tuple of SoundCue; None = AudioData.cues (M4)
@@ -466,10 +460,7 @@ M4 = GunData(
 
 @dataclass
 class FeedbackParams:
-    """Feedback on bullet hits: hit marker, target color flash, bullet holes."""
-    hit_marker_duration: float = 0.15
-    target_flash_duration: float = 0.12
-    last_hit_display_time: float = 2.0    # how long the distance to the last hit target is shown
+    """Feedback on bullet hits: bullet holes."""
     hole_base_size: float = 0.05          # m; a real 5.56 mm hole is too small to see, so it is enlarged
     hole_size_per_meter: float = 0.002    # holes grow with distance (150 m: ~0.35 m)
     max_holes: int = 200                  # past this, the oldest hole is reused
@@ -478,36 +469,21 @@ class FeedbackParams:
 @dataclass
 class LookData:
     """Visual look of the world (shader assets/shaders/world.*) and the screen overlay. Directions are in world space (y up, z forward).
-    An enclosed shooting range (dimensions in core/room.RoomLayout), no sky/sun: the light source is a row of ceiling lamps down the middle of the lane."""
-    # ceiling lamps: one evenly spaced row down the lane; lamp i at (lamp_x, lamp_y, lamp_z0 + i * lamp_spacing)
-    lamp_x: float = 0.0
-    lamp_y: float = 4.6                       # lamp bulb (ceiling at 5.5 m; the lamp shade hangs from a tube)
-    lamp_z0: float = -15.0                    # midway between two ceiling beams (beams at -10, 0, 10, ...)
-    lamp_spacing: float = 10.0
-    lamp_count: int = 23                      # up to z = 205
-    lamp_color: tuple = (1.0, 0.93, 0.80)     # neutral, slightly yellow (old high-pressure lamp, ~4000 K)
-    lamp_intensity: float = 6.0              # illuminance = intensity / (1 + (d / lamp_ref)^2), multiplied by a window that fades out to lamp_radius
-    lamp_ref: float = 3.6                     # m: at this distance the illuminance is half
-    lamp_radius: float = 15.0                 # m: outside this radius the lamp does not light. If <= 1.5x the lamp spacing, each pixel only checks 3 lamps (much faster than 5)
-    lamp_emissive: float = 9.0                # brightness of the bulb / shade interior (self-lit, does not receive light)
-    lamp_cone: float = 25.0                   # deg: inside this cone (measured from vertical) the shade lights fully
-    lamp_cone_outer: float = 55.0             # deg: outside this cone only lamp_side remains (creates the pool of light under each lamp)
-    lamp_side: float = 0.115                  # share of light escaping sideways past the shade rim; 0 above the rim
-    lamp_halo: float = 0.55                  # brightness of the faint halo around the bulb (additive card, 0 = off)
-    ambient_up: tuple = (0.016, 0.017, 0.018)    # shared ambient light on upward-facing surfaces (floor): very low, spots away from the lamps are nearly black
-    ambient_down: tuple = (0.022, 0.021, 0.019)  # on downward-facing surfaces (ceiling)
-    bounce_color: tuple = (0.040, 0.036, 0.030)  # bounce light from the pool of light on the floor onto nearby walls/ceiling, per unit of lamp brightness (0 when the lamps are off or none are near)
+    A flat slab of plain white ground under an open sky: one sun (no shadows) plus a flat ambient term; distant ground sinks into the fog."""
+    sun_dir: tuple = (0.35, 0.80, -0.30)      # direction TOWARD the sun (normalized in code)
+    sun_color: tuple = (1.45, 1.45, 1.45)     # sunlight colour x intensity (neutral white, so the white ground stays white)
+    ambient_up: tuple = (0.33, 0.34, 0.36)    # sky light on upward-facing surfaces (the ground)
+    ambient_down: tuple = (0.11, 0.11, 0.11)  # light bounced from the ground onto downward-facing surfaces
     exposure: float = 1.0                     # multiplies the auto exposure (LensData); the ACES tone curve is shared by the world and the gun
-    shadows: object = True                    # True: real shadows (5-face depth map per lamp); 'fake': fake dark patches under targets/posts + AO; False: no shadows
-    shadow_face_size: int = 256               # texels per face per lamp (23 lamps x 5 faces packed into one texture)
-    shadow_bias: tuple = (0.02, 0.012)        # m: push the point out along the normal by a + b * distance to the lamp (prevents "acne")
-    shadow_soft_distance: float = 18.0        # m: closer than this takes 4 shadow samples for softness, farther takes 1 (no visible difference far away; 4x cheaper)
-    shadow_max_distance: float = 400.0        # m: farther than this no shadow sampling (lower it when more FPS is needed: the far end of the lane loses shadows first)
-    mover_shadow_hz: float = 6.0              # real shadows of moving targets: each target's shadow is redrawn this many times per second (one target at a time, only a few nearby lamps each time)
-    mover_shadow_reach: float = 0.60          # only redraw lamps within this fraction of lamp_radius along z from the target (beyond that the light is nearly off, so stale shadows do not show)
-    fog_color: tuple = (0.004, 0.004, 0.0035)  # room dust: dust does not glow itself, so distant objects sink into darkness
-    fog_density: float = 0.0025               # exp: ~22% at 100 m, ~39% at 200 m
-    detail_strength: float = 0.9              # strength of the noise on the floor (0 = off)
+    fog_color: tuple = (0.50, 0.57, 0.66)     # haze, also the sky colour behind the far edge of the ground
+    fog_density: float = 0.0040               # exp: ~33% at 100 m, ~55% at 200 m
+    ground_color: tuple = (1.0, 1.0, 1.0)     # pure white ground (decided by the user)
+    detail_strength: float = 0.0              # strength of the noise on the ground (0 = plain, one flat colour)
+    # a thin grid on the ground: on a plain white floor there is nothing to show that the player is moving
+    grid_strength: float = 0.85               # how dark the lines are (0 = no grid)
+    grid_spacing: float = 2.0                 # m between two thin lines
+    grid_major: int = 5                       # every this many lines one is drawn heavier (5 x 2 m = a 10 m square)
+    grid_width: float = 0.03                  # m: half the width of a thin line (a heavy line is twice as wide)
 
 
 @dataclass
@@ -529,13 +505,10 @@ class LensData:
     contrast: float = 1.10                # > 1: darker darks, brighter brights
     saturation: float = 0.70              # 1 = keep color, 0 = grayscale
     tint: tuple = (1.0, 1.0, 0.93)        # the sickly yellow cast of cheap cameras
-    auto_exposure: float = 0.55           # 0 = fixed exposure, 1 = fully compensated for the local brightness
+    auto_exposure: float = 0.55           # 0 = fixed exposure, 1 = fully compensated for the brightness of the scene
     exposure_key: float = 0.70            # local brightness that corresponds to exposure 1
     exposure_min: float = 0.55
     exposure_max: float = 2.2
-    exposure_up_time: float = 1.4         # s: going from bright to dark, the camera iris opens gradually (slow)
-    exposure_down_time: float = 0.35      # s: going from dark to bright, the iris closes faster (dazzled first, then settles)
-    lamp_glare: float = 0.9               # looking straight at a lamp drops the exposure: the rest of the frame gets darker
 
 
 @dataclass(frozen=True)
@@ -562,15 +535,16 @@ M4_SOUND_CUES = {
 }
 
 
-# Glock 17 sound beats: file frame = authored table time + 1 (Panda frame 0 repeats frame 1, see tools/build/blender/glock_anim.py).
-# Reload: magazine catch at table 10, old magazine leaves 10..26, new magazine slides in 36..44 and seats at 47 (= Clip.swap, table 47 -> file 48).
-# ReloadEmpty: same magazine beats, then the slide is released at table 66 (file 67).
+# Glock 17 sound beats (absolute frames on the glb timeline, like M4_SOUND_CUES), measured by posing every 2nd frame and tracking the magazines and the slide
+# (the old magazine = node Mag1, the spare = Mag2; Mag2 ends up seated in the gun and the 'done' event snaps back to the Idle pose, which has Mag1 seated):
+#   Reload (1..84): release press ~19 (Mag1 starts leaving), old magazine 20 cm out at 29, spare magazine seated at 45 (= Clip.swap)
+#   ReloadEmpty (107..197): slide locked back; release ~126, old magazine out at 135, spare magazine seated at 151 (= Clip.swap), SLIDE RELEASE at 164-165 (slide jumps forward)
 GLOCK_SOUND_CUES = {
-    'reload': (SoundCue(11, 'pistol_mag_release', 1.0), SoundCue(28, 'pistol_mag_drop', 0.6), SoundCue(45, 'pistol_mag_in', 0.8), SoundCue(48, 'pistol_mag_seat', 1.0)),
-    'reload_empty': (SoundCue(11, 'pistol_mag_release', 1.0), SoundCue(28, 'pistol_mag_drop', 0.6), SoundCue(45, 'pistol_mag_in', 0.8), SoundCue(48, 'pistol_mag_seat', 1.0),
-                     SoundCue(67, 'pistol_slide_release', 1.0)),
-    'draw': (SoundCue(3, 'pistol_draw', 0.8), SoundCue(18, 'pistol_draw_settle', 0.6)),
-    'holster': (SoundCue(3, 'pistol_holster', 0.8),),
+    'reload': (SoundCue(19, 'pistol_mag_release', 1.0), SoundCue(29, 'pistol_mag_drop', 0.6), SoundCue(42, 'pistol_mag_in', 0.8), SoundCue(45, 'pistol_mag_seat', 1.0)),
+    'reload_empty': (SoundCue(126, 'pistol_mag_release', 1.0), SoundCue(135, 'pistol_mag_drop', 0.6), SoundCue(148, 'pistol_mag_in', 0.8), SoundCue(151, 'pistol_mag_seat', 1.0),
+                     SoundCue(164, 'pistol_slide_release', 1.0)),
+    'draw': (SoundCue(214, 'pistol_draw', 0.8), SoundCue(230, 'pistol_draw_settle', 0.6)),
+    'holster': (SoundCue(200, 'pistol_holster', 0.8),),
 }
 GLOCK_SOUND_FILES = {
     'pistol_mag_release': 'el_pistol_mag_release', 'pistol_mag_drop': 'el_pistol_mag_drop', 'pistol_mag_in': 'el_pistol_mag_in',
@@ -578,34 +552,26 @@ GLOCK_SOUND_FILES = {
     'pistol_draw_settle': 'el_pistol_draw_settle', 'pistol_holster': 'el_pistol_holster', 'dry': 'el_pistol_dry',
 }
 
-# Glock 17: semi-auto, heavy and firm (CoD pistol feel). Viewmodel = M4-pack hands (right hand grips, left hand 'thumbs forward')
-# + the Glock rebuilt from a 1.4 M-triangle AI model (5.1 k triangles, rigid parts on the M4 rig bones). Clips are the glb's own animations:
-# usable frames are 1 .. N-1 (frame 0 repeats frame 1).
+# Glock 17: semi-auto, heavy and firm (CoD pistol feel). Viewmodel = the ready-made animation pack assets/guns/glock17.glb (hands + Glock, rigid parts on the pack's own rig).
+# All clips share one timeline of 30 fps frames, like the M4 pack; a clip of N frames wraps frame N to 0, so the last usable frame is N - 1.
 GLOCK = GunData(
     name='Glock 17',
-    glb='assets/guns/glock_g17_viewmodel.glb',
-    credit='Glock 17: 3D AI Studio (Prism 3.1) + Blender retopo/animation; hands: BarcodeGames M4 pack (CC BY 4.0)',
+    glb='assets/guns/glock17.glb',
+    credit='Glock 17: FPS animation pack glock17.glb (author not recorded)',
     clips={
-        'idle': Clip('Idle', 1, 60),
-        'idle_empty': Clip('IdleEmpty', 1, 60),
-        'fire': Clip('Fire', 1, 11),
-        'fire_last': Clip('FireLast', 1, 11),
-        'draw': Clip('Draw', 1, 30),
-        'holster': Clip('Holster', 1, 24),
-        'reload': Clip('Reload', 1, 73, swap=48, settle=66),
-        'reload_empty': Clip('ReloadEmpty', 1, 89, swap=48, settle=84),
+        'reload': Clip('Reload', 1, 84, swap=45, settle=70),
+        'reload_empty': Clip('ReloadEmpty', 107, 197, swap=151, settle=180),
+        'fire': Clip('Fire', 86, 105),
+        'holster': Clip('Holster', 198, 211),
+        'draw': Clip('Draw', 212, 245),
     },
-    ready_pose=('Idle', 1),
-    locked_pose=('IdleEmpty', 1),
-    spare_mag_node='Mag2_G17_D_0-parent',
-    fire_clips=('fire', 'fire_last'),
-    # last number = albedo multiplier: the baked colour texture is mid-grey, the glb's per-material colour factors are NOT applied by the gun shader
-    # (frame 0.6 ~ concept grey, slide 0.12, small parts 0.08)
-    materials={'Glock_Frame': (1.0, 1.0, 1.0, 0.6), 'Glock_Slide': (1.4, 1.2, 1.2, 0.2), 'Glock_Black': (1.0, 1.0, 1.0, 0.08),
-               'Glove_D': (0.22, 0.4, 0.35, 0.42), 'Hand_D': (0.08, 0.3, 0.15, 1.0)},
-    # the M4-pack hands sit close to the eye (they hold a rifle); a pistol is held at arm's length: push the whole viewmodel forward
-    hip_offset=(0.0, 0.0, 0.30),
-    ads_eye_relief=0.52,
+    eye_joint='FPS_Camera_j_02',
+    ready_pose=('Draw', 245),
+    locked_pose=('ReloadEmpty', 107),
+    mag_nodes=('Mag2_*-parent', 'Mag1_*-parent'),            # the pack seats Mag2 in Idle / Draw / Fire / Holster and Mag1 in Reload / ReloadEmpty
+    fire_clips=('fire',),
+    # same material table as the M4 (the gun body has no specular in the file, so the numbers are set by hand)
+    materials={'Glock_D': (1.0, 1.0, 1.0, 1.0), 'Bullet_9mm_D': (1.5, 1.6, 1.4, 1.0), 'Glove_D': (0.22, 0.4, 0.35, 0.42), 'Hand_D': (0.08, 0.3, 0.15, 1.0)},
     sound_cues=GLOCK_SOUND_CUES,
     sound_files=GLOCK_SOUND_FILES,
     # heavy and firm: bigger kick, slower cycle, semi-auto, 17 rounds
@@ -615,12 +581,12 @@ GLOCK = GunData(
                      back_peak=-0.050, back_random=0.004, back_omega=16.0, back_zeta=0.7),
     shot_sound=('assets/sounds/el_pistol_shot_0.wav', 'assets/sounds/el_pistol_shot_1.wav', 'assets/sounds/el_pistol_shot_2.wav'),
     shot_pool=4,
-    # reload view: the M4 values (glance 18 deg + gun raised 10 cm) are for a rifle whose magazine sits far below the eye; the pistol's magazine well is near the grip
-    reload=ReloadData(view_fov=88.0, view_pose=(0.0, 0.05, 0.0, 0.0, 0.0, 0.0)),
-    head=HeadCamData(glance_pitch=11.0, glance_yaw=0.0, glance_roll=1.5, glance_y=-0.01, glance_z=0.01),
-    # measured with tools/measure/g8_measure.py (camera frame at rest, hip_offset not included); the rest pose is pitched 5 deg nose-down (hand fit), ads_pose compensates
-    ads_sights=((0.0921, 0.0312, 0.1728), (0.0902, 0.0217, 0.3244)),
-    muzzle=(0.0926, 0.0041, 0.34),
+    hip_offset=(0.0, 0.0, 0.15),           # push the whole viewmodel forward a little: the pack's hands sit close to the eye
+    ads_eye_relief=0.50,
+    shake=ShakeData(reload_beats={'reload': ((29, 'mag_out'), (45, 'seat')), 'reload_empty': ((135, 'mag_out'), (151, 'seat'), (164, 'bolt'))}),
+    # measured with tools/measure/g8_measure.py (camera frame at rest, hip_offset not included)
+    ads_sights=((0.0612, -0.0226, 0.2502), (0.0612, -0.0199, 0.4209)),
+    muzzle=(0.0612, -0.0410, 0.4278),
 )
 
 GUNS = {'m4': M4, 'glock': GLOCK}
@@ -639,7 +605,7 @@ class AudioData:
         'bolt_tick': 'el_bolt', 'bolt_release': 'el_bolt',
         'draw_a': 'el_draw_a', 'draw_b': 'el_draw_b', 'settle': 'el_settle',
         'step_walk': 'el_step', 'step_run': 'el_step', 'land': 'el_land', 'jump': 'el_jump',
-        'dry': 'el_dry', 'hit_target': 'el_hit_target', 'hit_hard': 'el_hit_hard', 'breath': 'el_breath'})
+        'dry': 'el_dry', 'hit_hard': 'el_hit_hard', 'breath': 'el_breath'})
     # multiplies the pitch when playing a logical name (running shares the walking file, slightly higher)
     pitch_scale: dict = field(default_factory=lambda: {'step_run': 1.06})
     # reload / draw
@@ -670,7 +636,6 @@ class AudioData:
     land_gain_range: tuple = (0.45, 1.3)  # multiplies volume by fall speed / reference speed, clamped to this range
     jump_volume: float = 0.25
     # the game has no HUD, so the hit sound is the main feedback. Sound travels from the hit point to the ear: it arrives late by the speed of sound and fades with distance
-    hit_target_volume: float = 0.75
     hit_hard_volume: float = 0.50
     hit_reference_distance: float = 45.0  # m: at this distance the volume is half
     hit_pitch_variation: float = 0.05     # +- random pitch ratio

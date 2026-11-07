@@ -1,12 +1,12 @@
-"""Lens, exposure and ceiling-lamp light: pure maths. These formulas match assets/shaders/light_common.glsl and assets/shaders/lens.frag line by line.
+"""Lens, exposure and sun light: pure maths. These formulas match assets/shaders/light_common.glsl and assets/shaders/lens.frag line by line.
 (Head camera: tests/test_headcam.py.)"""
 import math
 from pathlib import Path
 
 import pytest
 
-from fps.core import exposure, lens
-from fps.core.exposure import AutoExposure, glare, lamp_reach, light_at, target_exposure
+from fps.core import lens
+from fps.core.exposure import light_at, sun_vector, target_exposure
 from fps.weapon_data import M4, LensData, LookData
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -79,150 +79,54 @@ def test_shader_uses_the_same_formula():
     assert 'vec2 q = vec2(p.x, p.y / lens_warp.x);' in src
 
 
-# --- lights ---
+# --- light ---
 LOOK = LookData()
+LENS = LensData()
+SHADERS = ROOT / 'assets' / 'shaders'
 
 
-def test_three_lamps_are_enough_per_pixel():
-    """Each pixel considers only 3 lamps: the core of the shader optimisation."""
-    assert lamp_reach(LOOK) == 1
-    assert lamp_reach(LookData(lamp_radius=20.0)) == 2
+def test_sun_vector_is_unit_length():
+    assert math.sqrt(sum(c * c for c in sun_vector(LOOK))) == pytest.approx(1.0)
+    assert sun_vector(LookData(sun_dir=(0.0, 5.0, 0.0))) == pytest.approx((0.0, 1.0, 0.0))
 
 
-def lamp_z(i=2):
-    return LOOK.lamp_z0 + i * LOOK.lamp_spacing
+def test_surface_facing_the_sun_gets_more_than_one_facing_away():
+    toward = sun_vector(LOOK)
+    away = tuple(-c for c in toward)
+    assert light_at(LOOK, toward) > light_at(LOOK, away) > 0.0          # facing away still gets the ambient light
 
 
-def test_floor_under_a_lamp_is_much_brighter_than_between_lamps():
-    z = lamp_z()
-    under, gap = light_at(LOOK, (0.0, 0.0, z)), light_at(LOOK, (0.0, 0.0, z + LOOK.lamp_spacing / 2))
-    assert under > 2.5 * gap > 0
-
-
-def test_light_falls_off_with_distance_from_the_lamp():
-    z = lamp_z()
-    values = [light_at(LOOK, (x, 0.0, z)) for x in (0.0, 2.0, 4.0, 7.0, 11.0)]
-    assert all(a > b for a, b in zip(values, values[1:]))
-
-
-def test_nothing_above_the_lamp_gets_direct_light():
-    """The lamp shade blocks what is above: the ceiling gets no direct light."""
-    assert light_at(LOOK, (0.0, LOOK.lamp_y + 0.5, lamp_z()), (0.0, -1.0, 0.0)) == 0.0
-
-
-def test_surface_facing_away_gets_nothing():
-    assert light_at(LOOK, (0.0, 0.0, lamp_z()), (0.0, -1.0, 0.0)) == 0.0
-
-
-def test_a_surface_facing_the_lamp_gets_more_than_one_facing_sideways():
-    p = (3.0, 1.0, lamp_z())
-    to_lamp = (-3.0, LOOK.lamp_y - 1.0, 0.0)
-    n = math.hypot(*to_lamp)
-    assert light_at(LOOK, p, (to_lamp[0] / n, to_lamp[1] / n, 0.0)) > light_at(LOOK, p, (1.0, 0.0, 0.0))
-
-
-def test_past_the_last_lamp_only_real_lamps_count():
-    far = LOOK.lamp_z0 + LOOK.lamp_count * LOOK.lamp_spacing + LOOK.lamp_radius + 1
-    assert light_at(LOOK, (0.0, 0.0, far)) == 0.0
-
-
-def test_bulb_is_brighter_than_anything_it_lights():
-    """Old bug: the bulb was only ~25% brighter than the floor right below it, looking like a sheet of white paper."""
-    floor_max = max(light_at(LOOK, (0.0, 0.0, lamp_z() + dz)) for dz in (0.0, 1.0, 2.0))
-    bulb = LOOK.lamp_emissive
-    assert bulb > 2.0 * floor_max * 0.47        # 0.47 = the tile colour in world.frag
+def test_sun_off_leaves_only_the_ambient_light():
+    dark = LookData(sun_color=(0.0, 0.0, 0.0))
+    assert light_at(dark) == pytest.approx(0.299 * dark.ambient_up[0] + 0.587 * dark.ambient_up[1] + 0.114 * dark.ambient_up[2])
 
 
 def test_gun_and_world_share_one_light_source():
-    """The gun has no lamp of its own: the gun shader no longer has a sun, and both shaders load the same light file."""
-    vm = (ROOT / 'assets' / 'shaders' / 'viewmodel.frag').read_text(encoding='utf-8')
-    world = (ROOT / 'assets' / 'shaders' / 'world.frag').read_text(encoding='utf-8')
+    """The gun has no light of its own: both shaders load the same light file and use the same helpers."""
+    vm = (SHADERS / 'viewmodel.frag').read_text(encoding='utf-8')
+    world = (SHADERS / 'world.frag').read_text(encoding='utf-8')
     assert '#include "light_common.glsl"' in vm and '#include "light_common.glsl"' in world
-    for word in ('sun_dir', 'sun_color', 'sky_color', 'ground_color'):
-        assert word not in vm
-    assert 'tonemap(' in vm and 'tonemap(' in world
-    assert 'gather_lamps(' in vm and 'gather_lamps(' in world
-    assert 'flash_light(' in vm and 'flash_light(' in world
+    for word in ('look_sun_dir', 'look_sun_color', 'ambient_at(', 'tonemap(', 'flash_light('):
+        assert word in vm and word in world, word
 
 
-def test_bounce_light_scales_with_the_lamps():
-    """Old bug: lamps dimmed 12x but the image only got 14% darker, because the bounce light was a fixed number. With the lamps off, the bounce light must vanish."""
-    src = (ROOT / 'assets' / 'shaders' / 'light_common.glsl').read_text(encoding='utf-8')
-    assert 'bounce += look_lamp2.w * win * win' in src
-
-
-def test_python_lamp_formula_matches_the_shader_text():
-    src = (ROOT / 'assets' / 'shaders' / 'light_common.glsl').read_text(encoding='utf-8')
-    assert 'win * win / (1.0 + d2 / (look_lamp2.z * look_lamp2.z))' in src
-    assert 'mix(look_lamp_cone.z, 1.0, smoothstep(look_lamp_cone.y, look_lamp_cone.x, cos_down))' in src
+def test_python_ambient_blend_matches_the_shader_text():
+    src = (SHADERS / 'light_common.glsl').read_text(encoding='utf-8')
+    assert 'mix(look_ambient_down, look_ambient_up, n.y * 0.5 + 0.5)' in src
 
 
 # --- exposure ---
-LENS = LensData()
-FORWARD = (0.0, 0.0, 1.0)
-
-
-def test_exposure_opens_in_the_dark_and_closes_under_a_lamp():
-    z = lamp_z()
-    bright = target_exposure(LENS, LOOK, (0.0, 1.68, z), FORWARD)
-    dark = target_exposure(LENS, LOOK, (11.0, 1.68, z + 5.0), FORWARD)
-    assert dark > bright * 1.15
-
-
-def test_looking_into_a_lamp_lowers_exposure():
-    z = lamp_z()
-    pos = (0.0, 1.68, z - 3.0)
-    d = math.sqrt(3.0 ** 2 + (LOOK.lamp_y - 1.68) ** 2)
-    toward = (0.0, (LOOK.lamp_y - 1.68) / d, 3.0 / d)
-    assert glare(LOOK, pos, toward) > 0.3
-    assert glare(LOOK, pos, (0.0, -1.0, 0.0)) == 0.0
-    assert target_exposure(LENS, LOOK, pos, toward) < target_exposure(LENS, LOOK, pos, (0.0, -0.3, -0.95))
-
-
 def test_exposure_stays_within_limits():
-    for pos in ((0.0, 1.68, -500.0), (0.0, 4.0, lamp_z()), (11.0, 0.1, lamp_z())):
-        value = target_exposure(LENS, LOOK, pos, FORWARD)
-        assert LENS.exposure_min <= value <= LENS.exposure_max
+    for look in (LOOK, LookData(sun_color=(0.0, 0.0, 0.0)), LookData(sun_color=(9.0, 9.0, 9.0))):
+        assert LENS.exposure_min <= target_exposure(LENS, look) <= LENS.exposure_max
+
+
+def test_darker_scene_opens_the_exposure():
+    dim = LookData(sun_color=(0.2, 0.2, 0.2), ambient_up=(0.05, 0.05, 0.05))
+    assert target_exposure(LENS, dim) > target_exposure(LENS, LOOK)
 
 
 def test_fixed_exposure_when_auto_is_off():
     d = LensData(auto_exposure=0.0)
-    assert target_exposure(d, LOOK, (0.0, 1.68, lamp_z()), FORWARD) == pytest.approx(1.0)
-    assert target_exposure(d, LOOK, (11.0, 1.68, lamp_z() + 5.0), FORWARD) == pytest.approx(1.0)
-
-
-def test_exposure_adapts_slowly_into_the_dark_and_faster_into_the_light():
-    z = lamp_z()
-    bright, dark = (0.0, 1.68, z), (11.0, 1.68, z + 5.0)
-
-    def seconds_to_settle(start, end):
-        a = AutoExposure(LENS, LOOK)
-        a.update(1 / 60, start, FORWARD)
-        goal = target_exposure(LENS, LOOK, end, FORWARD)
-        t = 0.0
-        while abs(math.log(a.value / goal)) > 0.02 and t < 20.0:
-            a.update(1 / 60, end, FORWARD)
-            t += 1 / 60
-        return t
-    assert seconds_to_settle(bright, dark) > 1.5 * seconds_to_settle(dark, bright)
-
-
-def test_exposure_change_is_independent_of_frame_rate():
-    z = lamp_z()
-    results = []
-    for fps in (30, 120):
-        a = AutoExposure(LENS, LOOK)
-        a.update(1 / fps, (0.0, 1.68, z), FORWARD)
-        for _ in range(fps):
-            a.update(1 / fps, (11.0, 1.68, z + 5.0), FORWARD)
-        results.append(a.value)
-    assert results[0] == pytest.approx(results[1], rel=0.01)
-
-
-def test_first_frame_starts_at_the_target():
-    a = AutoExposure(LENS, LOOK)
-    assert a.update(1 / 60, (0.0, 1.68, 0.0), FORWARD) == pytest.approx(target_exposure(LENS, LOOK, (0.0, 1.68, 0.0), FORWARD))
-
-
-def test_exposure_module_formula_constants_exist():
-    assert exposure.nearest_lamps(LOOK, lamp_z())[0] == 2
+    assert target_exposure(d, LOOK) == pytest.approx(1.0)
+    assert target_exposure(d, LookData(sun_color=(0.1, 0.1, 0.1))) == pytest.approx(1.0)

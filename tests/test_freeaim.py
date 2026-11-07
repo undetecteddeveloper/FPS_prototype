@@ -165,28 +165,8 @@ def test_ads_calms_the_rest_pose_but_not_the_recoil():
     assert ads[4] == pytest.approx(hip[4] * d.ads_scale, abs=1e-6)
     fa.spring.x = [2.0, 0.0]
     fa.rest = [0.0] * 6
-    fa.stress = 0.0
     assert abs(fa.pose(1.0)[3] - fa.drift[0]) < d.idle_pitch * d.ads_scale + 1e-6      # the kick part stays the same when aiming
     assert fa.drift[0] > 1.5
-
-
-def test_stress_rises_with_shots_decays_and_shakes_harder_while_reloading():
-    d = FreeAimData()
-    fa = FreeAim(d)
-    assert fa.stress == 0.0
-    for _ in range(10):
-        fa.on_shot(0.0, 0.0)
-    assert fa.stress == pytest.approx(10 * d.stress_per_shot)
-    sway_normal, sway_reload = [], []
-    for _ in range(600):
-        fa.t += 1 / 240
-        sway_normal.append(fa.pose(0.0, False)[5])
-        sway_reload.append(fa.pose(0.0, True)[5])
-    spread = lambda v: max(v) - min(v)
-    assert spread(sway_reload) > spread(sway_normal) * 1.2
-    fa.stress = 0.5
-    fa.update(1.0)
-    assert fa.stress == pytest.approx(0.5 - d.stress_decay)
 
 
 def test_free_aim_randomness_does_not_touch_other_generators():

@@ -73,17 +73,13 @@ def test_wavs_match_the_tool_output():
 
 
 def test_impact_sound_arrives_late_and_quiet_from_far_away():
-    near = impact_sound(AUDIO, 10.0, True)
-    far = impact_sound(AUDIO, 200.0, True)
+    near = impact_sound(AUDIO, 10.0)
+    far = impact_sound(AUDIO, 200.0)
     assert near[0] == pytest.approx(10.0 / AUDIO.speed_of_sound)
     assert far[0] == pytest.approx(200.0 / AUDIO.speed_of_sound) and 0.5 < far[0] < 0.7
     assert far[1] < 0.4 * near[1]
-    half = impact_sound(AUDIO, AUDIO.hit_reference_distance, True)[1]
-    assert half == pytest.approx(AUDIO.hit_target_volume / 2)
-
-
-def test_target_hit_is_louder_than_wall_hit():
-    assert impact_sound(AUDIO, 25.0, True)[1] > impact_sound(AUDIO, 25.0, False)[1]
+    half = impact_sound(AUDIO, AUDIO.hit_reference_distance)[1]
+    assert half == pytest.approx(AUDIO.hit_hard_volume / 2)
 
 
 def _rms(x):

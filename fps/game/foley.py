@@ -52,7 +52,7 @@ class Foley:
         self.breathing = Breathing(audio, gun.sway)
         self._px, self._pz = player.x, player.z
 
-        names = set(STEP_NAMES) | {audio.cancel_sound, 'dry', 'hit_target', 'hit_hard', 'breath'}
+        names = set(STEP_NAMES) | {audio.cancel_sound, 'dry', 'hit_hard', 'breath'}
         for cues in audio.cues.values():
             names.update(c.sound for c in cues)
         names.discard(None)
@@ -96,12 +96,12 @@ class Foley:
         pan = 0.0 if ev.kind == 'land' else (self.audio.foot_pan if ev.foot else -self.audio.foot_pan)
         self.play(name, ev.gain, ev.pitch, pan)
 
-    def on_impact(self, on_target: bool, distance: float):
-        """A bullet just hit: the impact sound reaches the ear after `distance / speed of sound` seconds."""
+    def on_impact(self, distance: float):
+        """A bullet just hit the ground: the impact sound reaches the ear after `distance / speed of sound` seconds."""
         a = self.audio
-        delay, volume = impact_sound(a, distance, on_target)
+        delay, volume = impact_sound(a, distance)
         pitch = 1.0 + self.rng.uniform(-a.hit_pitch_variation, a.hit_pitch_variation)
-        self.pending.append((self.clock + delay, 'hit_target' if on_target else 'hit_hard', volume, pitch))
+        self.pending.append((self.clock + delay, 'hit_hard', volume, pitch))
 
     def on_dry_fire(self):
         """Trigger pulled with the magazine empty: the game has no HUD, so this, together with the bolt lock, is the only way to know the gun is out of ammo."""

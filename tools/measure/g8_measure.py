@@ -1,5 +1,5 @@
 """G8: measures the Glock's sights and muzzle from the model vertices (camera space, ready pose, hip_offset NOT applied) and prints the values to paste
-into GLOCK (ads_sights, muzzle). Same method as g4_ads_align.py / g5_muzzle_align.py, for the Glock slide (node Bolt_G17_D_0-parent).
+into GLOCK (ads_sights, muzzle). Same method as g4_ads_align.py / g5_muzzle_align.py, for the Glock slide (node Slide_Glock_D_0-parent).
 
   rear sight : top vertices of the rear 3.5 cm of the slide; point = centre of their box, a little below the blade top (the notch)
   front sight: top vertices of the front 3.5 cm of the slide; point = centre x, highest vertex
@@ -26,7 +26,7 @@ game = create_game(vsync=False, draw=False, sound=False, effects=False, look=Fal
 mouse.locked = False
 vm, gun = game.viewmodel, game.params.gun
 pts = []
-for geom_np in vm.actor.find('**/Bolt_G17_D_0-parent').find_all_matches('**/+GeomNode'):
+for geom_np in vm.actor.find('**/Slide_Glock_D_0-parent').find_all_matches('**/+GeomNode'):
     mat = geom_np.get_mat(vm.cam_np)
     node = geom_np.node()
     for i in range(node.get_num_geoms()):

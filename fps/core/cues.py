@@ -65,9 +65,8 @@ class CueSchedule:
         return [name for _, name, _ in self._pending]
 
 
-def impact_sound(audio, distance: float, on_target: bool) -> tuple:
+def impact_sound(audio, distance: float) -> tuple:
     """Impact sound as heard by the shooter: (delay in seconds, volume). Sound travels from the impact point to the ear, so it arrives late and gets quieter with distance."""
     distance = max(distance, 0.0)
-    base = audio.hit_target_volume if on_target else audio.hit_hard_volume
-    return distance / max(audio.speed_of_sound, 1.0), base / (1.0 + distance / max(audio.hit_reference_distance, 1e-3))
+    return distance / max(audio.speed_of_sound, 1.0), audio.hit_hard_volume / (1.0 + distance / max(audio.hit_reference_distance, 1e-3))
 

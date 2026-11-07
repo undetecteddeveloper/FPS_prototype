@@ -3,7 +3,7 @@
 - `FreeLook`: the MOUSE CONTROLS THE GUN FIRST. Inside the free zone only the gun turns; the screen stays still. Near the edge of the zone the screen starts turning gradually, and at the edge it turns fully. Head and body slowly
   turn to follow the gun (the gun keeps its world direction; only the picture catches up), so aim does not drift. Aiming / sprinting / reloading shrink the zone and the screen turns to compensate.
 - `FreeAim`: the gun-pose part from recoil (a slow spring, so shots pile up and then settle by themselves); the rest pose changes after each turn / burst (it does not return to exactly one
-  point); slow drift when standing still; hand tremor that follows the stress level (firing a lot shakes; it is clearly visible while reloading).
+  point); slow drift when standing still.
 - `barrel_view_dir`: bullet direction in camera space, taken from the real gun pose now shown on screen. The gun is drawn by its own camera (its FOV differs from the world), so the direction
   is converted through the convergence point on screen: the bullet reaches exactly where the barrel axis points on screen (the lens is applied after compositing, so it does not shift this).
 
@@ -157,7 +157,6 @@ class FreeAim:
         self.rng = random.Random(seed)            # own RNG: does not change the bullet random sequence
         self.spring = Spring(2, data.drift_omega, data.drift_zeta)      # (pitch up, yaw right) drift from recoil, degrees
         self.t = 0.0
-        self.stress = 0.0                         # 0..1
         self.rest = [0.0] * 6                     # current rest pose
         self.rest_target = [0.0] * 6
         self._turned = False                      # a fast turn is in progress: pick a new rest pose when it stops
@@ -170,7 +169,6 @@ class FreeAim:
         gain = impulse_gain(d.drift_omega, d.drift_zeta)
         self.spring.omega, self.spring.zeta = d.drift_omega, d.drift_zeta
         self.spring.kick([up * gain, right * gain])
-        self.stress = min(1.0, self.stress + d.stress_per_shot)
         self._since_shot = 0.0
 
     def _pick_rest(self):
@@ -187,7 +185,6 @@ class FreeAim:
         self.t += dt
         self.spring.omega, self.spring.zeta = d.drift_omega, d.drift_zeta
         self.spring.step(dt)
-        self.stress = max(0.0, self.stress - d.stress_decay * dt)
         before = self._since_shot
         self._since_shot += dt
         if before <= 0.25 < self._since_shot:     # just stopped a burst
@@ -207,7 +204,7 @@ class FreeAim:
         m = self.d.drift_max
         return tuple(m * math.tanh(v / m) if m > 0 else 0.0 for v in self.spring.x)
 
-    def pose(self, ads: float = 0.0, reloading: bool = False) -> tuple:
+    def pose(self, ads: float = 0.0) -> tuple:
         """Pose added to the gun. `ads` 0 hip .. 1 fully aimed (raw progress): the rest pose and slow drift shrink; the recoil part stays."""
         d = self.d
         calm = 1.0 + (d.ads_scale - 1.0) * smoothstep(min(max(ads, 0.0), 1.0))
@@ -218,12 +215,4 @@ class FreeAim:
         pitch = pitch_up + calm * (self.rest[3] + d.idle_pitch * smooth_noise(self.seed, 0, u))
         yaw = yaw_right + calm * (self.rest[4] + d.idle_yaw * smooth_noise(self.seed, 1, u))
         roll = calm * (self.rest[5] + d.idle_roll * smooth_noise(self.seed, 2, u))
-        shake = self.stress * (d.tremor_reload if reloading else 1.0)
-        if shake > 0.0:
-            v = self.t * d.tremor_freq
-            pitch += shake * d.tremor_angle * smooth_noise(self.seed, 3, v)
-            yaw += shake * d.tremor_angle * smooth_noise(self.seed, 4, v)
-            roll += shake * d.tremor_angle * smooth_noise(self.seed, 5, v)
-            px += shake * d.tremor_pos * smooth_noise(self.seed, 6, v)
-            py += shake * d.tremor_pos * smooth_noise(self.seed, 7, v)
         return (px, py, 0.0, pitch, yaw, roll)

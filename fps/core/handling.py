@@ -1,6 +1,7 @@
 """Pure draw and reload handling (no ursina import, so it can be tested without a window).
 
-Three-phase state machine: READY (can fire) -> DRAW (drawing the gun when entering the game) / RELOAD (reloading) -> READY.
+Four-phase state machine: READY (can fire) -> DRAW (drawing the gun when entering the game or after a weapon switch) / RELOAD (reloading) /
+HOLSTER (putting the gun away before a weapon switch) -> READY.
 Timing follows the glb clip (30 fps frames) times `speed`. The round count changes exactly at the `Clip.swap` frame
 (new magazine seated), not at the start of the clip: cancelling before that point keeps the rounds; cancelling after it means the magazine is already loaded.
 
@@ -22,6 +23,7 @@ class Phase(Enum):
     READY = 'ready'
     DRAW = 'draw'
     RELOAD = 'reload'
+    HOLSTER = 'holster'
 
 
 class Handling:
@@ -51,7 +53,7 @@ class Handling:
     @property
     def speed(self) -> float:
         r = self.gun.reload
-        return r.draw_speed if self.phase is Phase.DRAW else r.speed
+        return r.draw_speed if self.phase in (Phase.DRAW, Phase.HOLSTER) else r.speed
 
     @property
     def progress(self) -> float:
@@ -79,6 +81,13 @@ class Handling:
         if self.busy:
             return False
         self._start(Phase.DRAW, 'draw')
+        return True
+
+    def start_holster(self) -> bool:
+        """Put the gun away (first half of a weapon switch). Only from READY; the 'done' event of key 'holster' tells Game to swap the gun."""
+        if self.busy:
+            return False
+        self._start(Phase.HOLSTER, 'holster')
         return True
 
     def start_reload(self) -> bool:

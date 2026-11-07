@@ -47,7 +47,8 @@ class Viewmodel:
         self.clip_key = None                          # clip currently playing (key of GunData.clips) or None
         self._fire_left = 0.0                         # s left of the running shot clip (not driven by Handling: firing blocks nothing)
         self.materials = gun.materials or MATERIAL_SCALE      # material name -> shading multipliers
-        self.show_spare_in_reload = bool(gun.spare_mag_node)  # (also set in _hide_reload_props; needed earlier by hold_ready_pose)
+        self.mag_groups = None                        # guns with GunData.mag_nodes: ([nodes seated in the ready pose], [nodes seated in the locked pose]); set in _hide_reload_props
+        self._mags_state = None
         self.reload_props = []
         self._fade = None                             # fading from the still pose of the cancelled clip back to the ready pose
         self._empty = 0.0                             # 0 bolt closed .. 1 bolt locked back (empty magazine)
@@ -170,23 +171,24 @@ class Viewmodel:
             self.lens.set_fov(fov)                   # FOV ngang
 
     def _hide_reload_props(self):
-        """Mag2 and its bullet exist only in the reload clip; outside reloading they hover below the gun.
-        Guns with `spare_mag_node` (the Glock) show the spare magazine DURING the reload clips and hide it otherwise."""
+        """M4: Mag2 and its bullet exist only in the reload clip; outside reloading they hover below the gun, so they are hidden.
+        Guns with `mag_nodes` (the Glock pack alternates two magazines between its clips) pick the visible magazine per state in `_update_mags`."""
         self.reload_props = []
-        self.show_spare_in_reload = bool(self.gun.spare_mag_node)
-        mag2 = self.actor.find('**/' + (self.gun.spare_mag_node or 'Mag2_M4_D_0-parent'))
-        if mag2.is_empty():
+        if self.gun.mag_nodes:                               # each entry is a glob: a magazine and its round are two nodes (Mag2_*-parent)
+            self.mag_groups = tuple(list(self.actor.find_all_matches('**/' + g)) for g in self.gun.mag_nodes)
+            self._mags_state = None
+            self._update_mags()
             return
-        if self.show_spare_in_reload:
-            self.reload_props = [mag2]
-            self.set_reload_props_visible(False)
+        mag2 = self.actor.find('**/Mag2_M4_D_0-parent')
+        if mag2.is_empty():
             return
         center = self._center(mag2)
         bullets = list(self.actor.find_all_matches('**/Bullet5_56x45mm_Bullet5_56x45mm_D_0-parent'))
         # two bullets share a name: the one that follows Mag2 is the one nearest to Mag2
         bullets.sort(key=lambda b: (self._center(b) - center).length())
         self.reload_props = [mag2] + bullets[:1]
-        self.set_reload_props_visible(False)
+        for node in self.reload_props:
+            node.hide()
 
     def _center(self, node):
         lo, hi = node.get_tight_bounds(self.actor)
@@ -211,15 +213,41 @@ class Viewmodel:
         """Stand still in the ready pose, bolt closed. Blending off: each pose that is set is the only pose."""
         self.clip_key, self._fade, self._empty = None, None, 0.0
         self._fire_left = 0.0
-        if self.show_spare_in_reload:
-            self.set_reload_props_visible(False)
         self.actor.disableBlend()
         self.actor.pose(*self._ready_frame())
         self._bundle.force_update()
+        self._update_mags()
 
-    def set_reload_props_visible(self, visible: bool):
-        for node in self.reload_props:
-            node.show() if visible else node.hide()
+    def prewarm(self, frames: int = 2):
+        """Render a few frames with every magazine visible so its draw state reaches the GPU now, not in the first frame of the first reload (a 45 ms hitch)."""
+        engine = application.base.graphicsEngine
+        if self.mag_groups:
+            self._set_mags(True, True)
+        for _ in range(frames):
+            engine.render_frame()
+        if self.mag_groups:
+            self._mags_state = None
+            self._update_mags()
+
+    def _set_mags(self, rest_visible: bool, locked_visible: bool):
+        for group, visible in zip(self.mag_groups, (rest_visible, locked_visible)):
+            for node in group:
+                node.show() if visible else node.hide()
+
+    def _update_mags(self):
+        """Which magazine is drawn (guns with `mag_nodes`): the pack seats a DIFFERENT magazine node in the ready / fire / draw clips (and parks the other one far away) than in the
+        locked-slide pose and the reload clips, so only the one that is in the gun may show. During a reload clip (or the slide-back cancel fade) both show: one leaves, the other arrives."""
+        if not self.mag_groups:
+            return
+        if self.clip_key in ('reload', 'reload_empty') or self._fade:
+            state = 'both'
+        elif self._empty >= 0.5:
+            state = 'locked'
+        else:
+            state = 'rest'
+        if state != self._mags_state:
+            self._mags_state = state
+            self._set_mags(state in ('rest', 'both'), state in ('locked', 'both'))
 
     def on_event(self, event: tuple):
         """Event from core.handling.Handling: ('start', key, speed) / ('swap', key) / ('done', key) / ('cancel', key, frame)."""
@@ -237,15 +265,14 @@ class Viewmodel:
         self.actor.play(clip.anim, fromFrame=clip.start, toFrame=clip.end)
         self.actor.setPlayRate(speed, clip.anim)
         self.clip_key = key
-        if self.show_spare_in_reload and key in ('reload', 'reload_empty'):
-            self.set_reload_props_visible(True)
+        self._update_mags()
 
     def on_shot(self, last_round: bool):
         """Every shot: play the slide cycle clip (guns with GunData.fire_clips). Not while drawing / reloading (those clips own the pose).
         The last round leaves the slide locked back: the clip ends exactly on the locked pose."""
         if not self.gun.fire_clips or (self.clip_key and self.clip_key not in self.gun.fire_clips) or self._fade:
             return
-        key = self.gun.fire_clips[1 if last_round else 0]
+        key = self.gun.fire_clips[1 if last_round and len(self.gun.fire_clips) > 1 else 0]
         clip = self.gun.clips[key]
         self.hold_ready_pose()
         self.actor.play(clip.anim, fromFrame=clip.start, toFrame=clip.end)
@@ -264,6 +291,7 @@ class Viewmodel:
         self.actor.setControlEffect(ready_anim, 0.0)
         self._fade = {'anim': anim, 't': 0.0}
         self.clip_key = None
+        self._update_mags()
 
     def _reload_view_wanted(self) -> bool:
         """Reloading and not yet at `Clip.settle` minus the blend time: the reload view (wide FOV, gun raised) must be switched OFF by the time the gun is back in place,
@@ -294,12 +322,13 @@ class Viewmodel:
             self._fire_left -= dt
             if self._fire_left > 0.0:
                 return
-            last = self.clip_key == self.gun.fire_clips[1]
+            last = len(self.gun.fire_clips) > 1 and self.clip_key == self.gun.fire_clips[1]
             self.hold_ready_pose()
             if last:                                      # the last-round clip ends on the locked pose: stay there
                 self._empty = 1.0
                 self.actor.pose(*self._locked_frame())
                 self._bundle.force_update()
+                self._update_mags()
                 return
         elif self.clip_key:
             return                                        # the clip runs on the Panda clock by itself
@@ -307,6 +336,7 @@ class Viewmodel:
         if self._empty == target:
             return
         self._empty = step_toward(self._empty, target, 1.0 / max(r.bolt_lock_blend, 1e-3), dt)
+        self._update_mags()
         ready, locked = self._ready_frame(), self._locked_frame()
         if self._empty <= 0.0 or self._empty >= 1.0:
             self.actor.disableBlend()

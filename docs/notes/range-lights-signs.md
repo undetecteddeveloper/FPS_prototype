@@ -1,5 +1,7 @@
 <!-- Mở khi: khi đụng tới phòng, đèn, bóng, bia chạy, biển, bảng F1, foley, bước chân. Trích nguyên văn từ CLAUDE.md cũ (đường dẫn đã cập nhật); số đo ghi trong đây là của lúc đó. -->
 
+> CẢNH BÁO 7/11/2026: phòng bắn, đèn trần, bóng đổ, bia, bia chạy và biển trong ghi chú này ĐÃ BỊ XOÁ (thay bằng nền đất phẳng, xem `ground-sky.md`). Chỉ phần shake, bảng F1 và foley còn đúng.
+
 # Phòng tập, đèn, bóng, bia chạy, biển (G6)
 - Trường bắn là PHÒNG KÍN: tường bốn phía + trần 5,5 m + sàn gạch, lòng rộng 24 m, z từ −20 đến 216; người chơi kẹp bởi `WALK_BOUNDS` (x ±10,8). Hình học thuần ở `core/room.py` (tường, cột, dầm, tấm tiêu âm, vị trí đèn), mesh gộp ở
   `game/shooting_range.py`. Đạn trúng tường/trần (lỗ đạn trên đó); dò va chạm nhóm hộp 30 m (`ballistics.BoxGroup`) nên không tốn.

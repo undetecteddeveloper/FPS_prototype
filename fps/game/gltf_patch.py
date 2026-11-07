@@ -1,7 +1,7 @@
-"""Patches panda3d-gltf 1.3.0 so that the M4 file (Sketchfab, units in cm, skinned skeleton) can be loaded.
+"""Patches panda3d-gltf 1.3.0 so that the M4 and Glock 17 files (Sketchfab / Fab, units in cm, skinned skeleton) can be loaded.
 
 Call `apply()` once, BEFORE creating Ursina()/ShowBase and before loading any glb.
-Six bugs, one function each below (1.3.0 only; after changing the version, re-run tests/test_gltf_load.py):
+Eight bugs, one function each below (1.3.0 only; after changing the version, re-run tests/test_gltf_load.py):
 
 1. get_buffer_from_accessor: slices `memoryview[start:end:stride]` by BYTE, so it raises BufferError
    when loading animation (the file has a byteStride equal to the element size).
@@ -14,9 +14,15 @@ Six bugs, one function each below (1.3.0 only; after changing the version, re-ru
    the skinned mesh vertices by its inverse, then Actor discards those nodes, so the hands are 100x the size of the bones.
 5. build_character_joints: auxiliary joints (like `Main`) still create an extra scene node carrying the
    same offset, and the node updated by the joint sits inside it, so the offset is applied twice and the gun body flies off elsewhere.
+8. A skeleton whose animated nodes are not all under the skin's own root (Glock 17: gun parts + camera sit beside the arm bones): the Character is rooted at the
+   lowest common ancestor of the skin and every animated node (`_skeleton_root`, written into `skin['skeleton']`), so they become joints and actually move.
+7. Several skins (Glock 17: one for the hand mesh, one for the glove mesh) that share ONE skeleton: the library keeps one Character per skeleton root, so the second skin
+   overwrites the first and the load dies with `KeyError: 0`. Fix: the first skin builds the Character; the other skins get a copy of its CharInfo with the joint-index
+   table translated to the first skin's indices (a joint the first skin lacks uses its nearest ancestor that it has).
 6. Turns off Panda's on-disk model cache (so a fixed patch is not masked by old cached data) and turns off
    sRGB for textures (Ursina does not enable framebuffer-srgb, so the gun would be pitch black).
 """
+import copy
 import inspect
 import struct
 import textwrap
@@ -131,6 +137,28 @@ def _make_build_animation_skeleton():
 _original_update = _converter.Converter.update
 
 
+def _skeleton_root(gltf_data, skin, parent) -> int:
+    """Node the skeleton of `skin` hangs from. Normally the skin's own first joint; but when animation channels move nodes OUTSIDE that joint's subtree (the Glock 17 file:
+    the gun parts and the camera are siblings of the arm bones, under `Glock17_Root_01`), the lowest common ancestor of the joint and every animated node, so those nodes become joints
+    of the Character too (otherwise the library leaves them still: the slide would never move)."""
+    start = skin.get('skeleton', skin['joints'][0])
+
+    def chain(node):
+        out = [node]
+        while parent.get(out[-1]) is not None:
+            out.append(parent[out[-1]])
+        return out[::-1]                                   # root ... node
+
+    paths = [chain(start)] + [chain(ch['target']['node']) for anim in gltf_data.get('animations', []) for ch in anim['channels'] if 'node' in ch['target']]
+    common = paths[0]
+    for path in paths[1:]:
+        k = 0
+        while k < min(len(common), len(path)) and common[k] == path[k]:
+            k += 1
+        common = common[:k]
+    return common[-1] if common else start
+
+
 def _update(self, gltf_data):
     """Remove the transforms of the skeleton's ANCESTOR nodes (the M4 file has a 0.01 scale matrix at the root).
 
@@ -141,7 +169,8 @@ def _update(self, gltf_data):
     nodes = gltf_data.get('nodes', [])
     parent = {c: i for i, n in enumerate(nodes) for c in n.get('children', [])}
     for skin in gltf_data.get('skins', []):
-        start = skin.get('skeleton', skin['joints'][0])
+        start = _skeleton_root(gltf_data, skin, parent)
+        skin['skeleton'] = start                         # the library roots the joints AND the animation tree at this node
         node = parent.get(start)
         while node is not None:
             for key in ('matrix', 'translation', 'rotation', 'scale'):
@@ -165,6 +194,58 @@ def _build_character_joints(self, char, root_nodeids, affected_nodeids, skinid, 
     return jvtmap
 
 
+_original_init = _converter.Converter.__init__
+_original_load_skin = _converter.Converter.load_skin
+
+
+class _SkinAliasDict(dict):
+    """`Converter.characters` with a fallback: a skin that shares its skeleton with an earlier skin gets that skin's character, joint indices translated."""
+
+    def __init__(self, converter):
+        super().__init__()
+        self.converter = converter
+
+    def __missing__(self, skinid):
+        conv = self.converter
+        canonical = conv._skin_alias.get(skinid)
+        if canonical is None or canonical not in self:
+            raise KeyError(skinid)
+        base = self[canonical]
+        alias = copy.copy(base)
+        mine, theirs = conv._skin_joints[skinid], conv._skin_joints[canonical]
+        parent = conv._node_parent
+        jvtmap = {}
+        for i, node in enumerate(mine):
+            while node is not None and node not in theirs:      # a joint only this skin has (a fingertip): weights go to its nearest ancestor that the first skin has
+                node = parent.get(node)
+            if node is not None and theirs.index(node) in base.jvtmap:
+                jvtmap[i] = base.jvtmap[theirs.index(node)]
+        alias.jvtmap = jvtmap
+        self[skinid] = alias
+        return alias
+
+
+def _init(self, *args, **kwargs):
+    _original_init(self, *args, **kwargs)
+    self._skin_alias = {}              # skin id -> id of the skin that owns the shared skeleton
+    self._skin_joints = {}             # skin id -> its joint node ids
+    self._node_parent = {}             # node id -> parent node id
+    self.characters = _SkinAliasDict(self)
+
+
+def _load_skin(self, skinid, gltf_skin, gltf_data):
+    """Keep the FIRST skin of a shared skeleton root as the owner; later skins become aliases of it."""
+    if not self._node_parent:
+        self._node_parent = {c: i for i, n in enumerate(gltf_data['nodes']) for c in n.get('children', [])}
+    before = dict(self.skeletons)
+    _original_load_skin(self, skinid, gltf_skin, gltf_data)
+    self._skin_joints[skinid] = list(gltf_skin['joints'])
+    root = next(node for node, sid in self.skeletons.items() if sid == skinid)
+    if root in before:
+        self.skeletons[root] = before[root]
+        self._skin_alias[skinid] = before[root]
+
+
 def apply():
     global _applied
     if not _applied:
@@ -175,6 +256,8 @@ def apply():
         _converter.Converter.get_buffer_from_accessor = _get_buffer_from_accessor
         _converter.Converter.update = _update
         _converter.Converter.build_character_joints = _build_character_joints
+        _converter.Converter.__init__ = _init
+        _converter.Converter.load_skin = _load_skin
         _converter.Converter.load_material = _load_material
         _converter.Converter.build_animation_skeleton = _make_build_animation_skeleton()
         _applied = True
