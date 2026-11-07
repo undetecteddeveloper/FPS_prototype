@@ -1,6 +1,7 @@
 # FPS prototype (Ursina, viewmodel kiểu Bodycam của Reissad Studio)
 
 Game bắn súng góc nhìn thứ nhất bằng Ursina/Panda3D. Từ G7 viewmodel, giật, ánh sáng, ống kính theo kiểu Bodycam (quyết định của người dùng); số "CoD" trong ghi chú G2-G6 là của bản cũ.
+LUẬT CỨNG: với MỌI prompt của người dùng, dòng đầu tiên của câu trả lời (trước mọi lệnh gọi công cụ) là "Cỡ: nhỏ / lớn, vì ..." (chi tiết `docs/WORKFLOW.md` mục 2). Phân vân thì xếp lớn.
 Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm việc (hỏi theo cỡ việc, phiên, subagent): `docs/WORKFLOW.md`, ĐỌC ĐẦU MỖI PHIÊN. Chi tiết từng giai đoạn: `docs/notes/` (danh sách cuối file).
 
 ## Lệnh
@@ -33,10 +34,19 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - Thế giới mặc định là phòng hồ bơi trong nhà (G9, `docs/notes/pool-hall.md`): dựng từ hộp, ánh sáng NƯỚNG SẴN (mặt trời cố định), nước phản chiếu căn phòng chụp sẵn.
   G10: nước TRONG (thấy đáy bằng tia khúc xạ dò trong shader), sóng mô phỏng trên GPU, hồ dốc 0,5 → 2 m (lội tới ngực), tia nắng, giọt nước, sàn ướt, bụi; **F2 mở bảng đồ hoạ** (`game/graphics_panel.py`: mức chung, khử răng cưa MSAA Tắt / 2x / 4x, từng hiệu ứng, hiện FPS; lưu `user_graphics.json`). Hiệu ứng mới nào cũng phải có dòng trong `core/graphics.py` (`GraphicsSettings`, `OPTIONS`) và đổi được ngay (không biên dịch lại shader). `--map flat` còn khối đất phẳng trắng cũ để so FPS. Không bia, không bóng đổ động; đừng dựng lại phòng bắn / bia khi chưa được hỏi.
   Sửa hình học map (`MapData`) hay nắng (`sun_dir`, `sun_color`, `sky_irradiance`) thì game tự nướng lại (~60 s). Numpy chỉ dùng lúc nướng và ở test.
-- Commit trên nhánh `dev`; chỉ push khi người dùng nói. `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
+- `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
+
+## Quy trình git (chép từ dự án NeonPool 7/11/2026, chỉnh theo dự án này: nhánh làm việc là `dev`)
+1. Commit trên nhánh làm việc `dev`, KHÔNG BAO GIỜ commit thẳng `main`. Message tiếng Việt `type(scope): ...` (feat, fix, refactor, perf, test, docs, chore). Mỗi commit MỘT việc. Commit xong thì DỪNG, không làm tiếp việc khác. Chỉ commit sau khi cổng kiểm tra qua (mục Quy ước); chỉ sửa tài liệu thì bỏ cổng.
+2. `git push` CHỈ khi người dùng nói "push" ở lượt nhắn gần nhất; Claude không tự push. Không bao giờ `push --force`. Không đẩy file ngoài git (`backups\`, `shots\`, `user_*.json`, bí mật).
+3. "Gộp / merge / đưa lên main" chỉ khi người dùng nói. Khi đó nói một dòng "Tôi hiểu là gộp nhánh X vào main" rồi làm tuần tự: `git status` sạch → `git switch main` → `git merge dev` → chạy pytest trên main nếu không phải fast-forward → báo đang đứng ở nhánh nào. Xung đột hoặc pytest đỏ trên main: dừng, báo người dùng (`git merge --abort` nếu xung đột chưa xong). Muốn tách nhánh riêng cho một việc (`feat/<tên>`, `fix/<tên>`) thì tách từ `main`, gộp xong xoá bằng `git branch -d` (không dùng `-D`).
+4. Việc không hoàn tác (`reset --hard`, `clean -f`, `checkout -- `, `restore` không `--staged`, `stash drop/clear`, `branch -D`, xoá file/thư mục, bỏ thay đổi chưa commit): chạy `git status` trước, nói hệ quả bằng lời thường, hỏi có/không rồi mới làm.
+5. Worktree tạm (`git worktree add` để chạy cổng trên bản sạch): xoá ngay sau khi dùng (`git worktree remove <thư mục>`); cuối việc `git worktree list` chỉ còn thư mục chính. Cổng đỏ thì chạy lại trên bản sạch để biết do mình hay đỏ sẵn.
+6. Cổng không chạy được thì DỪNG phần liên quan, không commit như thể cổng đã qua. Cấm viết "xong / ổn" cho bước chưa chạy thật.
+(Dự án NeonPool còn hook trong `.claude` chặn các lệnh trên; dự án này chưa có hook, nên luật chỉ dựa vào Claude tự giữ.)
 - Comment và docstring trong mã viết bằng TIẾNG ANH (cả mã mới). Chữ cho người dùng (HUD, bảng F1, tên mục selftest, thông báo) và file `.md` vẫn tiếng Việt.
 - Mức hỏi người dùng theo cỡ việc: `docs/WORKFLOW.md` mục 2 (thắng luật chung "tự quyết kỹ thuật").
-- HỌC TRƯỚC KHI LÀM: chủ đề chưa có skill trong `.claude/skills/` thì học sâu (WebSearch) và lưu skill trước (skill `learn-first`). Blender dùng để sửa model, rigging, animation.
+- HỌC TRƯỚC KHI LÀM: chủ đề chưa có skill trong `.claude/skills/` thì học sâu (WebSearch) và lưu skill trước (skill `learn-first`). Blender KHÔNG còn trong quy trình (bỏ 7/11/2026): không dùng, không đề xuất, không gọi MCP `blender-lab`.
 - Tài nguyên AI: xem/nghe xong mới được duyệt; chi tiêu theo phong bì, ghi `docs/credits.md` (`docs/notes/ai-assets.md`).
 
 ## Nạp M4 (bẫy đã trả giá ở G0, đừng làm lại)
@@ -67,4 +77,4 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - `docs/notes/range-lights-signs.md` (G6; phần phòng/đèn/bia/biển đã xoá, còn đúng: shake, bảng F1, foley, bước chân).
 - `docs/notes/pool-hall.md` (G9): map phòng hồ bơi, nước, ánh sáng nướng sẵn, phản chiếu, bậc thang / va chạm, số đo.
 - `docs/notes/bodycam.md` (G7): FreeLook / FreeAim, headcam, lens, exposure, ánh sáng thống nhất, âm thanh ElevenLabs.
-- `docs/notes/ai-assets.md`: sinh tài nguyên AI, credit, Blender, skill học trước, thư mục review. `docs/notes/multiplayer.md`: hướng multiplayer.
+- `docs/notes/ai-assets.md`: sinh tài nguyên AI, credit, skill học trước, thư mục review. `docs/notes/multiplayer.md`: hướng multiplayer.

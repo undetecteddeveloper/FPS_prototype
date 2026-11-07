@@ -1,6 +1,6 @@
-<!-- Mở khi: sinh tài nguyên AI (ảnh, video, nhạc, tiếng, model 3D), đụng tới credit / phong bì, Blender (sửa model, rigging, animation), học chủ đề mới thành skill, thư mục review. Chuyển nguyên văn từ docs/WORKFLOW.md (7/11/2026); số mục 6..6f giữ nguyên để các file khác còn tham chiếu. -->
+<!-- Mở khi: sinh tài nguyên AI (ảnh, video, nhạc, tiếng, model 3D), đụng tới credit / phong bì, học chủ đề mới thành skill, thư mục review. Chuyển nguyên văn từ docs/WORKFLOW.md (7/11/2026); số mục 6..6f giữ nguyên để các file khác còn tham chiếu. -->
 
-# Tài nguyên AI, credit, Blender, skill, review
+# Tài nguyên AI, credit, skill, review
 
 ## 6. Tài nguyên AI
 | Loại | Công cụ | Ghi chú |
@@ -33,24 +33,21 @@
 - Đợt dịch toàn bộ cho mã hiện có (ĐÃ LÀM 6/11/2026: 106 file .py + 8 file GLSL, kiểm đạt, còn 0 dòng comment tiếng Việt): subagent model rẻ dịch theo nhóm file không chồng nhau; kiểm bằng cách so cây AST đã bỏ docstring trước/sau (phải trùng) cộng pytest; mã GLSL chỉ đổi phần comment. Các số đo nằm trong comment phải giữ nguyên chữ số và đơn vị.
 - Truy nguyên: mỗi tài nguyên giữ prompt, công cụ, model, seed trong `assets/source/` (hoặc `sounds/source/`) để làm lại được; ghi nguồn/giấy phép vào `CREDITS.txt`.
 
-## 6d. Blender: sửa model + rigging + animation (người dùng chốt 6/11/2026: vũ khí trước, nhân vật/bot sau)
-- Kết nối: máy chủ `blender-lab` (Claude Code, stdio) + extension Blender Lab "MCP" 1.0.0 (Blender 5.1, `localhost:9876`); mã trung gian ở `C:\Users\ASUS\tools\blender_mcp`, đăng ký bằng `claude mcp add blender-lab -- uv --directory C:/Users/ASUS/tools/blender_mcp/mcp run blender-mcp`. CHƯA gọi thử công cụ nào (cần phiên mới). Chỉ cho các công cụ ĐỌC lúc đầu; công cụ chạy mã Python thực thi trong Blender không có rào chắn thật: dùng cảnh thử, từng lần hỏi người dùng.
-- Đường đi của một vũ khí: 3D AI Studio (glb thô, ~1,4 triệu tam giác) -> Blender: hạ số mặt, kiểm UV/texture, đặt đúng quy ước mô hình -> rig bộ phận động -> animation -> xuất glb -> nạp bằng `gltf_patch` và thử trong game -> người dùng duyệt.
-- Chuẩn mục tiêu (đo từ M4 6/11/2026): tổng 14.814 tam giác gồm cả tay (4.480 tam giác có skin), 56 xương, 4 vật liệu, 11,5 MB, 5 animation. Súng lục: đặt trần ~10.000 tam giác (Intel UHD 620 là máy chuẩn), điều chỉnh lại sau khi đo FPS thật.
-- Quy ước cần khớp (xem `docs/notes/tools.md` và mục "Nạp M4" của `CLAUDE.md`): mô hình tính bằng cm, quay mặt về −Z; bộ phận cứng (slide, bolt, băng, cò) đi theo nút xương cha, KHÔNG skin; chỉ phần mềm (tay) mới skin trên GPU. `panda3d-gltf` nạp sai theo 6 cách: file mới phải qua `tests/test_gltf_load.py`-kiểu kiểm.
-- Xuất hoạt ảnh: MỘT file glb chứa mọi clip (bắn, nạp, nạp cạn, rút, ...) khớp cách M4 chạy (`Clip(tên, từ khung, đến khung)` ở `weapon_data.py`, 30 fps). Cách ghi cụ thể (một timeline nối tiếp hay nhiều animation có tên) kiểm khi thử với `gltf_patch`.
-- Kiểm kết quả: ẢNH CHỤP cho người dùng xem (turntable vài góc + lưới các khung chính của từng clip, lưu ở `assets/review/<tên>/`), người dùng duyệt từng cái. Kèm các số tối thiểu để người xem biết: số tam giác, số xương, khoảng khung của từng clip.
+## 6d. Blender: ĐÃ BỎ khỏi quy trình (người dùng chốt 7/11/2026)
+- Không dùng Blender để sửa model, rigging, animation; không gọi MCP `blender-lab`. Model súng/tay lấy nguyên gói có sẵn (vd. `assets/guns/glock17.glb`, M4) nạp bằng `gltf_patch`; cần model mới thì hỏi người dùng (việc LỚN).
+- Quy ước nạp glb vẫn còn hiệu lực (xem `docs/notes/tools.md`, mục "Nạp M4" của `CLAUDE.md`, `tests/test_gltf_load.py`).
+- Các skill Blender (`blender-lowpoly-bake`, `blender-rigid-rig-gltf`) và `fps-pistol-animation` đã xoá khỏi `.claude/skills/`; không tạo lại.
 
 ## 6e. Học trước khi làm, lưu thành skill (người dùng chốt 6/11/2026)
 - Với MỌI việc, trước khi làm agent phải kiểm xem đã có skill kiến thức cho chủ đề đó chưa (`.claude/skills/<chủ-đề>/SKILL.md`, tự nạp theo mô tả). CHƯA có hoặc thiếu phần cần dùng: HỌC SÂU bằng WebSearch / đọc tài liệu chính thức, rồi LƯU trước khi làm việc. Đã đủ: dùng, chỉ học thêm phần thiếu. (Học một lần, tra sổ; không học lại cả chủ đề mỗi việc.)
-- Ví dụ chủ đề cho model: mesh và topology, UV và texture (PBR), retopo / hạ số mặt, rigging cơ khí (xương cho bộ phận cứng), skinning, animation (khung chính, timing, đường cong), xuất glTF và quy ước Panda3D/Ursina. Mỗi chủ đề một skill riêng, tên ngắn kiểu `blender-rigging-mechanical`.
+- Ví dụ chủ đề cho model: mesh và topology, UV và texture (PBR), retopo / hạ số mặt, rigging cơ khí (xương cho bộ phận cứng), skinning, animation (khung chính, timing, đường cong), xuất glTF và quy ước Panda3D/Ursina. Mỗi chủ đề một skill riêng, tên ngắn kiểu `gltf-panda3d-loading`.
 - Người đọc là Claude: viết bằng TIẾNG ANH, cô đọng, không cần bản tóm tắt tiếng Việt. Kích thước do agent tự quyết theo độ quan trọng và độ phức tạp của chủ đề: `SKILL.md` giữ gọn (mô tả đủ rõ để tự nạp + quy tắc cốt lõi + bẫy), chi tiết dài đẩy sang file kèm trong `references/` chỉ mở khi cần. Chủ đề lớn thì tách nhiều skill nhỏ.
 - Nhãn độ tin cậy trên MỌI ý: nguồn (URL), ngày đọc, mức tin cậy (cao / vừa / thấp), trạng thái `unverified` hoặc `verified-in-project` (kèm tên thử nghiệm đã làm). Ý quan trọng phải được thử bằng một thí nghiệm nhỏ trong dự án rồi nâng lên `verified-in-project`. Mâu thuẫn giữa nguồn thì ghi cả hai, không chọn im lặng.
-- Gắn phiên bản công cụ vào ghi chú (vd. Blender 5.1, extension 1.0.0) để biết khi nào cần xem lại; không đặt hạn cố định.
+- Gắn phiên bản công cụ vào ghi chú (vd. panda3d-gltf 1.3.0) để biết khi nào cần xem lại; không đặt hạn cố định.
 - Khung giao thức nằm ở skill `learn-first` (`.claude/skills/learn-first/SKILL.md`). Học xong phải LƯU rồi mới làm việc; báo cuối phiên nêu "đã học / đã cập nhật skill: ...".
 
 ## 6f. Thư mục review theo từng object (người dùng chốt 6/11/2026)
 - MỖI object mới (súng, nhân vật, bia, đạo cụ...) có MỘT thư mục riêng `assets/review/<object>/` để người dùng xem/nghe mọi tài nguyên của object đó ở một chỗ. Tạo thư mục NGAY khi bắt đầu object, trước khi sinh tài nguyên đầu tiên.
 - Cấu trúc con cố định: `concept/` (ảnh), `model/` (glb thô + glb đã hạ mặt), `animation/` (ảnh chụp turntable, lưới khung chính từng clip, video/gif nếu có), `audio/` (mọi tiếng của object, kể cả bản bị loại), thêm `README.md` ngắn: danh sách từng file, nguồn, trạng thái duyệt (chờ / duyệt / loại), số liệu (tam giác, xương, khung).
-- Mọi tài nguyên sinh ra (AI, Blender, âm) lưu VÀO thư mục này trước; chỉ bản đã duyệt mới được chép sang `assets/guns/`, `assets/sounds/`... Đường dẫn trong `docs/credits.md` trỏ vào thư mục review.
+- Mọi tài nguyên sinh ra (AI, âm) lưu VÀO thư mục này trước; chỉ bản đã duyệt mới được chép sang `assets/guns/`, `assets/sounds/`... Đường dẫn trong `docs/credits.md` trỏ vào thư mục review.
 - `assets/review/` bị gitignore (nặng): README là bản ghi, không có trong git.

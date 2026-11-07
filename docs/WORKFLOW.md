@@ -1,6 +1,6 @@
 # Cách làm việc (chốt 6/11/2026, rút gọn 7/11/2026)
 
-Luật kỹ thuật của mã: `CLAUDE.md`. File này chỉ nói CÁCH LÀM VIỆC. Phần chỉ cần ở một số việc đã chuyển nguyên văn sang: `docs/notes/ai-assets.md` (tài nguyên AI, credit, Blender, học thành skill, thư mục review; mục 6-6f), `docs/notes/multiplayer.md`.
+Luật kỹ thuật của mã: `CLAUDE.md`. File này chỉ nói CÁCH LÀM VIỆC. Phần chỉ cần ở một số việc đã chuyển nguyên văn sang: `docs/notes/ai-assets.md` (tài nguyên AI, credit, học thành skill, thư mục review; mục 6-6f; Blender đã bỏ khỏi quy trình 7/11/2026), `docs/notes/multiplayer.md`.
 
 ## 1. Nguyên tắc
 - Người dùng prompt ngắn; agent hỏi bằng AskUserQuestion theo CỠ VIỆC (mục 2). Mỗi phiên có bản chốt câu trả lời ở đầu `docs/sessions/Gx.md`.
@@ -10,7 +10,8 @@ Luật kỹ thuật của mã: `CLAUDE.md`. File này chỉ nói CÁCH LÀM VI�
 - Cảm giác chơi: agent chỉ dựng bảng F1 + kiểm tra; NGƯỜI chơi chỉnh, rồi chốt vào mặc định (mục 4).
 
 ## 2. Mức hỏi theo cỡ việc (người dùng chốt 6/11/2026; thắng luật chung "tự quyết kỹ thuật")
-- Dòng đầu câu trả lời đầu tiên: "Cỡ: nhỏ / lớn, vì ...", để người dùng sửa nếu xếp sai.
+- BẮT BUỘC, KHÔNG NGOẠI LỆ (siết 7/11/2026): với MỌI prompt của người dùng, kể cả câu hỏi thuần, câu nối tiếp, yêu cầu một dòng, dòng ĐẦU TIÊN của câu trả lời (trước mọi lệnh gọi công cụ, trước khi đọc file) phải là: "Cỡ: nhỏ / lớn, vì ...". Câu hỏi thuần không sửa gì ghi "Cỡ: nhỏ, vì chỉ hỏi đáp". Quên dòng này là phạm luật: người dùng nhắc thì bổ sung ngay ở câu sau.
+- Phân vân giữa nhỏ và lớn thì xếp LỚN. Xếp lớn thì phải làm đủ hai vòng hỏi (bên dưới) TRƯỚC khi sửa file; người dùng sửa cỡ thì làm theo cỡ mới.
 - NHỎ = sửa một số, một lỗi, một chú thích; trong một file; người chơi KHÔNG thấy hành vi đổi. Hỏi tối đa một vòng ngắn (1-2 câu), hoặc làm luôn rồi báo nếu yêu cầu rõ hoàn toàn.
 - LỚN = tính năng, phiên mới, tài nguyên mới, đụng từ 2 module, MỌI thứ đổi cảm giác chơi, mọi việc tốn credit. LUÔN đủ hai vòng: vòng 1 hỏi Ý TƯỞNG (cảm giác gì, giống ví dụ nào, ai chơi, thế nào là thành công); vòng 2 hỏi kỹ thuật. Hỏi đến khi không còn giả định lớn nào chưa nói ra; không hỏi lại cái đã có trong tài liệu.
 - Mỗi vòng ≤ 4 câu; chữ đơn giản, mỗi lựa chọn kèm ví dụ đời thường và hậu quả nói bằng lời thường.
@@ -32,9 +33,10 @@ Người chơi chỉnh bằng F1 rồi bấm Lưu (`user_params.json`). Khi ngư
 Người dùng duyệt TỪNG CÁI và phải xem/nghe xong mới được duyệt; mỗi mục kèm prompt + công cụ + chi phí. Chi tiêu theo phong bì, ghi `docs/credits.md`; hết phong bì thì DỪNG và hỏi. Mọi tài nguyên sinh ra lưu vào `assets/review/<object>/` trước, chỉ bản đã duyệt mới chép sang `assets/`.
 
 ## 7. Việc còn mở (cập nhật 7/11/2026)
+- LỖI CHỜ LÀM (người dùng báo 7/11/2026, chưa điều tra): đôi khi chạy game thì cửa sổ ĐEN rồi không vào được; log dừng ở dòng `[thông số] user_params.json: đã nạp 0 giá trị` (các dòng trước đó, `paste-emit-keystrokes`, `iCCP: known incorrect sRGB profile`, là cảnh báo vô hại). Nghi: treo ở bước dựng sau khi nạp thông số (nướng ánh sáng / chụp phản chiếu / nạp súng / buffer GPU). Lần sau: chạy `--window`, ghi thời điểm, xem có `--rebake` không, thêm log từng bước dựng.
 - NỢ TEST: `tests/test_breath.py` không nạp được và 5 bài `tests/test_prep_elevenlabs.py` trượt (do bỏ tiếng thở / đổi tiếng súng M4, commit 64c057e; người dùng tự sửa). Selftest bằng game thật không chạy được (xem `CLAUDE.md`).
 - NỢ HIỆU NĂNG: `perf_scenarios` cũ không còn chạy; đo bằng `tools\measure\g8_perf.py`.
 - G10 (nước trong, sóng, lội, sàn ướt, bụi, bảng đồ hoạ F2, tiếng nước; `docs/sessions/G10.md`, `docs/notes/pool-hall.md` mục G10): CHỜ NGƯỜI DÙNG chơi thử và chỉnh bằng F1 / F2 rồi bảo "chốt" (`bake_params.py`).
 - G9 (map hồ bơi, `docs/sessions/G9.md`, `docs/notes/pool-hall.md`): CHỜ NGƯỜI DÙNG xem map trong game bằng `run.bat` và so với ảnh tham chiếu, chỉnh bằng F1 rồi chốt số (tiếng nước đã chốt ở G10).
-- Glock (G8): model tự dựng (AI + Blender) đã XOÁ 7/11/2026; game dùng gói animation `assets/guns/glock17.glb`. Còn `assets/review/glock/audio` (nguồn tiếng súng lục).
+- Glock (G8): model tự dựng (AI + Blender; Blender nay đã bỏ khỏi quy trình) đã XOÁ 7/11/2026; game dùng gói animation `assets/guns/glock17.glb`. Còn `assets/review/glock/audio` (nguồn tiếng súng lục).
 - Chưa xác nhận xem/nghe thử ElevenLabs / Higgsfield trong Claude Desktop; chưa tự đọc được số dư ElevenLabs (người dùng khai); Tripo không có trong 3D AI Studio (hỏi người dùng); chưa đo Cloudflare đủ cho FPS 4 người.
