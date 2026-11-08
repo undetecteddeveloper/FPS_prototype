@@ -805,7 +805,7 @@ class LensData:
 class SoundCue:
     """One sound tied to a clip frame: plays when the clip reaches `frame` (absolute frame on the glb timeline, like Clip.swap)."""
     frame: int
-    sound: str                            # group name in assets/sounds/foley (tools/build/prep_foley.py): file <sound>_<number>.wav
+    sound: str                            # group name in assets/sounds/foley (tools/build/prep_*.py): file <sound>_<number>.wav
     volume: float = 1.0                   # multiplies AudioData.reload_volume
 
 
@@ -825,20 +825,24 @@ M4_SOUND_CUES = {
 }
 
 
-# Glock 17 sound beats (absolute frames on the glb timeline, like M4_SOUND_CUES), measured by posing every 2nd frame and tracking the magazines and the slide
-# (the old magazine = node Mag1, the spare = Mag2; Mag2 ends up seated in the gun and the 'done' event snaps back to the Idle pose, which has Mag1 seated):
-#   Reload (1..84): release press ~19 (Mag1 starts leaving), old magazine 20 cm out at 29, spare magazine seated at 45 (= Clip.swap)
-#   ReloadEmpty (107..197): slide locked back; release ~126, old magazine out at 135, spare magazine seated at 151 (= Clip.swap), SLIDE RELEASE at 164-165 (slide jumps forward)
+# Glock 17 sound beats (absolute frames on the glb timeline, like M4_SOUND_CUES). The user's own recordings (8/11/2026, tools/build/prep_glock_audio.py) replace the first two and the last reload
+# beats; each file starts `lead` whole frames BEFORE its main transient (glock_release 6, glock_magout 2, glock_seat 2), so  cue frame = animation event frame - lead.
+# Animation events, measured with the bounding-box centre of Mag1 / Mag2 / Slide and the left-hand joint on every frame (the pack keys many parts every 2nd frame):
+#   Reload (1..84): left hand pulls the old magazine (Mag1, the one drawn until Clip.swap) from f21 (first move), it clears the well at f27 (6.9 cm in one step), stops fully out (18 cm) at f29;
+#     the spare magazine (Mag2) bottoms out at f44 but is drawn only from the swap frame 45, which is when the player sees it seated (the gun jolts at f46); the old magazine is stowed f57-59
+#   ReloadEmpty (107..197): the same moves 107 frames later: pull from f129, clears the well f133-134, out at f135 (f136 = 18.0 cm), spare seated at f151 (= Clip.swap), SLIDE RELEASE at f164 (slide jumps forward)
+# Beats: release = soft button click + the clack of the magazine sliding free (click 4.7 frames before the clack, two small rattles after it); magout = the old magazine comes clear (loud double thump);
+# seat = the new magazine slams home; glock_slide = the old ElevenLabs slide release cut to its first beat (the file had an extra settle beat 0.34 s later: user 8/11/2026). The old mag_in slide-in is gone (the seat file starts with its own soft slide-in 2 frames before the slam). tests/test_glock_audio.py checks this table against the files.
 GLOCK_SOUND_CUES = {
-    'reload': (SoundCue(19, 'pistol_mag_release', 1.0), SoundCue(29, 'pistol_mag_drop', 0.6), SoundCue(42, 'pistol_mag_in', 0.8), SoundCue(45, 'pistol_mag_seat', 1.0)),
-    'reload_empty': (SoundCue(126, 'pistol_mag_release', 1.0), SoundCue(135, 'pistol_mag_drop', 0.6), SoundCue(148, 'pistol_mag_in', 0.8), SoundCue(151, 'pistol_mag_seat', 1.0),
-                     SoundCue(164, 'pistol_slide_release', 1.0)),
+    'reload': (SoundCue(20, 'glock_release', 0.65), SoundCue(27, 'glock_magout', 0.95), SoundCue(43, 'glock_seat', 1.0)),      # clack f26, thump f29, slam f45
+    'reload_empty': (SoundCue(126, 'glock_release', 0.65), SoundCue(133, 'glock_magout', 0.95), SoundCue(149, 'glock_seat', 1.0),     # clack f132, thump f135, slam f151
+                     SoundCue(164, 'glock_slide', 1.0)),
     'draw': (SoundCue(214, 'pistol_draw', 0.8), SoundCue(230, 'pistol_draw_settle', 0.6)),
     'holster': (SoundCue(200, 'pistol_holster', 0.8),),
 }
 GLOCK_SOUND_FILES = {
-    'pistol_mag_release': 'el_pistol_mag_release', 'pistol_mag_drop': 'el_pistol_mag_drop', 'pistol_mag_in': 'el_pistol_mag_in',
-    'pistol_mag_seat': 'el_pistol_mag_seat', 'pistol_slide_release': 'el_pistol_slide_release', 'pistol_draw': 'el_pistol_draw',
+    'glock_release': 'glock_release', 'glock_magout': 'glock_magout', 'glock_seat': 'glock_seat',
+    'glock_slide': 'glock_slide', 'pistol_draw': 'el_pistol_draw',
     'pistol_draw_settle': 'el_pistol_draw_settle', 'pistol_holster': 'el_pistol_holster', 'dry': 'el_pistol_dry',
 }
 
@@ -869,7 +873,8 @@ GLOCK = GunData(
     recoil=RecoilData(up=1.6, up_noise=0.35, right_noise=0.45, right_walk=0.10, camera_share=0.35, recovery=0.45, recovery_time=0.22),
     kick=GunKickData(omega=30.0, zeta=0.5, peak=(0.0, 0.007, 0.0, 2.2, 0.0, 0.0), random=(0.003, 0.002, 0.0, 0.5, 0.4, 1.8),
                      back_peak=-0.050, back_random=0.004, back_omega=16.0, back_zeta=0.7),
-    shot_sound=('assets/sounds/el_pistol_shot_0.wav', 'assets/sounds/el_pistol_shot_1.wav', 'assets/sounds/el_pistol_shot_2.wav'),
+    shot_sound=('assets/sounds/glock_shot_0.wav',),    # the user's recording (8/11/2026) as it is, no pitch-shifted copies (they dulled it): only the small random pitch below varies it
+    shot_pitch_variation=0.02,
     shot_pool=4,
     hip_offset=(0.0, 0.0, 0.15),           # push the whole viewmodel forward a little: the pack's hands sit close to the eye
     sway=SwayData(wall_pose=(0.0, -0.404, 0.173, 65.0, 0.0, 0.0)),     # G14 High Ready: the pitch turns the gun about the eye and the Glock sits farther out, so the shift is bigger than the M4's
@@ -889,20 +894,24 @@ GUNS = {'m4': M4, 'glock': GLOCK}
 
 @dataclass
 class AudioData:
-    """Foley: metal sounds when reloading / drawing the gun (timed to the animation frames) and footsteps on tiles (timed by distance travelled). Sounds built with tools/build/prep_foley.py.
+    """Foley: metal sounds when reloading / drawing the gun (timed to the animation frames) and footsteps on tiles (timed by distance travelled). Sounds built with the tools/build/prep_*.py scripts.
     Volume is lower than the gunshot (GunData.shot_volume 0.8) so it does not mask the shot."""
     folder: str = 'assets/sounds/foley'
     pool: int = 2                         # rotating playback copies per file: a later sound does not cut off the tail of the previous one
-    # logical sound name -> real file group in folder (<group>_<number>.wav). Default uses sounds generated with ElevenLabs (tools/build/prep_elevenlabs.py from assets/sounds/source/elevenlabs).
-    # To go back to the user-supplied sounds used earlier: change el_* to user_* (mag_release, mag_in, mag_seat, bolt, step). Deleting one line falls back to the synthesized sound for that name (tools/build/prep_foley.py).
+    # logical sound name -> real file group in folder (<group>_<number>.wav): el_* = sounds generated with ElevenLabs (tools/build/prep_elevenlabs.py from assets/sounds/source/elevenlabs), boot_step = the user's
+    # footstep (tools/build/prep_pool_audio.py), glock_* = the user's Glock reload beats (tools/build/prep_glock_audio.py). The synthesized and user_* sounds and their tools were deleted 8/11/2026: every name needs a line here
     sound_files: dict = field(default_factory=lambda: {
         'mag_release': 'el_mag_release', 'mag_in': 'el_mag_in', 'mag_seat': 'el_mag_seat',
         'bolt_tick': 'el_bolt', 'bolt_release': 'el_bolt',
         'draw_a': 'el_draw_a', 'draw_b': 'el_draw_b', 'settle': 'el_settle',
-        'step_walk': 'el_step', 'step_run': 'el_step', 'land': 'el_land', 'jump': 'el_jump',
+        'step_walk': 'boot_step', 'step_run': 'boot_step',      # the user's boot-on-brick recording (8/11/2026, tools/build/prep_pool_audio.py): ONE step, impact on the file's first sample so it lands on the bob's lowest point
+        'land': 'el_land', 'jump': 'el_jump',
         'dry': 'el_dry', 'hit_hard': 'el_hit_hard'})
     # multiplies the pitch when playing a logical name (running shares the walking file, slightly higher)
     pitch_scale: dict = field(default_factory=lambda: {'step_run': 1.06})
+    # multiplies the volume when playing a logical name: a level trim for a recording that is quieter than the old sounds at equal volume. The boot-on-brick step (8/11/2026) is short and sharp, 6.5 dB lower in RMS
+    # than the old steps, which the user found too quiet: x2.3 brings it back to the old loudness (+0.6 dB) while step_volume and the tests that compare gains keep their meaning. Peak 0.85 x 0.30 x 2.3 x 1.25 x 1.1 stays < 1
+    volume_scale: dict = field(default_factory=lambda: {'step_walk': 2.3, 'step_run': 2.3})
     # reload / draw
     cues: dict = field(default_factory=lambda: dict(M4_SOUND_CUES))   # clip key (GunData.clips) -> the SoundCues; real time = (frame - clip.start) / 30 / clip speed
     reload_volume: float = 0.5
@@ -947,7 +956,7 @@ class AudioData:
     wade_run_pitch: float = 1.25          # extra rate when running (shorter, quicker splash: steps come faster)
     wade_run_gain: float = 1.15           # extra volume when running
     water_land_volume: float = 0.85       # jumping / falling into the water (scales with the fall speed like the tile landing)
-    ambience_file: str = 'assets/sounds/pool_ambience.wav'    # looping room tone of the pool hall (silent if the file is missing)
+    ambience_file: str = 'assets/sounds/pool_ambience.wav'    # looping room tone of the pool hall (silent if the file is missing); the user's 'Tranquil indoor swim (narrow)' since 8/11/2026, tools/build/prep_pool_audio.py
     ambience_volume: float = 0.30
     # G12 under the water (tools/build/prep_underwater.py; the ElevenLabs drafts were dropped by the user 7/11/2026): every foley sound has a muffled twin in `folder_under` (the Foley swaps to it while
     # the eye is under the surface), the room tone is cross-faded with an underwater tone. A missing file / folder is silent / unchanged. No separate sound for going under / coming up (user's choice).

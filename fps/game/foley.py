@@ -1,7 +1,7 @@
 """Foley: metal sounds when reloading / drawing the gun (following the animation frames), and footsteps, jumps and landings on tiles.
 
 The maths lives in core: `core.cues.CueSchedule` (when each cue fires; cancelling drops cues not yet reached) and `core.footsteps.Footsteps` (step timing by distance walked).
-Here it is only wired to Panda: loads `assets/sounds/foley/<name>_<n>.wav` files (built by tools/build/prep_foley.py), plays them from a round-robin pool (`AudioData.pool` copies each,
+Here it is only wired to Panda: loads `assets/sounds/foley/<name>_<n>.wav` files (built by the tools/build/prep_*.py scripts), plays them from a round-robin pool (`AudioData.pool` copies each,
 so a later sound does not cut off the previous one), and changes pitch / volume / stereo pan per event. With no audio device, Panda plays silence, with no error.
 
 Hooked into `Game.update` (no separate update): `on_handling_event(event)` for each Handling event, then `update(dt)` once per frame.
@@ -81,7 +81,7 @@ class Foley:
         group = self.audio.sound_files.get(name, name)             # logical name -> file group (user-supplied or synthesized sounds)
         files = sorted(folder.glob(f'{group}_*.wav'))
         if not files:
-            raise FileNotFoundError(f'thiếu {folder}\\{group}_*.wav: chạy tools\\build\\prep_foley.py (tiếng user_*: tools\\build\\prep_user_audio.py; el_*: tools\\build\\prep_elevenlabs.py)')
+            raise FileNotFoundError(f'thiếu {folder}\{group}_*.wav: el_*: tools\build\prep_elevenlabs.py; boot_step: prep_pool_audio.py; glock_*: prep_glock_audio.py')
         loader = application.base.loader
         n = max(1, copies or self.audio.pool)
         voices = [[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(n)] for f in files]
@@ -104,7 +104,7 @@ class Foley:
         variant, sound = bank.next_sound(self.rng, self.under)
         if fit_hz > 0.0 and sound.length() > 0.0:
             pitch *= min(max(sound.length() * fit_hz, 0.85), 1.2)
-        sound.set_volume(min(max(volume, 0.0), 1.0))
+        sound.set_volume(min(max(volume * self.audio.volume_scale.get(name, 1.0), 0.0), 1.0))
         sound.set_play_rate(pitch * self.audio.pitch_scale.get(name, 1.0))
         sound.set_balance(min(max(pan, -1.0), 1.0))
         sound.play()                               # restarts from the beginning if this copy is still ringing (only when the whole ring has gone round)

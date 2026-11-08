@@ -38,6 +38,8 @@ def test_every_mapped_sound_has_files(group):
 
 def test_every_wav_has_its_source_mp3():
     for f in all_files():
+        if not f.name.startswith('el_'):
+            continue                                                # the M4 shot is the user's own file now (m4_shot_new.wav): it has no ElevenLabs source
         stem = f.stem[3:]
         if stem.startswith('shot_'):
             stem = 'shot_0'                                         # every gun-shot variant is built from one source (pitch-shifted)

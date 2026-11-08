@@ -1,7 +1,7 @@
 r"""G10: builds the game's water sounds from the ElevenLabs drafts the user chose (assets/review/water/, 7/11/2026), decoded by Panda3D itself (no ffmpeg needed):
   wade_step_deep -> assets/sounds/foley/wade_0.wav        (EVERY wading step: the game calibrates pitch / volume by depth and speed, fps/game/foley.py)
   water_jump_a   -> assets/sounds/foley/water_land_0.wav  (jumping / falling into the pool)
-  pool_ambience_loop -> assets/sounds/pool_ambience.wav   (room tone, looped by the game: the file is made seamless by a crossfade of its end into its start)
+  (the room tone is NOT built here any more: since 8/11/2026 assets/sounds/pool_ambience.wav comes from the user's file via tools/build/prep_pool_audio.py; its ElevenLabs draft was deleted)
 One-shots: leading silence cut (the splash starts on the step), tail cut once it has died away and faded out, mono 44.1 kHz, same peak as the tile steps.
 Prints a table of lengths and LOUDNESS compared with the tile footsteps (RMS), which is how `AudioData.wade_volume` was calibrated.
 WITHOUT --apply nothing is written.
@@ -32,7 +32,6 @@ SHAPE = {'wade': (0.75, 0.25), 'water_land': (1.6, 0.3)}
 PLAN = {                   # group -> draft name (assets/review/water/<name>_eleven_v3.mp3)
     'wade': 'wade_step_deep',
     'water_land': 'water_jump_a',
-    'ambience': 'pool_ambience_loop',
 }
 
 
@@ -95,9 +94,9 @@ def rms(x: list) -> float:
 
 
 def tile_step_rms() -> float:
-    """Mean RMS of the tile footsteps (step_walk_*.wav), the loudness reference for wading."""
+    """Mean RMS of the footsteps (boot_step_*.wav since 8/11/2026; the tile steps it replaced were deleted), the loudness reference for wading."""
     vals = []
-    for f in sorted(FOLEY.glob('step_walk_*.wav')):
+    for f in sorted(FOLEY.glob('boot_step_*.wav')):
         with wave.open(str(f), 'rb') as w:
             data = array.array('h')
             data.frombytes(w.readframes(w.getnframes()))

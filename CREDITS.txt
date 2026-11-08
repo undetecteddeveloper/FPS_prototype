@@ -33,20 +33,11 @@ Các tiếng dưới đây vẫn nằm trong dự án nhưng game không còn d�
 
 Tiếng súng M4 ĐANG DÙNG (assets\sounds\m4_shot_new.wav, 2,56 s, do chủ dự án cung cấp 7/11/2026): tác giả / nguồn / giấy phép CHƯA RÕ, CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây).
 
-Tiếng súng M4 cũ (assets\sounds\m4_shot.wav; dựng từ assets\sounds\source\m4_shot_original.wav bằng tools\build\prep_sound.py: cắt đoạn im lặng đầu và đuôi)
-  Do chủ dự án cung cấp. Tác giả / nguồn / giấy phép: CHƯA RÕ. CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây);
-  nếu không chứng minh được quyền dùng thì phải thay bằng tiếng khác.
+Các tiếng súng M4 cũ, tiếng thay đạn / bước chân gỗ của chủ dự án (user_*) và foley tổng hợp bằng mã đã bị XOÁ khỏi dự án ngày 8/11/2026 (không còn dùng); file nằm trong lịch sử git.
 
-Tiếng thay đạn (chốt băng, băng vào chỗ, kéo bolt) và bước chân trên sàn gỗ (assets\sounds\foley\user_*.wav; cắt từ
-assets\sounds\source\reload_user_original.wav và assets\sounds\source\footstep_wood_user_original.wav bằng tools\build\prep_user_audio.py)
-  Do chủ dự án cung cấp (tên file gốc: "Reloading_gun_sound__#3" và "Footstep_on_the_wood_#2"). Tác giả / nguồn / giấy phép: CHƯA RÕ.
-  CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây); nếu không chứng minh được quyền dùng thì phải thay bằng tiếng khác.
-  Game dùng các tiếng này làm mặc định (AudioData.sound_files trong fps\weapon_data.py): cùng một file bước chân gỗ phát cho đi, chạy,
-  nhảy và chạm đất (đổi cao độ cho khác nhau).
-
-Tiếng nạp đạn (trượt băng ra), rút súng, hạ tay khi huỷ nạp (assets\sounds\foley\*.wav, trừ các file user_*)
-  Tự tổng hợp bằng mã thuần (tools\build\prep_foley.py), không lấy mẫu từ nguồn nào, không dính bản quyền bên ngoài.
-  Các nhóm bước chân / nhảy / chạm đất tổng hợp (trên gạch) vẫn còn trong thư mục nhưng game không dùng khi có sound_files ở trên.
+Tiếng người dùng cung cấp 8/11/2026 (ĐANG DÙNG): tiếng bắn Glock 17 và hai file nạp đạn (assets\sounds\source\glock\*.wav, dựng bằng tools\build\prep_glock_audio.py),
+bước chân giày trên gạch "tatical_boot_footstep_on_brick" và tiếng nền "Tranquil_indoor_swim_narrow" (assets\sounds\source\pool\*.wav, dựng bằng tools\build\prep_pool_audio.py);
+file "Tranquil_indoor_swim_wide" chưa dùng. Tác giả / nguồn / giấy phép: CHƯA RÕ, CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây).
 
 === Chữ ===
 
