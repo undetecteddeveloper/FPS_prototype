@@ -12,12 +12,11 @@ number here makes the game run on the new value at once (except a few fields cop
 import dataclasses
 import json
 import math
-import os
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from fps.core import param_meta
+from fps.core.safeio import write_text_atomic
 from fps.weapon_data import GameParams
 
 FILE_VERSION = 1
@@ -324,10 +323,7 @@ class ParamStore:
         path = Path(path)
         data = self.to_dict()
         try:
-            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + '.', suffix='.tmp')
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, path)
+            write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2))
         except OSError as e:
             return LoadReport(False, message=f'không ghi được {path.name}: {e}')
         n = len(data['values'])
@@ -336,7 +332,7 @@ class ParamStore:
     def load(self, path) -> LoadReport:
         path = Path(path)
         try:
-            text = path.read_text(encoding='utf-8')
+            text = path.read_text(encoding='utf-8-sig')       # -sig: a file re-saved by Notepad starts with a BOM
         except FileNotFoundError:
             return LoadReport(False, message=f'chưa có file {path.name} (bấm Lưu trước)')
         except (OSError, UnicodeDecodeError) as e:

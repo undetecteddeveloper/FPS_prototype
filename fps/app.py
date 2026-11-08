@@ -33,6 +33,7 @@ from fps.game.gun_audio import GunAudio  # noqa: E402
 from fps.game.hud import Hud, Notice, setup_fonts  # noqa: E402
 from fps.core.graphics import GraphicsSettings, clamp_level, from_json, preset_of, resolve, settings_for, to_json  # noqa: E402
 from fps.game.graphics_panel import GraphicsPanel  # noqa: E402
+from fps.core.safeio import write_text_atomic  # noqa: E402
 from fps.game.lens import Lens  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
@@ -164,7 +165,7 @@ class Game(Entity):
         self.gfx = settings_for(params.graphics.level)
         if user_params and USER_GRAPHICS.exists():
             try:
-                self.gfx = from_json(USER_GRAPHICS.read_text(encoding='utf-8'))
+                self.gfx = from_json(USER_GRAPHICS.read_text(encoding='utf-8-sig'))     # -sig: a file re-saved by Notepad starts with a BOM
             except (OSError, ValueError) as e:
                 print(f'[đồ hoạ] không đọc được {USER_GRAPHICS.name}: {e}')
         self.underwater = Underwater(params.underwater, params.water, self.pool, self.light) if self.pool else None   # G12: the camera at / under the surface
@@ -264,7 +265,7 @@ class Game(Entity):
 
     def save_graphics(self):
         try:
-            USER_GRAPHICS.write_text(to_json(self.gfx), encoding='utf-8')
+            write_text_atomic(USER_GRAPHICS, to_json(self.gfx))       # G16: a crash mid-save keeps the old file whole
         except OSError as e:
             print(f'[đồ hoạ] không lưu được {USER_GRAPHICS.name}: {e}')
 

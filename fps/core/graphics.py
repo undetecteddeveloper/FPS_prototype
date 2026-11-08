@@ -147,8 +147,12 @@ def to_json(s: GraphicsSettings) -> str:
 
 
 def from_json(text: str) -> GraphicsSettings:
-    """Unknown or out-of-range values fall back to the default of that field (an old / hand-edited file never breaks the start)."""
-    data = json.loads(text).get('graphics', {})
+    """Unknown or out-of-range values fall back to the default of that field (an old / hand-edited file never breaks the start).
+    Text that is not a JSON object with a "graphics" object (broken, empty, a list...) raises ValueError: the caller keeps its defaults."""
+    raw = json.loads(text)                       # json.JSONDecodeError is a ValueError
+    data = raw.get('graphics', {}) if isinstance(raw, dict) else None
+    if not isinstance(data, dict):
+        raise ValueError('không đúng dạng (cần {"graphics": {...}})')
     s = GraphicsSettings()
     for f in fields(GraphicsSettings):
         if f.name not in data:
