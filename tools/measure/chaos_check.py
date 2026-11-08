@@ -146,6 +146,9 @@ class Chaos:
         u32 = ctypes.windll.user32
         g = self.g
         if self.focus_phase is None:
+            if not g.focus.focused:           # someone else took the foreground (the machine is in use): keys never reach an unfocused window, skip this round
+                self.notes.append(f'{self.t:.1f}s: cửa sổ game đang không có tiêu điểm (máy đang được dùng), bỏ một lượt thu nhỏ')
+                return
             for k in list(self.down):
                 self.down.discard(k)          # keys stay physically "held" from the game's view: the guard must let go of them
             base = application.base
