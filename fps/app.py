@@ -618,6 +618,12 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     icon = Path(ursina.__file__).parent / 'textures' / 'ursina.ico'   # absolute path; otherwise Ursina looks in the game folder
     app = Ursina(title='FPS prototype', icon=Filename.from_os_specific(str(icon)), vsync=vsync, borderless=borderless, fullscreen=fullscreen, size=size,
                  development_mode=False)
+    api = app.pipe.get_interface_name() if getattr(app, 'pipe', None) is not None else ''
+    if api != 'OpenGL':
+        # G16: when the OpenGL window does not open (old / missing driver, or the window closed while it was opening), Panda silently falls back to
+        # Direct3D 9 or software rendering, where none of the GLSL shaders run: the game went on with a broken picture and no word about it
+        raise RuntimeError(f'không mở được cửa sổ OpenGL (Panda chuyển sang "{api or "không có"}"). Cần card đồ hoạ / driver hỗ trợ OpenGL 3.3: '
+                           f'cập nhật driver card đồ hoạ rồi mở lại. (Cũng xảy ra nếu cửa sổ bị đóng đúng lúc đang mở.)')
     application.asset_folder = ROOT
     window.fps_counter.enabled = False
     # Ursina's camera.overlay is a full-screen alpha-blended quad (color.clear) kept for fades this game never uses: it blended the whole window
@@ -672,6 +678,9 @@ def main(argv=None):
                            quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake, low_memory=mem.low_memory)
     except Exception as e:                       # G16 (A3): a missing file, a GPU that cannot make a buffer, a shader that does not compile...
         sysmem.stop_watchdog()
+        if _window_closed():                     # the player closed the window while it was loading: the build then fails on the missing window; that is a quit
+            print(f'[thoát] cửa sổ bị đóng khi game đang mở ({type(e).__name__})')
+            sys.exit(0)
         _fatal('Game không mở được', e)
     sysmem.stop_watchdog()
     if mem.message:
@@ -682,6 +691,20 @@ def main(argv=None):
         game.app.run()                           # an exception in a frame or an input handler comes out of Panda's task loop here
     except Exception as e:
         _fatal('Game gặp lỗi và phải đóng', e)
+
+
+def _window_closed() -> bool:
+    """The main window existed and has been closed (by the player: X / Alt+F4). False when no window was ever made (the error is then a real one)."""
+    base = getattr(application, 'base', None)
+    if base is None:
+        return False
+    win = getattr(base, 'win', None)
+    if win is None:
+        return True
+    try:
+        return win.is_closed() or not win.get_properties().get_open()
+    except Exception:
+        return True
 
 
 def _fatal(title: str, exc: BaseException):
