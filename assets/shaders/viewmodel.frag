@@ -4,7 +4,8 @@
 uniform sampler2D p3d_Texture0;
 uniform sampler2D vm_normal_tex;
 uniform vec4 vm_mat;            // gloss, highlight sharpness, environment reflection, normal map strength
-uniform vec4 vm_sleeve;         // rgb sleeve colour; a = 1 replaces the texture's skin colour with the sleeve colour (the forearm in the asset is bare skin)
+uniform vec4 vm_skin;           // rgb bare-skin colour; a = 1 on the skin material (Hand_D: the fingers and forearm that no glove covers), 0 on everything else
+uniform float vm_skin_detail;   // 0 = flat skin colour shaded only by the texture's light / dark, 1 = the texture's own colours (the file's forearm has a twisted pattern)
 uniform vec3 vm_view_x;         // world camera's right / up / forward axes (changes every frame)
 uniform vec3 vm_view_y;
 uniform vec3 vm_view_z;
@@ -48,9 +49,10 @@ vec3 mapped_normal(vec3 n) {
 
 void main() {
     vec4 base = texture(p3d_Texture0, v_uv);
-    if (vm_sleeve.a > 0.5) {
-        float l = dot(base.rgb, vec3(0.3, 0.6, 0.1));
-        base.rgb = vm_sleeve.rgb * (0.55 + 0.9 * l);
+    if (vm_skin.a > 0.5) {
+        // skin: the chosen colour carries the tone, the texture only adds its shading; `vm_skin_detail` lets the texture's own colour variation back in
+        float l = dot(base.rgb, vec3(0.3, 0.6, 0.1));                 // 0.62 = the mean luminance of the skin texture in both glb files
+        base.rgb = mix(vm_skin.rgb * clamp(l / 0.62, 0.45, 1.35), base.rgb, vm_skin_detail) * vm_albedo;
     }
     else base.rgb *= vm_albedo;
     vec3 n = normalize(v_normal);

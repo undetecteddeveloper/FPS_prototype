@@ -135,7 +135,8 @@ class Viewmodel:
         """Push the `GunData.view_light` material into the gun shader (at build time, and every time the debug panel changes a value; only a few uniforms change)."""
         light = self.gun.view_light
         self.root.set_shader_input('vm_mat', Vec4(light.specular, light.gloss, light.env, light.normal_strength))
-        self.root.set_shader_input('vm_sleeve', Vec4(*light.sleeve_color, 0.0))
+        self.root.set_shader_input('vm_skin', Vec4(*light.skin_color, 0.0))
+        self.root.set_shader_input('vm_skin_detail', float(light.skin_detail))
         self.root.set_shader_input('vm_albedo', float(light.albedo))
         flash = self.gun.flash
         self.root.set_shader_input('vm_flash_falloff', float(flash.gun_falloff))
@@ -145,7 +146,7 @@ class Viewmodel:
             for np_ in nodes:
                 np_.set_shader_input('vm_mat', Vec4(light.specular * sp, light.gloss * gl, light.env * en, light.normal_strength))
                 np_.set_shader_input('vm_albedo', float(light.albedo * al))
-                np_.set_shader_input('vm_sleeve', Vec4(*light.sleeve_color, 1.0 if name == 'Hand_D' else 0.0))
+                np_.set_shader_input('vm_skin', Vec4(*light.skin_color, 1.0 if name == 'Hand_D' else 0.0))
 
     def set_flash_light(self, view_pos, color, falloff: float = None):
         """Muzzle flash light. `view_pos` in the gun-scene frame (x right, y up, z forward); `color` black = off. Lights both the gun and the world (FrameLight)."""

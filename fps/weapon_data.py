@@ -201,7 +201,8 @@ class ViewLightData:
     env: float = 0.35                     # faint environment reflection (multiplied by the local ambient light: it vanishes in dark spots)
     normal_strength: float = 1.0          # strength of the normal map
     albedo: float = 1.25                  # multiplies the texture color: the gun texture is very dark and would lose all detail through the harsh tone curve
-    sleeve_color: tuple = (0.060, 0.062, 0.058)   # sleeve color covering the forearm skin (the asset is bare skin with twisted texture)
+    skin_color: tuple = (0.58, 0.37, 0.27)      # bare skin of the Hand_D material (fingers and forearm outside the gloves); was a near-black "sleeve" until 8/11/2026, which read as black hands
+    skin_detail: float = 0.45                     # 0 = flat skin colour shaded by the texture's light / dark, 1 = the texture's own colours (the file's forearm has a twisted pattern)
 
 
 @dataclass

@@ -62,6 +62,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - Phần súng không skin (Bolt, Mag1, Trigger...) đi theo nút `<Tên>_M4_D_0-parent`, gốc ở (0,0,0) lúc bind pose vì đỉnh mesh là toạ độ tuyệt đối; muốn vị trí thật dùng `getTightBounds`.
 - `Mag2` và hai viên đạn là đồ của clip reload: ngoài reload chúng lơ lửng dưới/phải súng, ẩn khi không reload.
 - Cẳng tay trái có vân da xoáy (đặc tính asset, chỉ lộ một mẩu ở mép dưới-trái màn hình).
+- Da tay = vật liệu `Hand_D` (cả M4 lẫn Glock; chỉ là đầu ngón tay + chỗ găng không che), tô bằng `ViewLightData.skin_color` / `skin_detail` (F1 "Vật liệu súng"). Đừng ép nó thành màu "tay áo" tối như bản trước 8/11/2026: tay trông đen thui. Mu bàn tay và cẳng tay phần lớn là mesh `Glove_D` (tối, có chủ ý).
 - File CÓ normal map và tangent; `gltf_patch` bỏ chúng lúc nạp (đường cố định của Panda không dùng được), `game/gltf_maps.py` đọc lại cho shader súng. Thân súng có specular 0 trong file: độ bóng là số chỉnh tay (`ViewLightData`).
 
 ## Ursina/Windows

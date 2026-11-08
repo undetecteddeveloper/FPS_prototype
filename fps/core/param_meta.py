@@ -445,7 +445,8 @@ META = {
     'gun.view_light.env': p('Phản chiếu mờ', 'ánh nền tại chỗ bắt lên mép kim loại; chỗ tối thì mất', 0, 2, 0.05),
     'gun.view_light.normal_strength': p('Độ nổi của bề mặt súng', 'normal map; 0 = phẳng', 0, 2.5, 0.05),
     'gun.view_light.albedo': p('Độ sáng màu súng', 'nhân màu texture', 0.3, 4, 0.05),
-    'gun.view_light.sleeve_color': rgb('Màu tay áo', 0.5, 0.005),
+    'gun.view_light.skin_color': rgb('Màu da tay', 1.2, 0.005),
+    'gun.view_light.skin_detail': p('Da tay: giữ vân texture', '0 = màu da đều; 1 = đúng màu texture (vân xoáy ở cẳng tay)', 0, 1, 0.05),
 
     # ---------------- Lens ----------------
     'lens.fisheye': p('Độ méo mắt cá', '0 = ảnh phẳng; giữa khung phóng (1 + số này) lần', 0, 0.6, 0.01),
@@ -673,7 +674,7 @@ GROUPS = (
         ('Sàn ướt, vết chân', ('splash.puddles', 'splash.puddle_scale', 'splash.wet_reach', 'splash.wet_darken', 'splash.wet_reflect',
                                'splash.print_spacing', 'splash.print_life', 'splash.feet_dry')),
         ('Vật liệu súng (ánh sáng lấy từ cảnh)', ('gun.view_light.specular', 'gun.view_light.gloss', 'gun.view_light.env',
-                                                  'gun.view_light.normal_strength', 'gun.view_light.albedo', 'gun.view_light.sleeve_color')),
+                                                  'gun.view_light.normal_strength', 'gun.view_light.albedo', 'gun.view_light.skin_color', 'gun.view_light.skin_detail')),
     )),
     ('move', 'Di chuyển', (
         ('Tốc độ', ('player.walk_speed', 'player.sprint_speed', 'player.crouch_speed', 'player.accel_ground', 'player.accel_air')),
