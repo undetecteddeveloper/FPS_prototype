@@ -21,7 +21,8 @@ def _run(tmp_path, body: str):
         sysmem.show_error = lambda title, text: print('BOX|' + title + '|' + text.replace(chr(10), ' '))
     ''') + textwrap.dedent(body)
     p = subprocess.run([sys.executable, '-X', 'utf8', '-c', child], capture_output=True, timeout=120)
-    return p, p.stdout.decode('utf-8', 'replace'), (tmp_path / 'crash.log').read_text(encoding='utf-8')
+    log = tmp_path / 'crash.log'
+    return p, p.stdout.decode('utf-8', 'replace'), log.read_text(encoding='utf-8') if log.exists() else ''
 
 
 def test_an_error_while_building_shows_a_box_and_logs(tmp_path):
@@ -60,3 +61,23 @@ def test_a_long_message_is_cut_for_the_box(tmp_path):
     box = next(line for line in out.splitlines() if line.startswith('BOX|'))
     assert len(box) < 700 and box.count('x') <= 400
     assert 'x' * 5000 in log                      # the log keeps everything
+
+
+def test_a_bad_size_argument_is_a_message_not_a_traceback(tmp_path):
+    p, out, _ = _run(tmp_path, '''
+        app.create_game = lambda *a, **k: (_ for _ in ()).throw(AssertionError('must not build'))
+        app.main(['--window', '--size', '1280-720'])
+    ''')
+    assert p.returncode == 2, (out, p.stderr[-800:])
+    assert 'BOX|Tham số không hợp lệ|' in out and 'RỘNGxCAO' in out
+    assert b'Traceback' not in p.stderr
+
+
+def test_an_unreadable_monitor_list_falls_back(monkeypatch):
+    import screeninfo
+    import fps.app as app
+
+    def boom():
+        raise screeninfo.common.ScreenInfoError('no monitors')
+    monkeypatch.setattr(screeninfo, 'get_monitors', boom)
+    assert app.desktop_size() == (1280, 720)

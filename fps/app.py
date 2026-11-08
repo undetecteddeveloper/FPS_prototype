@@ -34,6 +34,7 @@ from fps.game.hud import Hud, Notice, setup_fonts  # noqa: E402
 from fps.core.graphics import GraphicsSettings, clamp_level, from_json, preset_of, resolve, settings_for, to_json  # noqa: E402
 from fps.game.graphics_panel import GraphicsPanel  # noqa: E402
 from fps.core.safeio import write_text_atomic  # noqa: E402
+from fps.core.screen import FALLBACK as FALLBACK_SIZE, parse_size, primary_size  # noqa: E402
 from fps.game.lens import Lens  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
 from fps.game.player import Player  # noqa: E402
@@ -543,11 +544,22 @@ class Game(Entity):
 
 
 def desktop_size() -> tuple:
-    """Real resolution of the primary monitor."""
-    from screeninfo import get_monitors
-    monitors = get_monitors()
-    primary = next((m for m in monitors if m.is_primary), monitors[0])
-    return primary.width, primary.height
+    """Real resolution of the primary monitor; 1280x720 if it cannot be read (screeninfo raises on some remote / headless sessions)."""
+    try:
+        from screeninfo import get_monitors
+        monitors = get_monitors()
+    except Exception as e:
+        print(f'[màn hình] không đọc được độ phân giải ({e}), dùng {FALLBACK_SIZE[0]}x{FALLBACK_SIZE[1]}')
+        monitors = []
+    return primary_size(monitors)
+
+
+class _ArgParser(argparse.ArgumentParser):
+    """A wrong argument is shown in a message box too: the windowed exe has no console, so argparse's usual stderr line would be invisible."""
+
+    def error(self, message):
+        sysmem.show_error('Tham số không hợp lệ', f'{message}\n\n{self.format_usage()}')
+        self.exit(2)
 
 
 def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, quit_after: float = 0.0,
@@ -581,11 +593,18 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     return game
 
 
+def _size_arg(text: str) -> tuple:
+    try:
+        return parse_size(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser()
+    ap = _ArgParser()
     ap.add_argument('--novsync', action='store_true')
     ap.add_argument('--window', action='store_true', help='chạy trong cửa sổ thường (mặc định: lấp đầy màn hình)')
-    ap.add_argument('--size', default='1280x720', help='cỡ cửa sổ khi dùng --window')
+    ap.add_argument('--size', default='1280x720', type=_size_arg, help='cỡ cửa sổ khi dùng --window, ví dụ 1280x720')
     ap.add_argument('--quit-after', type=float, default=0.0)
     ap.add_argument('--mute', action='store_true', help='tắt tiếng súng')
     ap.add_argument('--gun', default='m4', choices=sorted(GUNS), help='súng dùng khi khởi động (m4 / glock)')
@@ -602,7 +621,7 @@ def main(argv=None):
         sysmem.show_error('Không đủ bộ nhớ để mở game', mem.message)
         sys.exit(1)
     # default: a borderless window covering the whole screen. Exclusive fullscreen with vsync drops straight to 30 FPS whenever one frame is late; this does not
-    size = tuple(int(v) for v in args.size.lower().split('x')) if args.window else desktop_size()
+    size = args.size if args.window else desktop_size()
     sysmem.start_watchdog(STARTUP_WATCHDOG_S)
     try:
         game = create_game(vsync=not args.novsync, size=size, borderless=not args.window,
