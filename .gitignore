@@ -9,3 +9,4 @@ user_params*.json
 assets/review/
 user_graphics.json
 logs/
+backups/
