@@ -564,6 +564,10 @@ class LookData:
     wind: tuple = (0.6, 0.0, 0.25)            # m/s: light steady wind (x right, y up, z forward of the spawn view); the gun smoke drifts with it
     ground_color: tuple = (1.0, 1.0, 1.0)     # pure white ground (decided by the user)
     detail_strength: float = 0.0              # strength of the noise on the ground (0 = plain, one flat colour)
+    # surface detail of the pool hall's tiles (assets/textures/tile_*; F2 'Chi tiết bề mặt' picks flat / normal map / parallax)
+    tile_depth_floor: float = 0.006           # m: how deep the grout joints of the deck look (parallax); the relief's normals were baked for this much (tools/build/surface_textures.py TILE_DEPTH_FLOOR)
+    tile_depth_wall: float = 0.003            # m: the same for the wall mosaic and the pool basin tiles
+    tile_bump: float = 1.0                    # strength of the tiles' normal map (0 = flat, 2 = twice the baked slope)
     # a thin grid on the ground: on a plain white floor there is nothing to show that the player is moving
     grid_strength: float = 0.85               # how dark the lines are (0 = no grid)
     grid_spacing: float = 2.0                 # m between two thin lines

@@ -14,6 +14,9 @@ uniform vec4 water_caus_domain;
 uniform sampler2D water_amb_up;     // baked room ambient on the floor plan (core/poolmap.py AmbientGrid): up- and down-facing irradiance at gun height
 uniform sampler2D water_amb_down;
 uniform vec4 water_amb_grid;        // x0, z0, step (m), -
+uniform sampler2D water_tile_color; // the pool tile: the wall mosaic texture (4 x 4 tiles; colour multiplier / TILE_GAIN) and its relief (R height, G / B normal x / y)
+uniform sampler2D water_tile_relief;
+uniform vec4 look_surface;          // x surface detail 0 / 1 / 2 (F2 'Chi tiết bề mặt'), w normal-map strength: the basin has the normal map from 1 up (no parallax: it is mostly seen through the water)
 
 const float ETA = 1.0 / 1.333;
 
@@ -26,13 +29,16 @@ const float ETA = 1.0 / 1.333;
 #define Q_CAUS false
 #define Q_GLINT false
 #define Q_FULL_UNDER false
+#define Q_SURF false
 #else
 #define Q_SIM (water_quality.x > 0.5)
 #define Q_BOTTOM (water_quality.y > 0.5)
 #define Q_CAUS (water_quality.z > 0.5)
 #define Q_GLINT (water_quality.w > 0.5)
 #define Q_FULL_UNDER (look_under3.x > 0.5)
+#define Q_SURF (look_surface.x > 0.5)
 #endif
+const float TILE_GAIN = 1.25;       // tools/build/make_surface_textures.py TILE_GAIN
 
 // height of the pool bottom at z (shelf / ramp / deep floor; steps ignored)
 float bottom_y(float z) {
@@ -42,20 +48,6 @@ float bottom_y(float z) {
 
 float basin_hash(vec2 p) {
     return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-}
-
-// tile pattern (same as room.frag): 1 on a tile, darker in the grout; fades to the average when a pixel covers a tile
-float basin_tile_shade(vec2 p, float size) {
-    vec2 q = p / size;
-    vec2 cell = floor(q);
-    vec2 edge = min(fract(q), 1.0 - fract(q));
-    vec2 fw = max(fwidth(q), vec2(1e-5));
-    vec2 line = 1.0 - smoothstep(vec2(0.06) - fw, vec2(0.06) + fw, edge);
-    float grout = max(line.x, line.y);
-    float blur = clamp(max(fw.x, fw.y) * 2.0, 0.0, 1.0);
-    grout = mix(grout, 1.0 - 0.88 * 0.88, blur);
-    float tone = 1.0 + (basin_hash(cell) - 0.5) * 0.12 * (1.0 - blur);
-    return mix(tone, 0.62, grout);
 }
 
 // focused sunlight at a point of the bottom or a wall: the texture is laid out where the light lands on the floor, so a point is looked up where the FLAT refracted sun ray
@@ -75,7 +67,15 @@ vec3 grid_ambient(sampler2D tex, vec2 xz) {
 // `caustics` = use the caustic texture (graphics level).
 vec3 shade_basin(vec3 hit, vec3 n, bool caustics) {
     vec2 metric = abs(n.y) > 0.5 ? hit.xz : (abs(n.x) > 0.5 ? hit.zy : hit.xy);
-    vec3 albedo = water_basin.rgb * basin_tile_shade(metric, water_basin.a);
+    vec2 q = metric / (water_basin.a * 4.0);                                        // the mosaic texture holds 4 x 4 tiles
+    vec3 albedo = water_basin.rgb * texture(water_tile_color, q).rgb * (TILE_GAIN * (1.0 + (basin_hash(floor(metric / water_basin.a)) - 0.5) * 0.12));
+    vec3 n_sun = n;                                                                 // the normal the sun and the caustics see: bent by the tile relief (the joints catch the light differently)
+    if (Q_SURF) {
+        vec2 tn = (texture(water_tile_relief, q).gb * 2.0 - 1.0) * look_surface.w;
+        vec3 T = abs(n.y) > 0.5 ? vec3(1.0, 0.0, 0.0) : (abs(n.x) > 0.5 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0));
+        vec3 B = abs(n.y) > 0.5 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+        n_sun = normalize(n * sqrt(max(1.0 - dot(tn, tn), 0.05)) + T * tn.x + B * tn.y);
+    }
 
     vec3 up = grid_ambient(water_amb_up, hit.xz), down = grid_ambient(water_amb_down, hit.xz);
     vec3 sky = (n.y > 0.5 ? up : 0.5 * (up + down)) * water_absorb.a;
@@ -90,7 +90,7 @@ vec3 shade_basin(vec3 hit, vec3 n, bool caustics) {
     float lit = sun_visible(entry);
     float cos_in = max(look_sun_dir.y, 0.0);
     float transmit = 1.0 - (0.02 + 0.98 * pow(1.0 - cos_in, 5.0));                  // Fresnel on the way in (the low sun loses about half)
-    vec3 sun = look_sun_color * (lit * transmit * max(dot(n, -sun_w), 0.0)) * exp(-water_absorb.rgb * s);
+    vec3 sun = look_sun_color * (lit * transmit * max(dot(n_sun, -sun_w), 0.0)) * exp(-water_absorb.rgb * s);
 
     vec3 sun_albedo = albedo;
     if (caustics && Q_CAUS) {
@@ -111,5 +111,5 @@ vec3 shade_basin(vec3 hit, vec3 n, bool caustics) {
 vec3 basin_mirror_simple(vec3 p, vec3 r, out float dist) {
     dist = min((p.y - bottom_y(p.z)) / max(-r.y, 0.05), 40.0);
     vec3 hit = p + r * dist;
-    return water_basin.rgb * 0.914 * grid_ambient(water_amb_up, hit.xz) * water_absorb.a;     // 0.914 = the tile pattern's average (basin_tile_shade)
+    return water_basin.rgb * 0.915 * grid_ambient(water_amb_up, hit.xz) * water_absorb.a;     // 0.915 = the tile texture's average colour multiplier (tools/build/make_surface_textures.py prints it)
 }

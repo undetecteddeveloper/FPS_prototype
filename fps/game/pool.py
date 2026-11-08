@@ -22,6 +22,7 @@ from fps.core.terrain import Terrain
 from fps.core.graphics import lite_room
 from fps.core.safeio import write_bytes_atomic, write_text_atomic
 from fps.game.shaders import load_glsl, prepare
+from fps.game.surface_tex import read_texture, white, flat_relief
 from fps.game.water import WaterSurface
 from fps.weapon_data import GameParams, GraphicsLevel, MapData
 
@@ -114,7 +115,35 @@ class PoolHall:
         n.set_shader_input('room_prints', self.prints)
         n.set_shader_input('room_pool', Vec4(x0, x1, z0, z1))
         self._push_wet()
+        self._bind_tiles()
         self.bind_reflection(self.node)
+
+    # ------------------------------------------------------------------ tile textures (surface detail)
+    def _bind_tiles(self):
+        """The procedural tile textures (assets/textures/tile_*, tools/build/make_surface_textures.py) on the room and, for the pool tile, on the water node (the basin under it inherits them).
+        Missing files: plain tiles without joints and a line printed once (the game still runs)."""
+        names = ('tile_floor_color', 'tile_floor_relief', 'tile_wall_color', 'tile_wall_relief')
+        tex = {n: read_texture(n, f'{n}.png', repeat=True, anisotropy=4) for n in names}
+        self.tiles_ok = all(t is not None for t in tex.values())
+        if not self.tiles_ok:
+            self.log('[gạch] thiếu assets/textures/tile_*.png (chạy tools/build/make_surface_textures.py): gạch trơn, không có mạch vữa')
+        self.surface = PTA_LVecBase4f.empty_array(1)               # x surface detail 0 / 1 / 2, y deck joint depth (m), z wall joint depth (m), w normal strength
+        self._surface_level = 2
+        n, w = self.node, self.water.node
+        n.set_shader_input('room_tile_color', tex['tile_floor_color'] or white())
+        n.set_shader_input('room_tile_relief', tex['tile_floor_relief'] or flat_relief())
+        n.set_shader_input('room_wall_color', tex['tile_wall_color'] or white())
+        n.set_shader_input('room_wall_relief', tex['tile_wall_relief'] or flat_relief())
+        n.set_shader_input('look_surface', self.surface)
+        w.set_shader_input('water_tile_color', tex['tile_wall_color'] or white())
+        w.set_shader_input('water_tile_relief', tex['tile_wall_relief'] or flat_relief())
+        w.set_shader_input('look_surface', self.surface)
+        self._push_surface()
+
+    def _push_surface(self):
+        look = self.params.look
+        level = self._surface_level if self.tiles_ok else 0
+        self.surface.set_element(0, Vec4(float(level), look.tile_depth_floor, look.tile_depth_wall, look.tile_bump))
 
     # ------------------------------------------------------------------ light and reflection files
     def _meta(self) -> dict:
@@ -343,6 +372,8 @@ class PoolHall:
     def set_level(self, g: GraphicsLevel):
         """Graphics level (F2): everything the map draws."""
         self.room_quality.set_element(0, Vec4(1.0 if g.wet else 0.0, 0, 0, 0))
+        self._surface_level = g.surface
+        self._push_surface()
         lite = lite_room(g)
         if lite != self.room_lite:
             self.room_lite = lite
@@ -364,3 +395,4 @@ class PoolHall:
         self.water.apply_params()
         self._push_shaft()
         self._push_wet()
+        self._push_surface()

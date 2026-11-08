@@ -104,18 +104,18 @@ def water_flags(g: GraphicsLevel) -> tuple:
 
 
 def lite_water(g: GraphicsLevel) -> bool:
-    """G13: the water quad can use its POOL_LITE build (every feature it reads is off, as on Low): no sim, clear water, caustics, sparkle, shafts; simple underwater."""
-    return g.sim_cols == 0 and not g.refraction and g.caustics == 0 and not g.glint and g.shaft_steps == 0 and g.under == 0
+    """G13: the water quad can use its POOL_LITE build (every feature it reads is off, as on Low): no sim, clear water, caustics, sparkle, shafts, relief; simple underwater."""
+    return g.sim_cols == 0 and not g.refraction and g.caustics == 0 and not g.glint and g.shaft_steps == 0 and g.under == 0 and g.surface == 0
 
 
 def lite_basin(g: GraphicsLevel) -> bool:
-    """G13: the basin mesh can use its POOL_LITE build: no caustics, simple underwater."""
-    return g.caustics == 0 and g.under == 0
+    """G13: the basin mesh can use its POOL_LITE build: no caustics, no tile relief, simple underwater."""
+    return g.caustics == 0 and g.under == 0 and g.surface == 0
 
 
 def lite_room(g: GraphicsLevel) -> bool:
-    """G13: the room mesh can use its POOL_LITE build: no wet deck, no shafts."""
-    return not g.wet and g.shaft_steps == 0
+    """G13: the room mesh can use its POOL_LITE build: no wet deck, no shafts, no tile relief."""
+    return not g.wet and g.shaft_steps == 0 and g.surface == 0
 
 
 def cycle(s: GraphicsSettings, field: str, step: int) -> GraphicsSettings:

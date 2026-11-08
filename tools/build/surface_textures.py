@@ -239,3 +239,66 @@ def bullet_hole_atlas(cell: int = 256, cols: int = 2, rows: int = 2, base_seed: 
         nxy[..., 1] *= -1.0                                        # array rows run DOWN the image, texture v runs UP
         relief[sl] = pack_relief(h, nxy)
     return color, relief
+
+
+# ------------------------------------------------------------------ ceramic tiles with grout joints (tile floor, tile walls, the pool basin)
+# The reference depths the relief's normals are baked with (metres of the whole 0..1 height range): the game's `LookData.tile_depth_*` can be changed live, the normals only scale.
+TILE_DEPTH_FLOOR = 0.006
+TILE_DEPTH_WALL = 0.003
+
+
+def tile_texture(n: int, tiles: int, tile_m: float, grout: float, kind: str, seed: int, depth_m: float) -> tuple:
+    """A square of `tiles` x `tiles` ceramic tiles that repeats without a seam (grout lines are centred on the cell borders: the game lays it so cell borders fall on multiples of the tile size).
+
+    Returns (colour RGB float n x n x 3 as a MULTIPLIER of the tile colour the map gives each box (a tile face is ~1.0, grout ~0.6), height n x n in 0..1 with 1 = a tile face,
+    normal xy n x n x 2). `grout` = joint width as a share of the tile; `kind` 'floor' = matte glaze with anti-slip grit, 'wall' = glossy glaze with hairline crazing and pinholes.
+    `tile_m` / `depth_m` = the tile's size and the full height range in metres (they set how steep the baked normals are)."""
+    rng = np.random.default_rng(seed)
+    lin = (np.arange(n) + 0.5) / n * tiles                         # tile units
+    x, y = np.meshgrid(lin, lin)
+    fx, fy = x % 1.0, y % 1.0
+    tid = np.floor(y).astype(int) * tiles + np.floor(x).astype(int)
+    count = tiles * tiles
+    tone = rng.normal(0.0, 1.0, count)                             # per tile: colour shift
+    tilt_x, tilt_y = rng.normal(0.0, 1.0, count), rng.normal(0.0, 1.0, count)     # per tile: the tile is laid a little crooked (lippage): its normal differs from its neighbour's
+    tone_t, tx_t, ty_t = tone[tid], tilt_x[tid], tilt_y[tid]
+
+    px, py = np.abs(fx - 0.5), np.abs(fy - 0.5)
+    hs = 0.5 - grout / 2.0
+    r = 0.035 if kind == 'floor' else 0.05                         # rounded corners of a tile face
+    qx, qy = px - (hs - r), py - (hs - r)
+    sd = np.hypot(np.maximum(qx, 0.0), np.maximum(qy, 0.0)) + np.minimum(np.maximum(qx, qy), 0.0) - r      # < 0 inside the tile face, > 0 in the joint
+    bevel = 0.022 if kind == 'floor' else 0.016
+    face = smoothstep(0.0, bevel, -sd)                             # 0 in the joint, 1 on the tile (a bevelled edge between)
+
+    grit = fbm(n, seed + 1, base=tiles * 24, octaves=3)            # tiling noises: base is a multiple of the period
+    blotch = fbm(n, seed + 2, base=tiles * 3, octaves=3)
+    sand = fbm(n, seed + 3, base=tiles * 40, octaves=2)
+    ridge = 1.0 - np.abs(2.0 * fbm(n, seed + 4, base=tiles * 10, octaves=2) - 1.0)
+
+    # height: joint at the bottom (sandy), tiles up on top; each tile a little crooked, the glaze a little uneven
+    wavy = (grit - 0.5) * (0.020 if kind == 'floor' else 0.008) + (blotch - 0.5) * (0.010 if kind == 'floor' else 0.016)
+    lip = 0.012
+    height = 0.04 + 0.06 * sand + face * (0.90 + wavy + lip * (tx_t * (fx - 0.5) + ty_t * (fy - 0.5)))
+    height = np.clip(height, 0.0, 1.0)
+
+    # colour
+    face_col = 1.0 + 0.045 * tone_t + (blotch - 0.5) * 0.06
+    if kind == 'floor':
+        fine_grit = fbm(n, seed + 7, base=tiles * 96, octaves=2, gain=0.6)     # anti-slip grit: tiny sparse dots (the coarse `grit` noise made big stains)
+        speck = smoothstep(0.64, 0.70, fine_grit) * 0.11           # darker grains
+        fleck = smoothstep(0.66, 0.72, fbm(n, seed + 5, base=tiles * 110, octaves=2, gain=0.6)) * 0.09     # lighter grains
+        face_col = face_col - speck + fleck
+    else:
+        craze = smoothstep(0.972, 0.992, ridge) * 0.09             # hairline crazing in the glaze
+        pin = smoothstep(0.88, 0.93, fbm(n, seed + 6, base=tiles * 56, octaves=1)) * 0.22     # pinholes
+        face_col = face_col - craze - pin
+    arris = 1.0 - smoothstep(0.0, 0.05, -sd)                      # right at the tile edge: chipped, a little darker
+    chips = smoothstep(0.66, 0.74, grit) * arris
+    face_col = face_col - 0.12 * chips
+    grout_col = (0.60 + 0.30 * (sand - 0.5)) * (0.70 + 0.30 * smoothstep(0.0, grout * 0.7, np.maximum(sd, 0.0)))    # darker where the joint meets the tile (ambient occlusion baked in)
+    tint_grout = np.array([1.00, 0.97, 0.92])
+    colour = face[..., None] * face_col[..., None] * np.ones(3) + (1.0 - face)[..., None] * grout_col[..., None] * tint_grout
+    colour = colour * (0.78 + 0.22 * smoothstep(0.0, 0.5, height))[..., None]          # cavity: the joint bottom reads darker than its own colour
+    slope = depth_m / (tile_m / (n / tiles))                      # metres of height per metre across one pixel: the steepness of one full 0..1 step per pixel
+    return np.clip(colour, 0.0, 1.4), height, normals_from_height(height, slope=slope, tile=True)

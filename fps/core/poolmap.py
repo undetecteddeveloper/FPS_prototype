@@ -16,7 +16,8 @@ from fps.weapon_data import LookData, MapData
 
 EPS = 1e-6
 UV_AXES = {0: (2, 1), 1: (0, 2), 2: (0, 1)}      # normal axis -> (u axis, v axis) lying in the face
-BAKE_VERSION = 3                                  # bump when the bake / geometry code changes in a way the stored files cannot reflect (2: the window reveals are drawn; 3: the ladder casts a sun shadow)
+REFLECT_VERSION = 2                               # bump when what the room LOOKS like changes (the stored reflection image is a picture of it): 2 = textured tiles with joints (8/11/2026)
+BAKE_VERSION = 3                                # bump when the bake / geometry code changes in a way the stored files cannot reflect (2: the window reveals are drawn; 3: the ladder casts a sun shadow)
 FLOOR = -2.6                                      # bottom of every slab (never visible; below the deep end of the pool)
 
 
@@ -322,7 +323,7 @@ class AmbientGrid:
 
 def reflect_key(d: MapData, look: LookData, lens) -> str:
     """Hash for the stored reflection image: everything the light depends on, plus what changes the picture after the tone curve (exposure, fog colour)."""
-    text = repr((bake_key(d, look), look.exposure, look.fog_color, look.fog_density, lens.auto_exposure, lens.exposure_key, lens.exposure_min, lens.exposure_max))
+    text = repr((REFLECT_VERSION, bake_key(d, look), look.exposure, look.fog_color, look.fog_density, lens.auto_exposure, lens.exposure_key, lens.exposure_min, lens.exposure_max))
     return hashlib.sha1(text.encode()).hexdigest()[:16]
 
 

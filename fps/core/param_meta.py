@@ -354,6 +354,9 @@ META = {
     'look.grid_strength': p('Lưới mặt đất: độ đậm', '0 = không có lưới; lưới giúp thấy mình đang di chuyển', 0, 1, 0.05),
     'look.grid_spacing': p('Lưới: khoảng cách vạch mảnh', 'mét', 0.5, 10, 0.5),
     'look.grid_major': p('Lưới: vạch đậm mỗi', 'bao nhiêu ô thì có một vạch đậm', 1, 20, 1),
+    'look.tile_depth_floor': p('Gạch sàn: mạch vữa sâu', 'mét; nhìn nghiêng thấy mạch lõm (mức F2 "Chi tiết bề mặt" Cao)', 0, 0.03, 0.0005),
+    'look.tile_depth_wall': p('Gạch tường / đáy hồ: mạch sâu', 'mét; như trên cho gạch ốp tường và lòng hồ', 0, 0.02, 0.0005),
+    'look.tile_bump': p('Gạch: độ gồ ghề', '0 = phẳng; 1 = như đã dựng; 2 = gấp đôi (mức F2 Vừa trở lên)', 0, 3, 0.05),
     'look.grid_width': p('Lưới: bề rộng vạch', 'mét, nửa bề rộng một vạch mảnh', 0.005, 0.15, 0.005, 'A'),
 
     # ---------------- Water (G9) ----------------
@@ -671,6 +674,7 @@ GROUPS = (
         ('Lội nước và tia nước', ('splash.wade_slow', 'splash.under_slow', 'splash.wake_spacing', 'splash.wake_push', 'splash.wake_radius', 'splash.wade_drops',
                                   'splash.bullet_drops', 'splash.bullet_speed', 'splash.bullet_cone', 'splash.land_drops', 'splash.land_speed', 'splash.land_cone',
                                   'splash.land_push', 'splash.land_radius', 'splash.speed_jitter', 'splash.drop_size', 'splash.drop_life', 'splash.gravity', 'splash.drag')),
+        ('Gạch: độ sâu và gồ ghề', ('look.tile_depth_floor', 'look.tile_depth_wall', 'look.tile_bump')),
         ('Tia nắng trong không khí', ('look.shaft_density', 'look.shaft_anisotropy', 'look.shaft_dust', 'look.shaft_range',
                                       'look.dust_size', 'look.dust_brightness', 'look.dust_box')),
         ('Sàn ướt, vết chân', ('splash.puddles', 'splash.puddle_scale', 'splash.wet_reach', 'splash.wet_darken', 'splash.wet_reflect',

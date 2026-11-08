@@ -141,6 +141,8 @@ def test_lite_builds_only_when_every_feature_they_drop_is_off():
     assert not lite_water(replace(low, glint=True)) and lite_basin(replace(low, glint=True))
     assert not lite_room(replace(low, shaft_steps=1)) and not lite_water(replace(low, shaft_steps=1))
     assert not lite_basin(replace(low, under=1)) and not lite_water(replace(low, under=1))
+    for node in (lite_room, lite_basin, lite_water):                  # the tile relief code is compiled out only while the surface detail is flat
+        assert not node(replace(low, surface=1)) and not node(replace(low, surface=2))
 
 
 def test_window_box_early_out_never_drops_sunlight():

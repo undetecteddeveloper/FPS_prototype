@@ -6,9 +6,8 @@ born or dies. The look (a crater with cracks, sunk in by parallax) is in assets/
 """
 import math
 import random
-from pathlib import Path
 
-from panda3d.core import (Filename, Geom, GeomNode, GeomTriangles, GeomVertexArrayFormat, GeomVertexData, GeomVertexFormat, GeomVertexWriter, InternalName,
+from panda3d.core import (Geom, GeomNode, GeomTriangles, GeomVertexArrayFormat, GeomVertexData, GeomVertexFormat, GeomVertexWriter, InternalName,
                           OmniBoundingVolume, PTA_LVecBase4f, SamplerState, Texture as PandaTexture, TransparencyAttrib, Vec4)
 from PIL import Image
 from ursina import Entity, application, scene
@@ -16,10 +15,10 @@ from ursina import Entity, application, scene
 from fps.core.ballistics import hole_size
 from fps.core.holes import HoleRing
 from fps.game.shaders import load_glsl, prepare
+from fps.game.surface_tex import flat_relief, read_texture, white
 from fps.weapon_data import FeedbackParams
 
 WHITE = (1.0, 1.0, 1.0, 1.0)
-ASSET_DIR = Path(__file__).resolve().parent.parent.parent / 'assets' / 'textures'
 CELLS = 2                         # the atlas is CELLS x CELLS different holes (decal.frag CELLS; tools/build/surface_textures.py bullet_hole_atlas)
 DEPTH = 0.16                      # deepest point of a hole as a share of the decal's width (tools/build/surface_textures.py HOLE_DEPTH: the relief's normals assume the same number)
 PARALLAX_STEPS = 12
@@ -47,22 +46,6 @@ def _vertex_format():
     return GeomVertexFormat.register_format(fmt)
 
 
-def _read_texture(name: str, path: Path, mipmaps: bool = True):
-    """The atlas PNG as a Panda texture, or None when it is missing / unreadable (the game then draws plain placeholder holes instead of stopping)."""
-    tex = PandaTexture(name)
-    try:
-        if not path.exists() or not tex.read(Filename.from_os_specific(str(path))):
-            return None
-    except Exception:
-        return None
-    tex.set_wrap_u(SamplerState.WM_clamp)
-    tex.set_wrap_v(SamplerState.WM_clamp)
-    tex.set_magfilter(SamplerState.FT_linear)
-    tex.set_minfilter(SamplerState.FT_linear_mipmap_linear if mipmaps else SamplerState.FT_linear)
-    tex.set_anisotropic_degree(4)
-    return tex
-
-
 def _placeholder_color() -> PandaTexture:
     """A plain dark round hole in every cell of a 2 x 2 atlas (used only when assets/textures/bullet_hole_color.png is missing)."""
     cell = 32
@@ -78,21 +61,6 @@ def _placeholder_color() -> PandaTexture:
     tex.set_ram_image_as(img.tobytes(), 'RGBA')
     tex.set_wrap_u(SamplerState.WM_clamp)
     tex.set_wrap_v(SamplerState.WM_clamp)
-    return tex
-
-
-def _flat_relief() -> PandaTexture:
-    """Height 1 (the surface) and a flat normal: no relief (a missing relief file)."""
-    tex = PandaTexture('hole_relief_flat')
-    tex.setup_2d_texture(1, 1, PandaTexture.T_unsigned_byte, PandaTexture.F_rgb)
-    tex.set_ram_image_as(bytes((255, 128, 128)), 'RGB')
-    return tex
-
-
-def _white() -> PandaTexture:
-    tex = PandaTexture('white')
-    tex.setup_2d_texture(1, 1, PandaTexture.T_unsigned_byte, PandaTexture.F_rgb)
-    tex.set_ram_image_as(bytes((255, 255, 255)), 'RGB')
     return tex
 
 
@@ -173,15 +141,15 @@ class HoleDecals:
         self.last_position = None           # last hole placed, world coordinates (for checks)
         self.last_size = 0.0
         self.level = 2
-        color = _read_texture('hole_color', ASSET_DIR / 'bullet_hole_color.png')
-        relief = _read_texture('hole_relief', ASSET_DIR / 'bullet_hole_relief.png')
+        color = read_texture('hole_color', 'bullet_hole_color.png')
+        relief = read_texture('hole_relief', 'bullet_hole_relief.png')
         self.textures_ok = color is not None and relief is not None
         if not self.textures_ok:
             print('[lỗ đạn] thiếu assets/textures/bullet_hole_*.png (chạy tools/build/make_surface_textures.py): dùng lỗ tròn tạm')
         e = self.entity
         e.set_shader_input('hole_color', color if self.textures_ok else _placeholder_color())
-        e.set_shader_input('hole_relief', relief if self.textures_ok else _flat_relief())
-        e.set_shader_input('room_lightmap', _white())
+        e.set_shader_input('hole_relief', relief if self.textures_ok else flat_relief())
+        e.set_shader_input('room_lightmap', white())
         e.set_shader_input('room_params', Vec4(1.0, 0.0, 0.0, 0.0))
         self.time = PTA_LVecBase4f.empty_array(1)
         self.quality = PTA_LVecBase4f.empty_array(1)

@@ -41,6 +41,7 @@ Three options, cheapest first. Which one is used is a product decision (does the
 - Frame-rate independence: ripples are functions of absolute time t, never accumulated per frame.
 
 ## Tiles (walls / ceiling)
+- NOTE 2026-11-08: the pool hall no longer draws tiles this way: room.frag / basin_common.glsl read numpy-built tile textures (colour + relief with real depth, parallax at the High level; docs/notes/surface-detail.md). What follows describes the old formula, still the cheap alternative.
 - Procedural in the fragment shader (no texture, no memory): grout lines from `fract(p / tile)`, anti-aliased with `fwidth` exactly like `grid_lines` in world.frag; per-tile brightness jitter from a hash of `floor(p / tile)`. Fade lines to their average coverage when a pixel covers a tile (avoids shimmer). Derivation, high.
 
 ## Project integration notes (from reading the code 2026-11-07)
