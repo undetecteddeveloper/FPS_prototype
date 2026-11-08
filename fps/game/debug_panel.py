@@ -167,8 +167,9 @@ class _Row:
             return
         store, p = self.panel.store, self.panel
         v = store.get(spec)
+        default = store.default_of(spec)               # the gun IN HAND's number for gun sliders
         changed = not store.is_default(spec)
-        key = (v, changed)
+        key = (v, changed, default)
         if key == self.cache:
             return
         self.cache = key
@@ -181,7 +182,7 @@ class _Row:
             _set_rect(self.fill, tx0, self.yc - 0.0025, x, self.yc + 0.0025)
             self.handle.x = x
             self.fill.color = AMBER if changed else ACCENT_DIM
-            self.tick.x = tx0 + (tx1 - tx0) * self.frac(spec, spec.default)
+            self.tick.x = tx0 + (tx1 - tx0) * self.frac(spec, default)
             self.tick.enabled = changed
         else:
             on = bool(v) if spec.kind == 'bool' else v is not False
@@ -222,7 +223,7 @@ class DebugPanel:
 
         _quad(r, x0, -0.5, x1, 0.5, BG, Z_BG)
         _quad(r, x1, -0.5, x1 + 0.0015, 0.5, color.rgba(0.36, 0.76, 1.0, 0.35), Z_BG)
-        UiText('BẢNG CHỈNH THÔNG SỐ', (x0 + 0.018, 0.5 - 0.026), origin=(-0.5, 0), scale=1.05, tint=WHITE, shadow=False, parent=r, z=Z_TEXT)
+        self.title = UiText('BẢNG CHỈNH THÔNG SỐ', (x0 + 0.018, 0.5 - 0.026), origin=(-0.5, 0), scale=1.05, tint=WHITE, shadow=False, parent=r, z=Z_TEXT)
         self.fps_text = UiText('', (x1 - 0.018, 0.5 - 0.026), origin=(0.5, 0), scale=0.85, tint=FAINT, shadow=False, parent=r, z=Z_TEXT)
         UiText('Kéo thanh để chỉnh  ·  chuột phải: về mặc định  ·  lăn chuột: cuộn  ·  F1 / Esc: đóng',
                (x0 + 0.018, 0.5 - 0.054), origin=(-0.5, 0), scale=0.75, tint=FAINT, shadow=False, parent=r, z=Z_TEXT)
@@ -230,7 +231,7 @@ class DebugPanel:
         # the game has no HUD: key hints and the credit are shown here, bottom-right of the screen
         br = window.bottom_right
         UiText('R nạp đạn   ·   B đổi chế độ bắn   ·   Esc nhả chuột   ·   Alt+F4 thoát game', br + (-0.02, 0.040), origin=(0.5, -0.5), scale=0.8, tint=FAINT, parent=r, z=Z_TEXT)
-        UiText(self.game.params.gun.credit, br + (-0.02, 0.014), origin=(0.5, -0.5), scale=0.75, tint=FAINT, parent=r, z=Z_TEXT)
+        self.credit = UiText(self.game.params.gun.credit, br + (-0.02, 0.014), origin=(0.5, -0.5), scale=0.75, tint=FAINT, parent=r, z=Z_TEXT)
 
         # group tabs: two rows
         self.tabs = []
@@ -262,7 +263,7 @@ class DebugPanel:
         # panel footer
         fy = self.rows_bottom - 0.014
         bw = (PANEL_W - 0.036 - 0.012) / 3
-        names = (('Lưu', self.save), ('Nạp', self.load), ('Mặc định (tất cả)', self.reset_all))
+        names = (('Lưu', self.save), ('Nạp', self.load), ('Mặc định súng này', self.reset_all))
         self.footer = []
         for n, (text, fn) in enumerate(names):
             bx = x0 + 0.018 + n * (bw + 0.006)
@@ -353,6 +354,9 @@ class DebugPanel:
         self._hidden_hud = [t for t in (hud.fps_text, hud.hint, hud.credit) if t.enabled] if hud else []
         for t in self._hidden_hud:
             t.enabled = False
+        gun = g.params.gun                                 # the panel edits the gun in hand (its own defaults): say which one
+        self.title.text = f'BẢNG CHỈNH THÔNG SỐ  ·  {gun.name}'
+        self.credit.text = gun.credit
         self._refresh_all()
 
     def hide(self):
@@ -394,7 +398,8 @@ class DebugPanel:
 
     def reset_all(self):
         n = self.store.reset_all()
-        self._say(f'Đã đặt lại {n} thanh về mặc định.' if n else 'Mọi thanh đang ở mặc định rồi.', ok=True)
+        name = self.game.params.gun.name
+        self._say(f'Đã đặt lại {n} thanh của {name} về mặc định.' if n else f'Mọi thanh của {name} đang ở mặc định rồi.', ok=True)
         self._refresh_all()
 
     def save(self):

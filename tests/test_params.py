@@ -180,7 +180,10 @@ def test_save_load_roundtrip(tmp_path, store):
     path = tmp_path / 'user_params.json'
     assert store.save(path).ok
     data = json.loads(path.read_text(encoding='utf-8'))
-    assert data['version'] == 1 and set(data['values']) == {s.id for s in store.changed_specs()}   # only writes values that differ from the default
+    changed = {s.id for s in store.changed_specs()}                    # only writes values that differ from the default
+    assert data['version'] == 2
+    assert set(data['values']) | set(data['guns']['m4']) == changed and not set(data['values']) & set(data['guns']['m4'])
+    assert all(k.startswith('gun.') for k in data['guns']['m4']) and not any(k.startswith('gun.') for k in data['values'])
     other = ParamStore(fresh())
     rep = other.load(path)
     assert rep.ok and rep.applied == 7 and not rep.ignored

@@ -105,7 +105,7 @@ class Game(Entity):
             params.audio.sound_files = {**params.audio.sound_files, **params.gun.sound_files}
         # live parameter store (G6): defaults are snapshotted FIRST, then (if requested) user_params.json is loaded BEFORE the parts are built, so even numbers read only once at build time
         # (rounds in the magazine...) take effect. Every module keeps the same dataclass objects as `params`.
-        self.params_store = ParamStore(params)
+        self.params_store = ParamStore(params, gun_key=gun_name)       # gun sliders belong to the gun in hand (per-gun defaults, 8/11/2026)
         self.params_report = self.params_store.load(USER_PARAMS) if user_params and USER_PARAMS.exists() else None
         if self.params_report is not None:
             print(f'[thông số] {USER_PARAMS.name}: {self.params_report.message}')
@@ -291,6 +291,7 @@ class Game(Entity):
     def _build_kit(self, name: str) -> GunKit:
         """Build a gun's parts (0.5-1.7 s: glb + skeleton, normal maps, sounds), warm its shaders on the GPU, and park it. Leaves `params.audio` merged for that gun."""
         gun = copy.deepcopy(GUNS[name])
+        self.params_store.register_gun(name, gun)       # the panel numbers saved for this gun go in BEFORE its parts read them
         if not self._free_aim:
             gun.free_aim.barrel_aim = False
         self._merge_audio(gun)                          # Foley loads the sound banks its gun's cues name
@@ -332,6 +333,7 @@ class Game(Entity):
             kit = self._build_kit(name)
         gun = kit.gun
         self.params.gun = gun
+        self.params_store.set_gun(name, gun)            # F1 sliders, defaults and reset now follow this gun
         self._merge_audio(gun)
         self.player.set_gun(gun)
         self.wall_ready.d = gun.wall                   # G14: the raise amount carries over (a gun swap beside a wall keeps it up); the new gun's reach and numbers apply
@@ -340,6 +342,8 @@ class Game(Entity):
         kit.viewmodel.overscan = self.viewmodel.overscan     # this frame's value (Game.update set it on the old gun already): no one-frame FOV pop
         self.viewmodel, self.fx, self.audio, self.foley = kit.viewmodel, kit.fx, kit.audio, kit.foley
         self.viewmodel.unpark()
+        # numbers pushed to the GPU at build / on change (gun light, muzzle flash on the world): a gun loaded from the file while parked was never pushed
+        self._on_params_changed([s for s in self.params_store.specs if s.path in ('gun.view_light', 'gun.flash')])
         if self.foley:
             self.foley.resume()
         if self.shake is not None:                      # keep the running shake / head state (rebuilding it would jolt the lens frame mid-switch): only swap the data
