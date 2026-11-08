@@ -604,14 +604,33 @@ def main(argv=None):
     # default: a borderless window covering the whole screen. Exclusive fullscreen with vsync drops straight to 30 FPS whenever one frame is late; this does not
     size = tuple(int(v) for v in args.size.lower().split('x')) if args.window else desktop_size()
     sysmem.start_watchdog(STARTUP_WATCHDOG_S)
-    game = create_game(vsync=not args.novsync, size=size, borderless=not args.window,
-                       quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake, low_memory=mem.low_memory)
+    try:
+        game = create_game(vsync=not args.novsync, size=size, borderless=not args.window,
+                           quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake, low_memory=mem.low_memory)
+    except Exception as e:                       # G16 (A3): a missing file, a GPU that cannot make a buffer, a shader that does not compile...
+        sysmem.stop_watchdog()
+        _fatal('Game không mở được', e)
     sysmem.stop_watchdog()
     if mem.message:
         print(f'[bộ nhớ] {mem.message}')
         if mem.notice:
             game.notice.show(mem.notice, seconds=10.0)
-    game.app.run()
+    try:
+        game.app.run()                           # an exception in a frame or an input handler comes out of Panda's task loop here
+    except Exception as e:
+        _fatal('Game gặp lỗi và phải đóng', e)
+
+
+def _fatal(title: str, exc: BaseException):
+    """Log + message box, then exit 1. The game window is closed first: borderless full-screen it would cover the box, and it holds the mouse."""
+    try:
+        base = getattr(application, 'base', None)
+        if base is not None and base.win is not None:
+            base.closeWindow(base.win)
+    except Exception:                            # the window may be what broke: the message matters more
+        pass
+    sysmem.report_exception(title, exc)
+    sys.exit(1)
 
 
 if __name__ == '__main__':

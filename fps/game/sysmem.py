@@ -6,6 +6,7 @@ every thread to `logs/crash.log`, and stops Windows from holding the dead proces
 import datetime
 import faulthandler
 import sys
+import traceback
 from pathlib import Path
 
 LOG_LIMIT = 200_000                  # bytes: a bigger log is started again (it only ever needs the last few crashes)
@@ -53,7 +54,7 @@ def show_error(title: str, text: str):
         return
     try:
         import ctypes
-        ctypes.windll.user32.MessageBoxW(0, text, title, 0x10)         # MB_ICONERROR
+        ctypes.windll.user32.MessageBoxW(0, text, title, 0x10 | 0x10000 | 0x40000)      # MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST: above a full-screen window
     except (OSError, AttributeError):
         pass
 
@@ -78,13 +79,31 @@ def install_crash_log(path: Path, header: str):
         faulthandler.enable(_log_file, all_threads=True)
     except OSError as e:
         print(f'[crash log] không mở được {path}: {e}', file=sys.stderr)
-        faulthandler.enable(all_threads=True)
+        if sys.stderr is not None:             # the windowed exe has no stderr: faulthandler.enable() would raise
+            faulthandler.enable(all_threads=True)
     if sys.platform == 'win32':
         try:
             import ctypes
             ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002)         # SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX
         except (OSError, AttributeError):
             pass
+
+
+def report_exception(title: str, exc: BaseException, log_hint: str = r'logs\crash.log'):
+    """G16 (A3): an unexpected Python error must not end the game silently (the windowed exe has no console). The traceback goes to the console
+    and the crash log, then a message box says what happened and which file to send."""
+    tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    print(tb, file=sys.stderr)
+    if _log_file is not None:
+        try:
+            _log_file.write(f'--- {datetime.datetime.now():%Y-%m-%d %H:%M:%S} lỗi Python: {title}\n{tb}')
+            _log_file.flush()
+        except (OSError, ValueError):
+            pass
+    what = f'{type(exc).__name__}: {exc}'
+    if len(what) > 400:
+        what = what[:400] + '...'
+    show_error(title, f'{what}\n\nChi tiết đã ghi vào {log_hint} (trong thư mục game). Gửi file đó cho người làm game.')
 
 
 def start_watchdog(seconds: float):
