@@ -34,7 +34,7 @@ from fps.game.gun_audio import GunAudio  # noqa: E402
 from fps.game.hud import Hud, Notice, setup_fonts  # noqa: E402
 from fps.core.graphics import GraphicsSettings, clamp_level, from_json, preset_of, resolve, settings_for, to_json  # noqa: E402
 from fps.game.graphics_panel import GraphicsPanel  # noqa: E402
-from fps.core.safeio import write_text_atomic  # noqa: E402
+from fps.core.safeio import write_text_atomic_background  # noqa: E402
 from fps.core.screen import FALLBACK as FALLBACK_SIZE, parse_size, primary_size  # noqa: E402
 from fps.game.lens import Lens  # noqa: E402
 from fps.game.look import WorldLook  # noqa: E402
@@ -268,10 +268,8 @@ class Game(Entity):
                 node.set_shader(used, prio)
 
     def save_graphics(self):
-        try:
-            write_text_atomic(USER_GRAPHICS, to_json(self.gfx))       # G16: a crash mid-save keeps the old file whole
-        except OSError as e:
-            print(f'[đồ hoạ] không lưu được {USER_GRAPHICS.name}: {e}')
+        # G16: atomic (a crash mid-save keeps the old file whole) and off the frame (the temp file + rename took 30-70 ms on this drive: a hitch on closing F2)
+        self.graphics_save = write_text_atomic_background(USER_GRAPHICS, to_json(self.gfx), on_error=lambda e: print(f'[đồ hoạ] không lưu được {USER_GRAPHICS.name}: {e}'))
 
     # --- weapon switch (keys 1 / 2): holster clip of the gun in hand -> rebuild the gun-dependent parts -> draw clip of the new gun ---
     def request_gun(self, name: str):

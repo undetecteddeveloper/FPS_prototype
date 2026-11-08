@@ -59,3 +59,20 @@ def test_params_save_is_atomic(tmp_path, monkeypatch):
     monkeypatch.setattr('fps.core.safeio.os.replace', boom)
     assert not store.save(p).ok
     assert p.read_text(encoding='utf-8') == before
+
+
+def test_background_write_lands_and_newest_wins(tmp_path):
+    from fps.core.safeio import write_text_atomic_background
+    p = tmp_path / 'g.json'
+    threads = [write_text_atomic_background(p, f'v{i}') for i in range(20)]
+    for t in threads:
+        t.join(5)
+    assert p.read_text(encoding='utf-8') == 'v19'
+    assert [f.name for f in tmp_path.iterdir()] == ['g.json']
+
+
+def test_background_write_reports_errors(tmp_path):
+    from fps.core.safeio import write_text_atomic_background
+    errors = []
+    write_text_atomic_background(tmp_path / 'missing_dir' / 'g.json', 'x', on_error=errors.append).join(5)
+    assert len(errors) == 1 and isinstance(errors[0], OSError)

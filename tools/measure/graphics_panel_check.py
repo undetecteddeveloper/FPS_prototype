@@ -100,6 +100,7 @@ class S(Entity):
         panel.change(1, row=0)
         game.input('escape')
         yield from self.frames(5)
+        game.graphics_save.join(5)                                # the save runs on a background thread (G16)
         check('Esc closes, locks the mouse, saves the file', not panel.is_open and not p.ui_open and app_mod.USER_GRAPHICS.exists())
         print('saved:', app_mod.USER_GRAPHICS.read_text(encoding='utf-8').replace('\n', ' '))
         # back to off for a fair look
