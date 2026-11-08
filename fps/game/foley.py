@@ -81,7 +81,8 @@ class Foley:
         group = self.audio.sound_files.get(name, name)             # logical name -> file group (user-supplied or synthesized sounds)
         files = sorted(folder.glob(f'{group}_*.wav'))
         if not files:
-            raise FileNotFoundError(f'thiếu {folder}\{group}_*.wav: el_*: tools\build\prep_elevenlabs.py; boot_step: prep_pool_audio.py; glock_*: prep_glock_audio.py')
+            raise FileNotFoundError(f'thiếu {folder / (group + "_*.wav")} (dựng lại: el_*: tools/build/prep_elevenlabs.py; boot_step: prep_pool_audio.py; '
+                                    f'glock_*: prep_glock_audio.py)')      # (was '\b' in a plain string: a backspace character in the message)
         loader = application.base.loader
         n = max(1, copies or self.audio.pool)
         voices = [[loader.load_sfx(Filename.from_os_specific(str(f))) for _ in range(n)] for f in files]

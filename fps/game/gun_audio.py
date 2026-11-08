@@ -20,6 +20,9 @@ class GunAudio:
         loader = application.base.loader
         # shot_sound: one path or several variants; the copies in the ring take the variants in turn, so two consecutive shots do not sound identical
         files = (gun.shot_sound,) if isinstance(gun.shot_sound, str) else tuple(gun.shot_sound)
+        for f in files:                    # G16 (C4): a missing file used to give a silent gun with no word about it (Panda loads a null sound)
+            if not (project_root / f).is_file():
+                raise FileNotFoundError(f'thiếu file tiếng súng {project_root / f}')
         self.sounds = [loader.load_sfx(Filename.from_os_specific(str(project_root / files[i % len(files)]))) for i in range(max(1, gun.shot_pool))]
         self._next = 0
         self.played = 0                    # number of sounds played (for checks)
