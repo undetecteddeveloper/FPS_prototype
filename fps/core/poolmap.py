@@ -16,7 +16,7 @@ from fps.weapon_data import LookData, MapData
 
 EPS = 1e-6
 UV_AXES = {0: (2, 1), 1: (0, 2), 2: (0, 1)}      # normal axis -> (u axis, v axis) lying in the face
-BAKE_VERSION = 2                                  # bump when the bake / geometry code changes in a way the stored files cannot reflect (2: the window reveals are drawn)
+BAKE_VERSION = 3                                  # bump when the bake / geometry code changes in a way the stored files cannot reflect (2: the window reveals are drawn; 3: the ladder casts a sun shadow)
 FLOOR = -2.6                                      # bottom of every slab (never visible; below the deep end of the pool)
 
 
@@ -31,6 +31,7 @@ class Box:
     solid: bool = False           # blocks walking sideways (walls, columns, the invisible window barriers)
     visible: bool = True          # drawn and lit (False: only a collision shape)
     bullets: bool = True          # stops bullets
+    caster: bool = False          # G14: not drawn, no collision, but it blocks the sun in the light bake: stands for the handrail tubes (meshes, not boxes) so they cast a shadow
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,7 @@ def build_map(d: MapData) -> PoolMap:
     for i in range(d.stair_count):
         boxes.append(_box(f'stair{i}', (d.stair_x[0], 0, z_start + i * d.stair_tread), (d.stair_x[1], d.stair_rise * (i + 1), hz), **floor_kw))
 
+    boxes += ladder_casters(d)
     interior = ((-hx, FLOOR, -hz), (hx, top, hz))
     return PoolMap(d, boxes, air, interior, (-px, px, -pz, pz, d.water_y), ramp)
 
@@ -477,22 +479,66 @@ def triangle_count(pm: PoolMap, rails: bool = True) -> int:
     return n
 
 
-# ------------------------------------------------------------------ handrails
+# ------------------------------------------------------------------ handrails / pool ladder (G14)
 RAIL_SIDES = 8
+LADDER_ANCHOR = 0.35            # the rails stand on the deck this far behind the pool edge
+LADDER_POST = 0.65              # height where the rail turns over the edge (m above the deck)
+LADDER_ARCH_POINTS = 15
+
+
+def ladder_x(d: MapData) -> tuple:
+    """x of the two rails: `ladder_width` apart, centred on the middle of the north steps' range (where the old handrails stood)."""
+    mid = sum(d.north_steps_x) / 2.0
+    return mid - d.ladder_width / 2.0, mid + d.ladder_width / 2.0
+
+
+def ladder_z(d: MapData) -> float:
+    """z of the rails' straight part under the arch: in front of the north pool wall by `ladder_standoff`."""
+    return d.pool_z / 2.0 - d.ladder_standoff
 
 
 def _rail_path(d: MapData, x: float) -> list:
-    """Centre line (x, y, z) of one handrail arch standing on the north deck edge and curving out over the water: up, a half circle over the pool, down into the water."""
+    """Centre line (x, y, z) of one rail of the pool ladder: up from the north deck, a half circle over the pool edge, then straight down along the north wall to the pool floor."""
     pz = d.pool_z / 2.0
-    anchor_z, r, h = pz + 0.35, 0.5, 0.65
-    cz = anchor_z - r
+    anchor_z, h = pz + LADDER_ANCHOR, LADDER_POST
+    leg = ladder_z(d)
+    r = (anchor_z - leg) / 2.0
+    cz = (anchor_z + leg) / 2.0
     pts = [(x, 0.0, anchor_z), (x, h * 0.5, anchor_z)]
-    for k in range(15):
-        a = math.pi * k / 14.0
+    for k in range(LADDER_ARCH_POINTS):
+        a = math.pi * k / (LADDER_ARCH_POINTS - 1)
         pts.append((x, h + r * math.sin(a), cz + r * math.cos(a)))
-    leg = cz - r
-    pts += [(x, h * 0.5, leg), (x, d.water_y - 0.2, leg)]
+    pts += [(x, h - 0.05, leg), (x, d.pool_deep, leg)]               # the tube ends flush with the pool floor
     return pts
+
+
+def rung_heights(d: MapData) -> list:
+    """y of the rungs: evenly from 0.30 m under the surface to 0.10 m above the floor."""
+    n = max(d.ladder_rungs, 1)
+    top, bottom = d.water_y - 0.30, d.pool_deep + 0.10
+    return [top] if n == 1 else [top + (bottom - top) * i / (n - 1) for i in range(n)]
+
+
+def ladder_casters(d: MapData) -> list:
+    """Boxes that stand for the part of the ladder above the water, for the light bake only (`Box.caster`): the sun shadow of the arches on the deck and the wall.
+    One box per three tube points (the tube is thin: the box is the points' bounds grown by the tube radius plus the arch's sagitta)."""
+    boxes = []
+    grow = d.rail_radius + 0.01
+    for n, x in enumerate(ladder_x(d)):
+        pts = _rail_path(d, x)
+        step, i, k = 2, 0, 0
+        while i < len(pts) - 1:
+            seg = pts[i:i + step + 1]
+            i += step
+            ys = [p[1] for p in seg]
+            if max(ys) <= d.water_y:
+                continue
+            lo = (min(p[0] for p in seg) - grow, max(min(ys) - grow, d.water_y), min(p[2] for p in seg) - grow)
+            hi = (max(p[0] for p in seg) + grow, max(ys) + grow, max(p[2] for p in seg) + grow)
+            boxes.append(Box(f'ladder_cast{n}_{k}', tuple(float(c) for c in lo), tuple(float(c) for c in hi), albedo=d.rail_albedo, tile=0.0,
+                             visible=False, bullets=False, caster=True))
+            k += 1
+    return boxes
 
 
 def _tube(path: list, radius: float, sides: int = RAIL_SIDES) -> tuple:
@@ -521,7 +567,10 @@ def _tube(path: list, radius: float, sides: int = RAIL_SIDES) -> tuple:
 
 
 def rail_meshes(pm: PoolMap) -> list:
-    """[(vertices, triangles)] for the two handrail arches standing on the two sides of the north steps."""
+    """[(vertices, triangles)] of the pool ladder on the north wall: the two rails first (arch over the pool edge, straight down to the floor), then the rungs between them."""
     d = pm.data
-    x0, x1 = d.north_steps_x
-    return [_tube(_rail_path(d, x), d.rail_radius) for x in (x0 - 0.06, x1 + 0.06)]
+    xa, xb = ladder_x(d)
+    leg = ladder_z(d)
+    meshes = [_tube(_rail_path(d, x), d.rail_radius) for x in (xa, xb)]
+    meshes += [_tube([(xa, y, leg), (xb, y, leg)], d.rung_radius) for y in rung_heights(d)]
+    return meshes

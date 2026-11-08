@@ -157,6 +157,9 @@ class SwayData:
     # sprint pose, ADDED to rest_pose and blended by player.sprint_amount: the gun drops below the camera and out of the frame (user 7/11/2026), pulled back a little and the muzzle tipped down.
     # Measured on both guns (rear sight, front sight, muzzle): >= 55 deg below the view axis, the frame's bottom edge is at 30 deg, so lens shake / bob (<= ~10 deg) never bring it back
     sprint_pose: tuple = (-0.01, -0.30, -0.10, -25.0, -16.0, 10.0)
+    # G14 High Ready (core/weaponcol.py), ADDED to rest_pose and blended by the wall raise amount: the barrel points up at the ceiling. The pitch turns the gun about the EYE, so the shift
+    # brings the receiver (rear sight) back to where the hands are at rest, 3 cm lower and 4 cm closer (the M4's numbers; the Glock sits 0.15 m farther out, see GLOCK; solved in tests/test_weaponcol.py)
+    wall_pose: tuple = (0.0, -0.175, 0.043, 65.0, 0.0, 0.0)
     # inertia from vertical camera motion (jump, crouch, stand up, fall)
     vlag_gain: float = 0.05
     vlag_max: float = 0.03                # m
@@ -440,6 +443,21 @@ class SmokeData:
 
 
 @dataclass
+class WallData:
+    """G14 weapon collision, 'High Ready' (core/weaponcol.py): standing too close to a wall, the gun points at the ceiling (SwayData.wall_pose), the more the closer the wall;
+    firing and aiming are locked while it is up (reloading still works). Distances are in units of the gun's reach (eye -> muzzle at rest: M4 0.78 m, Glock 0.60 m)."""
+    clear_ratio: float = 1.12             # the gun starts to rise when the wall is closer than this x reach
+    full_ratio: float = 0.52              # fully raised when closer than this x reach (the body stops 0.30 m from a wall: M4 full at 0.41 m, Glock at 0.31 m, so a wall you walk into is always fully up)
+    side_angle: float = 18.0              # deg: two more probe rays to each side of the view direction (an oblique wall, a corner)
+    in_time: float = 0.16                 # s to raise
+    out_time: float = 0.30                # s to lower again after stepping back
+    block_at: float = 0.30                # firing / aiming are locked from this share of the raise ...
+    block_hysteresis: float = 0.10        # ... and released below block_at - this (the trigger does not flicker at the threshold)
+    blocked_text: str = 'Quá sát tường'   # the small line at the bottom when the trigger is pulled while locked
+    blocked_time: float = 0.9             # s the line stays
+
+
+@dataclass
 class GunData:
     """Data for one gun. Adding a second gun = adding one GunData, no logic changes."""
     name: str
@@ -458,6 +476,7 @@ class GunData:
     free_aim: FreeAimData = field(default_factory=FreeAimData)
     head: HeadCamData = field(default_factory=HeadCamData)
     smoke: SmokeData = field(default_factory=SmokeData)
+    wall: WallData = field(default_factory=WallData)      # G14 High Ready near a wall
     # aiming (ADS)
     ads_time: float = 0.19                # s to go in / out
     ads_fov: float = 84.5                 # horizontal world FOV when fully aimed: with the lens distortion reduced (LensData.fisheye_ads), the center is magnified ~13%
@@ -728,6 +747,10 @@ class MapData:
     stair_rise: float = 0.17
     stair_tread: float = 0.35
     rail_radius: float = 0.028        # handrail tube radius (m)
+    ladder_width: float = 0.60        # G14: distance between the two ladder rails (centre to centre), centred on the middle of north_steps_x
+    ladder_standoff: float = 0.10     # the rails' centre line stands this far in front of the north pool wall (so the ladder hugs the wall down to the floor)
+    ladder_rungs: int = 5             # steps between the rails under the water: evenly from 0.30 m under the surface to 0.10 m above the floor
+    rung_radius: float = 0.020        # m
     wall_albedo: tuple = (0.74, 0.66, 0.50)       # tile colour of walls, ceiling and columns (linear)
     floor_albedo: tuple = (0.80, 0.75, 0.64)      # tile colour of the deck, steps and pool wall
     rail_albedo: tuple = (0.62, 0.64, 0.66)       # stainless steel
@@ -849,6 +872,7 @@ GLOCK = GunData(
     shot_sound=('assets/sounds/el_pistol_shot_0.wav', 'assets/sounds/el_pistol_shot_1.wav', 'assets/sounds/el_pistol_shot_2.wav'),
     shot_pool=4,
     hip_offset=(0.0, 0.0, 0.15),           # push the whole viewmodel forward a little: the pack's hands sit close to the eye
+    sway=SwayData(wall_pose=(0.0, -0.404, 0.173, 65.0, 0.0, 0.0)),     # G14 High Ready: the pitch turns the gun about the eye and the Glock sits farther out, so the shift is bigger than the M4's
     ads_eye_relief=0.38,                   # was 0.50: at 0.5 m the 2 mm front post was only a few pixels wide (user could not see it); 0.38 makes the sights ~30% larger. Tunable on F1
     shake=ShakeData(reload_beats={'reload': ((29, 'mag_out'), (45, 'seat')), 'reload_empty': ((135, 'mag_out'), (151, 'seat'), (164, 'bolt'))}),
     # measured with tools/measure/g8_measure.py (camera frame at rest, hip_offset not included)

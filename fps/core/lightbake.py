@@ -32,17 +32,17 @@ class BakeResult:
 
 
 class Occluders:
-    """The boxes that block light (visible ones), as arrays."""
+    """The boxes that block light (visible ones, and the G14 shadow casters that stand for the ladder tubes), as arrays."""
 
     def __init__(self, pm: PoolMap):
-        vis = [b for b in pm.boxes if b.visible]
-        self.box_index = np.array([i for i, b in enumerate(pm.boxes) if b.visible], dtype=np.int64)     # position in pm.boxes (Face.box)
+        vis = [b for b in pm.boxes if b.visible or b.caster]
+        self.box_index = np.array([i for i, b in enumerate(pm.boxes) if b.visible or b.caster], dtype=np.int64)     # position in pm.boxes (Face.box)
         self.lo = np.array([b.lo for b in vis], dtype=np.float64)
         self.hi = np.array([b.hi for b in vis], dtype=np.float64)
         self.albedo = np.array([b.albedo for b in vis], dtype=np.float64)
         self.albedo_by_box = np.zeros((len(pm.boxes), 3))                                               # indexed like Face.box / Gather.box
         for i, b in enumerate(pm.boxes):
-            if b.visible:
+            if b.visible or b.caster:
                 self.albedo_by_box[i] = b.albedo
 
 

@@ -17,7 +17,7 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 ```
 main.py  run.bat  requirements.txt  pytest.ini  CLAUDE.md  CREDITS.txt    <- cửa vào, cấu hình, sổ luật
 fps/        app.py (Game, create_game() dựng tất cả, prune_scene_entities(), main()), weapon_data.py (MỌI thông số, dataclass)
-  core/     toán thuần, KHÔNG import ursina, có pytest: underwater + wetlens (G12), memplan (chọn chế độ theo commit trống), movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, params + param_meta (bảng F1),
+  core/     toán thuần, KHÔNG import ursina, có pytest: weaponcol (G14, súng ngóc lên sát tường), underwater + wetlens (G12), memplan (chọn chế độ theo commit trống), movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, params + param_meta (bảng F1),
             freeaim, headcam, gaze, smoke, lens, exposure, easing, poolmap (map dựng từ hộp), lightbake (nướng ánh sáng, numpy), terrain (bậc thang + va chạm), waves (sóng nước), cubemap (ảnh phản chiếu 3×2)
   game/     ghép Ursina/Panda: player, combat, viewmodel, ground, sky, smoke, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake, debug_panel (F1), frame_light, lens, decals, gltf_maps, pool (phòng hồ bơi), water, pool_capture, sysmem (commit trống + crash log, không import ursina)
 assets/     guns/ (glb), sounds/ (wav; source/ = gốc, mp3 ElevenLabs, candidates/), shaders/ (GLSL, light_common.glsl dùng chung; room, water), maps/pool/ (ánh sáng nướng + ảnh phản chiếu, tự sinh)
@@ -28,7 +28,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 
 ## Quy ước
 - Mọi thông số súng/recoil/spread/sway nằm trong `fps/weapon_data.py`. Toán mới tách ra `fps/core/` (không import ursina) để pytest được; chỉ phần cần Ursina/Panda mới vào `fps/game/`.
-- Thứ tự mỗi khung hình cố định trong `Game.update`: `player.tick()` -> `combat.update()` -> `sway.update()` -> `head.update` + `shake_view.frame_offset` -> `viewmodel.update(kick, sway, free_aim, free_look)` -> `light.set_camera/set_exposure` -> `smoke.update` -> `lens.update(..., frame)`.
+- Thứ tự mỗi khung hình cố định trong `Game.update`: `player.tick()` -> `_update_wall()` (G14: tia dò tường, súng ngóc lên, khoá bắn / ngắm) -> `combat.update()` -> `sway.update()` -> `head.update` + `shake_view.frame_offset` -> `viewmodel.update(kick, sway, free_aim, free_look)` -> `light.set_camera/set_exposure` -> `smoke.update` -> `lens.update(..., frame)`.
   Đừng để từng đối tượng tự `update` riêng (thứ tự Ursina không đảm bảo, bắn sẽ dùng hướng nhìn của khung trước).
   Camera thế giới KHÔNG rung: mọi rung (bước, nhảy, bắn, nạp, ánh nhìn khi nạp) thành dịch + nghiêng cả khung ống kính (`game/camera_shake.py`, `core/lens.frame_shake`, `lens.frag`).
 - Cổng kiểm tra trước mỗi commit: pytest qua, game mở được và ≥ 60 FPS, không lỗi console.
@@ -80,6 +80,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - `docs/notes/ground-sky.md` (7/11/2026): nền, ánh sáng, bầu trời, Glock, `gltf_patch`, đổi súng / rút súng, những thứ đã xoá.
 - `docs/notes/range-lights-signs.md` (G6; phần phòng/đèn/bia/biển đã xoá, còn đúng: shake, bảng F1, foley, bước chân).
 - `docs/notes/pool-hall.md` (G9-G12): map phòng hồ bơi, camera dưới nước, nước, ánh sáng nướng sẵn, phản chiếu, bậc thang / va chạm, số đo.
+- `docs/notes/weapon-collision.md` (G14): súng chĩa lên (High Ready) khi sát tường, khoá bắn / ngắm, tia dò, tư thế, kiểm. Thân dừng cách tường 0,30 m (gờ hồ tính theo vòng tròn thân; ép phím tiến thật mới tái hiện được lỗi, đặt vị trí thì không: `docs/notes/pool-hall.md` G14). Thang hồ bơi bám thành bắc có bóng nắng nướng sẵn.
 - `docs/notes/performance.md` (G13): máy yếu ở mức Thấp, cách đo GPU / CPU và quy đổi, bẫy đo, bản biên dịch thay thế, số đo trước / sau.
 - `docs/notes/bodycam.md` (G7): FreeLook / FreeAim, headcam, lens, exposure, ánh sáng thống nhất, âm thanh ElevenLabs.
 - `docs/notes/ai-assets.md`: sinh tài nguyên AI, credit, skill học trước, thư mục review. `docs/notes/multiplayer.md`: hướng multiplayer.

@@ -22,6 +22,7 @@ from fps.core.headcam import HeadCam, reload_state  # noqa: E402
 from fps.core.movement import aim_direction  # noqa: E402
 from fps.core.params import ParamStore  # noqa: E402
 from fps.core.shake import Shake  # noqa: E402
+from fps.core.weaponcol import WallReady, probe_distance, reach_of  # noqa: E402
 from fps.game.camera_shake import ShakeView  # noqa: E402
 from fps.game.combat import Combat  # noqa: E402
 from fps.game.debug_panel import DebugPanel  # noqa: E402
@@ -150,6 +151,9 @@ class Game(Entity):
         self.shake_view = ShakeView(self.shake, self.head, params.lens) if shake else None      # all of it moves the LENS FRAME, not the world camera
         self.combat = Combat(params, self.player, self.world['colliders'], audio=self.audio, fx=self.fx, shake=self.shake)
         self.combat.aim_source = self._barrel_direction
+        self.wall_ready = WallReady(params.gun.wall)                           # G14 High Ready: the gun rises when a wall is close, firing / aiming locked meanwhile
+        self._wall_reach = reach_of(params.gun)
+        self._wall_solids = list(self.world['colliders'])
         self.combat.foley = self.foley
         self.combat.viewmodel = self.viewmodel
         self.look = WorldLook(params.look, self.world, self.combat.decals, self.light) if look else None
@@ -174,7 +178,7 @@ class Game(Entity):
         self._kits = {gun_name: GunKit(params.gun, self.viewmodel, self.fx, self.audio, self.foley)}     # gun key -> GunKit; `preload_guns` adds the others
         self.notice = Notice()                                                # a short line top-centre (e.g. the settings saved)
         self.notice_low = Notice((0.0, -0.40), 0.85, params.underwater.no_fire_text)   # G12: a small line at the bottom ("Không thể bắn ở đây")
-        self.combat.on_blocked = lambda: self.notice_low.show(params.underwater.no_fire_text, params.underwater.no_fire_time)
+        self.combat.on_blocked = self._on_blocked
         self.graphics_level = None
         self.gfx_panel = GraphicsPanel(self)                                  # F2: graphics options, built the first time it opens
         self.apply_graphics(self.gfx)
@@ -325,6 +329,8 @@ class Game(Entity):
         self.params.gun = gun
         self._merge_audio(gun)
         self.player.set_gun(gun)
+        self.wall_ready.d = gun.wall                   # G14: the raise amount carries over (a gun swap beside a wall keeps it up); the new gun's reach and numbers apply
+        self._wall_reach = reach_of(gun)
         self.light.gun = gun
         kit.viewmodel.overscan = self.viewmodel.overscan     # this frame's value (Game.update set it on the old gun already): no one-frame FOV pop
         self.viewmodel, self.fx, self.audio, self.foley = kit.viewmodel, kit.fx, kit.audio, kit.foley
@@ -376,6 +382,25 @@ class Game(Entity):
         if any(s.id == 'gun.ads_eye_relief' for s in specs):
             self.sway.ads_target = ads_target_for(self.params.gun)
 
+    def _on_blocked(self, reason: str = 'water'):
+        """The trigger was pulled where it cannot fire: a small line at the bottom of the screen."""
+        if reason == 'wall':
+            w = self.params.gun.wall
+            self.notice_low.show(w.blocked_text, w.blocked_time)
+        else:
+            u = self.params.underwater
+            self.notice_low.show(u.no_fire_text, u.no_fire_time)
+
+    def _update_wall(self, dt: float):
+        """G14, after the player moved: probe the walls ahead of the eye, raise / lower the gun (High Ready), lock the trigger and the aim button meanwhile."""
+        p, w = self.player, self.params.gun.wall
+        reach = self._wall_reach
+        eye = p.aim_ray()[0]
+        dist = probe_distance(eye, p.yaw, p.pitch, self._wall_solids, reach * w.clear_ratio + 0.05, w.side_angle)
+        self.wall_ready.update(min(dt, 0.05), dist, reach)
+        p.wall_amount = self.wall_ready.amount
+        p.wall_blocked = self.combat.wall_blocked = self.wall_ready.blocked
+
     def _water_feet(self):
         """G10, after the player moved: a landing in the water splashes, walking in it pushes waves (and kicks up a few drops)."""
         p, water, splash, s = self.player, self.pool.water, self.pool.splash, self.params.splash
@@ -411,9 +436,10 @@ class Game(Entity):
     def update(self):
         over = max(self.params.lens.overscan, 0.0) if self.lens else 0.0      # world and gun are drawn this much wider; the lens crops the middle (no black band when the frame swims)
         self.player.overscan = self.viewmodel.overscan = over
-        # fixed order: player (look/move) -> fire + reload (uses the view direction just updated) -> hand animation -> sway -> head + shake (-> lens frame) -> gun -> light, lens
+        # fixed order: player (look/move) -> wall probe (High Ready, G14) -> fire + reload (uses the view direction just updated) -> hand animation -> sway -> head + shake (-> lens frame) -> gun -> light, lens
         dt = time.dt
         self.player.tick()
+        self._update_wall(dt)
         if self.pool:
             self._water_feet()
         if self.look:

@@ -364,6 +364,44 @@ class Script(Entity):
         yield from wait(uwd.drop_life * 1.3 + 0.3)
         check('... and the lens is dry a few seconds later', not u.wetlens.active() and all(game.lens.drops[i][2] == 0.0 for i in range(12)) if game.lens else not u.wetlens.active())
         check('G12: out of the water: trigger allowed again, dust back, the basin no longer drawn', not combat.underwater and u.basin.is_hidden() and (game.dust is None or not game.dust.root.is_hidden()))
+
+        # --- G14: the body keeps its radius away from the pool walls (the eye used to sit ON the wall plane: the camera saw through it), and High Ready at a wall
+        R = player.p.radius
+        sides = {'east': (3.0, 8.0, 90.0, 'x', d.pool_x / 2), 'west': (-3.0, 8.0, 270.0, 'x', -d.pool_x / 2), 'north': (0.0, 8.0, 0.0, 'z', d.pool_z / 2)}
+        for name, (sx, sz, yaw, axis, wall) in sides.items():
+            place(sx, d.pool_deep, sz, yaw)
+            held_keys['w'] = 1
+            yield from wait(3.5)
+            held_keys['w'] = 0
+            gap = abs(wall - (player.x if axis == 'x' else player.z))
+            check(f'G14: pressed into the {name} wall of the deep end, the body stops one radius away', R - 0.01 <= gap <= R + 0.05, f'{gap:.3f} m (bán kính {R:.2f})')
+        place(-6.0, 0.0, 13.5, 0.0)                                       # on the north deck, facing the north wall
+        held_keys['w'] = 1
+        yield from wait(2.5)
+        held_keys['w'] = 0
+        wr, vm = game.wall_ready, game.viewmodel
+        check('G14: pressed against a wall the gun is fully raised (High Ready) and locked', wr.amount > 0.95 and wr.blocked and player.wall_blocked and combat.wall_blocked and vm.base_pose[3] > 45.0,
+              f'độ ngóc {wr.amount:.2f}, nòng ngóc {vm.base_pose[3]:.0f} độ, cách tường {wr.distance:.2f} m')
+        shots, pulls = combat.shots_fired, combat.blocked_pulls
+        held_keys['right mouse'] = 1
+        for _ in range(3):
+            combat.pressed = True
+            held_keys['left mouse'] = 1
+            yield from wait(0.15)
+        held_keys['left mouse'] = 0
+        check('G14: the trigger fires nothing at the wall and shows the line', combat.shots_fired == shots and combat.blocked_pulls >= pulls + 3 and game.notice_low.text.main.text == game.params.gun.wall.blocked_text,
+              f'{combat.blocked_pulls - pulls} lần bóp cò bị từ chối, "{game.notice_low.text.main.text}"')
+        check('G14: the aim button does nothing at the wall', player.ads_amount == 0.0 and not player.ads, f'ads {player.ads_amount:.2f}')
+        held_keys['right mouse'] = 0
+        combat.weapon.mag = max(combat.weapon.mag_size - 5, 0)
+        combat.request_reload()
+        yield from wait(0.3)
+        check('G14: reloading still works at the wall', combat.handling.busy, f'phase {combat.handling.phase}')
+        yield from wait(4.5)
+        place(-6.0, 0.0, 11.5, 0.0)                                       # 3.5 m from the wall: the gun comes down
+        yield from wait(1.0)
+        check('G14: stepping back, the gun comes down and the trigger is free again', wr.amount < 0.02 and not wr.blocked and not combat.wall_blocked and vm.base_pose[3] < 10.0,
+              f'độ ngóc {wr.amount:.2f}, nòng {vm.base_pose[3]:.0f} độ')
         yield
 
 

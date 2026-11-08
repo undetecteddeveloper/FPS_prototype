@@ -143,7 +143,7 @@ def test_no_shot_under_the_water_and_the_notice_hook(monkeypatch):
     c = Combat(GameParams(), FakePlayer(), [])
     c.require_locked_mouse = False
     notices = []
-    c.on_blocked = lambda: notices.append(1)
+    c.on_blocked = lambda reason='water': notices.append(1)
     monkeypatch.setitem(held_keys, 'left mouse', 1)
     c.underwater = True
     for _ in range(30):

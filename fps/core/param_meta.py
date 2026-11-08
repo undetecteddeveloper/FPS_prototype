@@ -190,6 +190,17 @@ META = {
                                                 (-5, 5, 0.1), (-5, 5, 0.1), (-5, 5, 0.1)), adv='AAAAAA'),
     'gun.sway.land_reference_speed': p('Tốc độ rơi chuẩn', 'm/s ứng với cú nhún đầy đủ', 1, 12, 0.1, 'A'),
     'gun.sway.ads_multiplier': p('Sway còn lại khi ngắm', 'nhân vào thở, trễ, bob, nhún lúc ngắm hẳn', 0, 1, 0.05),
+    # --- G14 High Ready: the gun rises when a wall is close ---
+    'gun.sway.wall_pose': pose('Ngóc sát tường', ((-0.1, 0.1, 0.005), (-0.6, 0.1, 0.005), (-0.3, 0.1, 0.005), (0, 90, 0.5),
+                                                                (-40, 40, 0.5), (-30, 30, 0.5)), adv='A A  A'),
+    'gun.wall.clear_ratio': p('Bắt đầu ngóc súng', 'x tầm súng (mắt tới nòng ~0,6-0,8 m); tường gần hơn thì súng ngóc', 0.6, 2.0, 0.02),
+    'gun.wall.full_ratio': p('Ngóc hết cỡ', 'x tầm súng; gần hơn thì chĩa lên hết cỡ (thân cách tường 0,30 m)', 0.1, 1.0, 0.02),
+    'gun.wall.side_angle': p('Góc dò hai bên', 'độ; hai tia dò thêm sang hai bên (tường chéo, góc phòng)', 0, 45, 1, 'A'),
+    'gun.wall.in_time': p('Thời gian ngóc lên', 'giây', 0.05, 0.6, 0.01),
+    'gun.wall.out_time': p('Thời gian hạ xuống', 'giây; sau khi lùi khỏi tường', 0.05, 1.0, 0.01),
+    'gun.wall.block_at': p('Khoá bắn / ngắm từ', 'phần độ ngóc; từ đây bắn và ngắm bị khoá (nạp đạn vẫn được)', 0.05, 1.0, 0.05),
+    'gun.wall.block_hysteresis': p('Độ trễ khi mở khoá', 'phần độ ngóc; mở khoá khi hạ thấp hơn mức khoá chừng này', 0.0, 0.5, 0.01, 'A'),
+    'gun.wall.blocked_time': p('Chữ "quá sát tường": hiện', 'giây', 0.3, 5.0, 0.1),
 
     # ---------------- Head camera ----------------
     'gun.head.turn_roll': p('Nghiêng khi xoay', 'độ nghiêng mỗi độ/s', 0, 0.05, 0.001),
@@ -589,6 +600,8 @@ GROUPS = (
                              'gun.free_aim.rest_pos', 'gun.free_aim.rest_time', 'gun.free_aim.rest_turn_threshold')),
         ('Trôi chậm', ('gun.free_aim.idle_yaw', 'gun.free_aim.idle_pitch', 'gun.free_aim.idle_roll', 'gun.free_aim.idle_freq')),
         ('Khi ngắm', ('gun.sway.ads_multiplier', 'gun.free_aim.ads_scale')),
+        ('Sát tường (súng ngóc lên)', ('gun.sway.wall_pose', 'gun.wall.clear_ratio', 'gun.wall.full_ratio', 'gun.wall.side_angle', 'gun.wall.in_time', 'gun.wall.out_time',
+                                      'gun.wall.block_at', 'gun.wall.block_hysteresis', 'gun.wall.blocked_time')),
     )),
     ('head', 'Camera đầu', (
         ('Xoay và đi ngang', ('gun.head.turn_roll', 'gun.head.turn_roll_max', 'gun.head.strafe_roll', 'gun.head.move_pitch',
@@ -718,7 +731,7 @@ EXCLUDED = {
     'water.ripple_slots': 'cỡ mảng vòng sóng trong shader, tạo lúc dựng',
     'graphics.level': 'mức đồ hoạ lúc mở game khi chưa có user_graphics.json; bảng F2 đổi lúc chơi',
     'audio.ambience_file': 'đường dẫn file', 'audio.under_ambience_file': 'đường dẫn file', 'audio.folder_under': 'chữ',
-    'underwater.no_fire_text': 'chữ',
+    'underwater.no_fire_text': 'chữ', 'gun.wall.blocked_text': 'chữ',
     'audio.folder': 'chữ', 'audio.pool': 'số bản phát tạo lúc dựng', 'audio.cues': 'bảng mốc âm thanh theo khung clip',
     'audio.cancel_sound': 'chữ', 'audio.step_stride_walk': 'chỉ dùng khi không có sway (nhịp bước theo bob)', 'audio.step_stride_sprint': 'chỉ dùng khi không có sway (nhịp bước theo bob)', 'audio.step_stride_crouch': 'chỉ dùng khi không có sway (nhịp bước theo bob)', 'audio.step_start_phase': 'chỉ dùng khi không có sway (nhịp bước theo bob)', 'audio.sound_files': 'bảng tên tiếng -> nhóm file, nạp lúc dựng', 'audio.pitch_scale': 'bảng cao độ theo tên tiếng', 'audio.land_gain_range': 'khoảng kẹp nội bộ',
 }

@@ -56,7 +56,9 @@ def test_sun_disc_samples_are_unit_vectors_spread_around_the_centre():
 def test_sun_patches_on_the_decks_match_the_windows_projected_along_the_sun():
     """Goal 3: with no column or stairs in the way, a floor point is lit exactly when its sun ray goes through a window hole (checked with a point sun, no soft edge)."""
     d = dataclasses.replace(D, column_z=(), stair_count=0)
-    occ = Occluders(build_map(d))
+    pm0 = build_map(d)
+    pm0.boxes[:] = [b for b in pm0.boxes if not b.caster]                  # (the G14 ladder shadow casters are not windows' shade either)
+    occ = Occluders(pm0)
     s = unit(LOOK.sun_dir)
     xs, zs = np.meshgrid(np.concatenate([np.arange(6.05, 9.95, 0.1), np.arange(-9.95, -6.05, 0.1)]), np.arange(-14.0, 14.0, 0.1))
     pts = np.stack([xs.ravel(), np.full(xs.size, 0.001), zs.ravel()], axis=1)
@@ -162,3 +164,19 @@ def test_baked_ambient_grid_is_dark_in_the_dark_corner_and_lighter_by_the_window
     corner_up, _ = grid.sample(-9.5, -14.5)                            # south-west corner, far from every window
     window_up, _ = grid.sample(8.5, 0.0)                               # under the east windows
     assert sum(window_up) > 1.5 * sum(corner_up)
+
+
+
+def test_the_ladder_casts_a_sun_shadow_on_the_north_deck_and_nothing_else_changes():
+    """G14: the shadow casters stand for the rail tubes above the water: points near them lose sun; far points are exactly as without them."""
+    pm = build_map(D)
+    pm_no = build_map(D)
+    pm_no.boxes[:] = [b for b in pm_no.boxes if not b.caster]
+    assert any(b.caster for b in pm.boxes)
+    xs, zs = np.meshgrid(np.arange(-4.0, 0.0, 0.1), np.arange(12.0, 15.0, 0.1))
+    near = np.stack([xs.ravel(), np.full(xs.size, 0.001), zs.ravel()], axis=1)
+    a = sun_visibility(Occluders(pm), near, LOOK.sun_dir, 4, D.sun_radius)
+    b = sun_visibility(Occluders(pm_no), near, LOOK.sun_dir, 4, D.sun_radius)
+    assert (a < b - 0.05).sum() > 20 and (a > b + 1e-9).sum() == 0          # only darker, never lighter
+    far = np.stack([np.arange(4.0, 9.0, 0.1), np.full(50, 0.001), np.full(50, -2.0)], axis=1)
+    assert np.allclose(sun_visibility(Occluders(pm), far, LOOK.sun_dir, 4, D.sun_radius), sun_visibility(Occluders(pm_no), far, LOOK.sun_dir, 4, D.sun_radius))

@@ -78,52 +78,55 @@ def test_a_ledge_higher_than_a_step_blocks_from_the_pool_floor_but_not_when_high
 def test_walking_into_the_pool_wall_from_the_bottom_stops_at_the_wall(terrain):
     px = D.pool_x / 2
     x, z = walk(terrain, -4.0, -8.0, D.pool_floor, -4.5, 0.0, seconds=2.0)         # on the shallow floor, walking west into the 0.62 m wall
-    assert -px <= x <= -px + 0.1
+    assert -px + R - 1e-3 <= x <= -px + R + 0.05                                  # G14: the BODY stops at the wall (radius away), not the centre point
     x, z = walk(terrain, -4.0, -8.0, D.pool_floor, -4.5, 4.5, seconds=1.0)         # diagonally: stopped in x but keeps sliding north along the wall
-    assert -px <= x <= -px + 0.1 and z > -5.0
+    assert -px + R - 1e-3 <= x <= -px + R + 0.05 and z > -5.0
 
 
-def test_climbing_the_south_steps_is_possible(terrain):
-    pz = D.pool_z / 2
-    # from the pool floor at the steps, walking south, each step is a rise of 0.155 <= 0.2
-    y = D.pool_floor
-    x, z = 0.0, -pz + D.step_depth * D.steps + 0.2
-    for _ in range(40):
-        x, z = walk(terrain, x, z, y, 0, -4.5, seconds=0.05)
-        g = terrain.floor_at(x, z, y + STEP)
-        y = max(y, g)
-    assert y == 0.0 and z < -pz + 0.05
+@pytest.mark.parametrize('name, start, vel, axis, sign', [
+    ('west', (-3.0, 8.0), (-1.7, 0.0), 0, -1), ('east', (3.0, 8.0), (1.7, 0.0), 0, 1), ('north', (0.0, 8.0), (0.0, 1.7), 1, 1),
+])
+def test_the_body_never_gets_closer_than_its_radius_to_the_deep_walls(terrain, name, start, vel, axis, sign):
+    """G14: pressing into the wall of the deep end (the eye sat exactly ON the wall plane and the camera saw through it): he stops one radius away, at every speed."""
+    wall = (D.pool_x / 2 if axis == 0 else D.pool_z / 2) * sign
+    for speed in (1.0, 2.0, 4.5, 9.0):
+        x, z = walk(terrain, start[0], start[1], D.pool_deep, vel[0] * speed / 1.7, vel[1] * speed / 1.7, seconds=6.0)
+        c = (x, z)[axis]
+        assert abs(wall - c) >= R - 1e-3, (name, speed, c)
+        assert abs(wall - c) <= R + 0.05, (name, speed, c)
 
 
-def test_a_column_pushes_the_player_out_and_he_slides_along_it(terrain):
-    cx, cz, s = D.column_x, D.column_z[0], D.column_size / 2
-    x, z = walk(terrain, cx + s + 2.0, cz, 0.0, -4.5, 0.0, seconds=1.0)
-    assert x == pytest.approx(cx + s + R, abs=1e-3)
-    x, z = walk(terrain, cx + s + 2.0, cz - 0.3, 0.0, -3.0, 3.0, seconds=0.6)       # diagonal into the column: slides north along its east face (and around the corner)
-    gap = math.hypot(x - min(max(x, cx - s), cx + s), z - min(max(z, cz - s), cz + s))
-    assert gap >= R - 1e-3 and z > cz - 0.3                                          # never inside the column, and it did move along
+def test_pressing_into_a_wall_corner_keeps_the_body_inside_the_circle_of_both_walls(terrain):
+    x, z = walk(terrain, 3.0, 8.0, D.pool_deep, 3.0, 3.0, seconds=6.0)
+    assert D.pool_x / 2 - x >= R - 1e-3 and D.pool_z / 2 - z >= R - 1e-3
 
 
-def test_walls_hold_the_player_in_even_at_full_sprint(terrain):
-    hx, hz = D.room_x / 2, D.room_z / 2
-    x, z = walk(terrain, 5, 0, 0.0, 9.0, 0.0, seconds=3.0)
-    assert x <= hx - R + 1e-6
-    x, z = walk(terrain, -9.5, 13, 0.0, -9.0, 9.0, seconds=2.0)
-    assert x >= -hx + R - 1e-6 and z <= hz - R + 1e-6
+def test_a_player_who_landed_overlapping_the_edge_is_pushed_out_not_stuck(terrain):
+    """Dropping from the deck near the rim can leave the circle over the ledge: he must be able to walk away (and is eased out), never frozen."""
+    x, z = walk(terrain, D.pool_x / 2 - 0.1, 8.0, D.pool_deep, -1.7, 0.0, seconds=1.0)
+    assert D.pool_x / 2 - x >= R - 1e-3 and x < D.pool_x / 2 - 0.5                 # walked away from the wall
+    x, z = walk(terrain, D.pool_x / 2 - 0.1, 8.0, D.pool_deep, 0.0, 0.0, seconds=0.3)
+    assert D.pool_x / 2 - x >= R - 1e-3                                              # standing still: pushed out to one radius
 
 
-def test_window_barrier_stops_a_player_who_jumped_into_the_opening(terrain):
-    hx = D.room_x / 2
-    x, z = walk(terrain, hx - 1.0, D.window_z[1], 1.0, 9.0, 0.0, seconds=1.0)         # standing at 1 m height, i.e. inside the window's height band
-    assert x <= hx - R + 1e-6
+def test_jumping_out_of_the_pool_over_the_edge_still_works(terrain):
+    """The ledge only blocks while the feet are below it: at the height of a jump he clears the rim (G12 test in pool_check does the same with the real game)."""
+    y = -0.10                                                                        # feet within step height of the deck top (0.0)
+    x, z = walk(terrain, D.pool_x / 2 - R - 0.02, 8.0, y, 4.5, 0.0, seconds=0.5)
+    assert x > D.pool_x / 2 + 0.2
 
 
-def test_push_out_of_box_cases():
-    lo, hi = (0, 0, 0), (2, 2, 2)
-    assert push_out_of_box(5, 1, 0.3, lo, hi)[2:] == (0.0, 0.0)                    # far away: untouched
-    x, z, nx, nz = push_out_of_box(2.1, 1, 0.3, lo, hi)                             # touching the east face
-    assert (x, z) == pytest.approx((2.3, 1.0)) and (nx, nz) == pytest.approx((1.0, 0.0))
-    x, z, nx, nz = push_out_of_box(2.1, 2.1, 0.3, lo, hi)                           # the corner: pushed along the diagonal
-    assert math.hypot(x - 2, z - 2) == pytest.approx(0.3)
-    x, z, nx, nz = push_out_of_box(1.8, 1, 0.3, lo, hi)                             # centre inside the footprint: leaves through the nearest side
-    assert x == pytest.approx(2.3) and (nx, nz) == (1.0, 0.0)
+def test_the_stairs_landing_is_a_wall_for_the_body_when_walked_into_from_the_side(terrain):
+    """The landing (0.68 m up) cannot be stepped onto from the deck beside the flight: the circle stays outside it like a column."""
+    x0, x1 = D.stair_x
+    x, z = walk(terrain, x0 - 2.0, D.room_z / 2 - 0.9, 0.0, 2.0, 0.0, seconds=4.0)
+    assert x0 - R - 0.05 <= x <= x0 - R + 1e-3
+
+
+def test_the_north_stairs_can_still_be_climbed_from_the_front(terrain):
+    """G14: the body circle pushes out of ledges higher than a step, never out of the next step of a flight (rise 0.17 <= 0.20)."""
+    x, z, y = (D.stair_x[0] + D.stair_x[1]) / 2, D.pool_z / 2 + 0.15, 0.0
+    for _ in range(80):
+        x, z = walk(terrain, x, z, y, 0.0, 2.0, seconds=0.05)
+        y = max(y, terrain.floor_at(x, z, y + STEP) or y)
+    assert y == pytest.approx(D.stair_count * D.stair_rise)

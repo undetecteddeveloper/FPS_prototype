@@ -137,11 +137,58 @@ def test_bake_key_follows_the_sun_and_the_map():
 
 def test_rails_are_closed_tubes_with_valid_indices(pm):
     meshes = rail_meshes(pm)
-    assert len(meshes) == 2
+    assert len(meshes) == 2 + D.ladder_rungs                  # two rails, then the rungs between them
     for verts, tris in meshes:
-        assert len(tris) > 100 and all(0 <= i < len(verts) for t in tris for i in t)
+        assert len(tris) >= 16 and all(0 <= i < len(verts) for t in tris for i in t)
+    for verts, tris in meshes[:2]:
         ys = [v[1] for v in verts]
-        assert max(ys) > 1.0 and min(ys) < D.water_y            # arches over the water and down into it
+        assert max(ys) > 0.8 and min(ys) < D.water_y            # the arch over the pool edge and down into the water
+
+
+def test_the_ladder_hugs_the_north_wall_down_to_the_floor_with_rungs_between_the_rails():
+    """G14: a real pool ladder: the rails reach the pool floor, stand just in front of the wall (not in the middle of the water), 0.6 m apart, with evenly spaced rungs under the water."""
+    from fps.core.poolmap import ladder_x, ladder_z, rung_heights
+    pm = build_map(D)
+    meshes = rail_meshes(pm)
+    xa, xb = ladder_x(D)
+    assert xb - xa == pytest.approx(D.ladder_width) and (xa + xb) / 2 == pytest.approx(sum(D.north_steps_x) / 2)
+    wall = D.pool_z / 2
+    for verts, _ in meshes[:2]:
+        ys = [v[1] for v in verts]
+        assert min(ys) == pytest.approx(D.pool_deep, abs=1e-6)                         # down to the floor (the old legs stopped 0.2 m under the water)
+        under = [v for v in verts if v[1] < D.water_y]
+        assert under and all(wall - D.ladder_standoff - D.rail_radius - 1e-6 <= v[2] <= wall - D.ladder_standoff + D.rail_radius + 1e-6 for v in under)   # straight, in front of the wall
+        assert all(v[2] < wall - 0.02 for v in under)                                    # never inside the wall
+    ys = rung_heights(D)
+    assert len(ys) == D.ladder_rungs and ys == sorted(ys, reverse=True)
+    assert ys[0] == pytest.approx(D.water_y - 0.30) and ys[-1] == pytest.approx(D.pool_deep + 0.10)
+    gaps = [a - b for a, b in zip(ys, ys[1:])]
+    assert max(gaps) - min(gaps) < 1e-9 and 0.25 < gaps[0] < 0.45                        # evenly spaced like a real ladder
+    for (verts, _), y in zip(meshes[2:], ys):
+        xs = [v[0] for v in verts]
+        assert min(xs) == pytest.approx(xa) and max(xs) == pytest.approx(xb)            # each rung spans exactly rail to rail
+        assert all(abs(v[1] - y) <= D.rung_radius + 1e-9 for v in verts)
+
+
+def test_ladder_shadow_casters_cover_the_tubes_above_the_water_and_are_invisible_boxes():
+    from fps.core.poolmap import colliders, solid_boxes, walk_tops
+    pm = build_map(D)
+    casters = [b for b in pm.boxes if b.caster]
+    assert casters and all(not b.visible and not b.bullets and not b.solid and not b.walk for b in casters)
+    assert all(b.lo[1] >= D.water_y - 1e-9 for b in casters)                              # nothing under the water: the sun does not shade the basin through them
+    for verts, _ in rail_meshes(pm)[:2]:
+        for v in verts:
+            if v[1] > D.water_y + 0.02:
+                assert any(all(b.lo[i] - 1e-6 <= v[i] <= b.hi[i] + 1e-6 for i in range(3)) for b in casters), v
+    assert all(c[2] not in casters for c in colliders(pm))                                # not hit by bullets
+    assert all((lo, hi) != (b.lo, b.hi) for lo, hi in solid_boxes(pm) for b in casters) and len(walk_tops(pm)) == len(walk_tops(build_map(D)))
+
+
+def test_casters_add_no_faces_to_the_room_mesh():
+    pm = build_map(D)
+    pm_no = build_map(D)
+    pm_no.boxes[:] = [b for b in pm_no.boxes if not b.caster]
+    assert len(pm.exposed_faces()) == len(pm_no.exposed_faces())
 
 
 def test_uv_axes_are_two_axes_other_than_the_normal():

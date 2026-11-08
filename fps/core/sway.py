@@ -28,6 +28,7 @@ class SwayInput:
     eye_dy: float = 0.0           # camera moved up (+) / down (-) by this many metres in this frame
     landed: float = 0.0           # landing speed (m/s) if it landed this frame, otherwise 0
     jumped: float = 0.0           # launch speed (m/s) if it jumped this frame, otherwise 0 (head cam: impulse on launch)
+    wall_amount: float = 0.0      # G14: 0 .. 1, how far the gun is raised to High Ready because a wall is close (core/weaponcol.py)
 
 
 # --- ADS pose ---
@@ -150,8 +151,9 @@ class Sway:
 
     def update(self, dt: float, inp: SwayInput) -> tuple:
         d = self.d
-        ads = smoothstep(inp.ads_amount)
-        sprint = smoothstep(inp.sprint_amount) * (1.0 - ads)
+        wall = smoothstep(inp.wall_amount)
+        ads = smoothstep(inp.ads_amount) * (1.0 - wall)        # G14: High Ready takes over from the aim pose (aiming is locked as it rises)
+        sprint = smoothstep(inp.sprint_amount) * (1.0 - ads) * (1.0 - wall)
         calm = 1.0 + (d.ads_multiplier - 1.0) * ads            # when aiming, breathing, lag, bob and inertia still get ads_multiplier (0.4)
         total = [0.0] * 6
         self.clock += dt
@@ -161,6 +163,7 @@ class Sway:
         _add(total, self._lag(dt, inp), calm)
         _add(total, self._jolt(dt, inp), calm)
         _add(total, d.sprint_pose, sprint)
+        _add(total, d.wall_pose, wall)
         _add(total, d.rest_pose, 1.0 - ads)
         _add(total, self.ads_target, ads)
         return tuple(total)

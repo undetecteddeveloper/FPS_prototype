@@ -3,6 +3,8 @@
 The floor is a list of rectangles with a top height (deck, steps, pool bottom); the feet stand on the highest top that is at most `step_up` above them.
 A taller ledge ahead blocks the move (the pool edge seen from the bottom), a lower floor makes the player fall (the same physics as a jump).
 Solid boxes (walls, columns) push the player's circle out sideways while the body overlaps the box vertically; the velocity into the box is removed, so he slides along it.
+G14: a ledge too high to step onto (the pool edge seen from the water, the landing of the stairs) pushes the CIRCLE out the same way. It used to stop only the centre point, so
+the eye ended up exactly on the pool wall plane and the camera looked through the wall.
 """
 import math
 
@@ -91,6 +93,15 @@ def resolve_move(t: Terrain, x: float, z: float, y: float, vx: float, vz: float,
             if hi[1] <= y + 0.05 or lo[1] >= y + height:
                 continue
             tx, tz, nx, nz = push_out_of_box(tx, tz, radius, lo, hi)
+            if nx or nz:
+                into = vx * nx + vz * nz
+                if into < 0.0:
+                    vx, vz = vx - into * nx, vz - into * nz
+        limit = y + step_up + 1e-9
+        for x0, x1, z0, z1, top in t.tops:                           # G14: a walkable top the feet cannot step onto is a wall for the whole body circle
+            if top <= limit:
+                continue
+            tx, tz, nx, nz = push_out_of_box(tx, tz, radius, (x0, 0.0, z0), (x1, 0.0, z1))
             if nx or nz:
                 into = vx * nx + vz * nz
                 if into < 0.0:
