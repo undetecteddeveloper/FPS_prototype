@@ -1,3 +1,4 @@
+import dataclasses
 import random
 
 import pytest
@@ -230,12 +231,12 @@ def test_pushback_settles_after_the_burst_in_measurable_time():
 
 
 def test_pushback_in_ads_is_back_ads_scale_times_hip():
-    s = NO_RANDOM.back_ads_scale
-    assert s != 1.0                                   # if it equals 1, aim and hip are the same and this test is meaningless
-    hip = min(v for _, v in burst_z(30, 480, ads=0.0, data=NO_RANDOM))
-    ads = min(v for _, v in burst_z(30, 480, ads=1.0, data=NO_RANDOM))
+    data = dataclasses.replace(NO_RANDOM, back_ads_scale=1.3)     # the mechanism, not the default (the M4 default became 1.0 on 8/11/2026: aim = hip)
+    s = data.back_ads_scale
+    hip = min(v for _, v in burst_z(30, 480, ads=0.0, data=data))
+    ads = min(v for _, v in burst_z(30, 480, ads=1.0, data=data))
     assert ads / hip == pytest.approx(s, abs=0.03)
-    mid = min(v for _, v in burst_z(30, 480, ads=0.5, data=NO_RANDOM))
+    mid = min(v for _, v in burst_z(30, 480, ads=0.5, data=data))
     assert mid / hip == pytest.approx(1.0 + (s - 1.0) * 0.5, abs=0.03)    # halfway: smoothstep(0.5) = 0.5 interpolation
     assert min(hip, ads) < mid < max(hip, ads)        # lies between the two ends, whether aiming pushes back less (s < 1) or more (s > 1) than hip fire
 

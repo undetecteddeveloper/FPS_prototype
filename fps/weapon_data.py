@@ -19,7 +19,7 @@ class PlayerParams:
     eye_height_stand: float = 1.68        # head camera: ~6 cm above the eyes
     eye_height_crouch: float = 1.20
     eye_height_change_speed: float = 4.0  # m/s when standing up / crouching down
-    fov: float = 96.0                     # horizontal FOV of the image BEFORE the lens; the fisheye lens magnifies the center ~1.25x, so the center looks like ~83 degrees and the edges show more
+    fov: float = 90.0                     # horizontal FOV of the image BEFORE the lens (user choice 8/11/2026, was 96); the fisheye lens magnifies the center ~1.25x, so the center looks narrower and the edges show more
     mouse_sensitivity: float = 45.0       # degrees turned when the mouse moves the full window HEIGHT (independent of resolution)
     pitch_limit: float = 89.0
     moving_speed_threshold: float = 0.5   # above this counts as "moving"
@@ -84,14 +84,15 @@ class RecoilData:
 @dataclass
 class AccuracyData:
     """MECHANICAL spread of gun + bullet (half cone angle, degrees). Inaccuracy while walking / running / kicking now comes from the barrel actually moving (bullets leave the barrel),
-    so the state-based cone was removed: every state is ~2 MOA. The fields stay so they can be tuned on the F1 panel (and the selftest measures spread)."""
-    stand: float = 0.03
-    walk: float = 0.03
+    so the state-based cone was removed (every state ~2 MOA = 0.03, still the Glock's numbers). 8/11/2026: the user tuned a per-state cone for the M4 on the F1 panel
+    and these class defaults (= the M4) carry it; the Glock pins 0.03 in its own GunData."""
+    stand: float = 1.0
+    walk: float = 2.2
     sprint: float = 0.03
-    air: float = 0.03                     # jump / fall
-    crouch_multiplier: float = 1.0        # multiplier on the base when crouching
-    ads: float = 0.03                     # aiming, standing still
-    ads_move: float = 0.03                # aiming, moving
+    air: float = 5.05                     # jump / fall
+    crouch_multiplier: float = 0.8        # multiplier on the base when crouching
+    ads: float = 0.1                     # aiming, standing still
+    ads_move: float = 0.25                # aiming, moving
     bloom_per_shot: float = 0.0
     bloom_max: float = 4.0
     bloom_recovery: float = 6.0           # degrees/second
@@ -111,11 +112,11 @@ class GunKickData:
     random: tuple = (0.002, 0.001, 0.0, 0.25, 0.25, 1.3)
     # PUSH-BACK (MW2): the gun is shoved toward the eye (negative z) and slides back. A SEPARATE spring, slower than the one above (period longer than the 0.08 s fire interval), so the
     # shots pile up: at 750 RPM one single shot pushes back 3.6 cm, the full magazine piles up to ~6 cm then saturates (when aiming, multiplied by back_ads_scale) (measured: tools/selftests/g3_selftest.py); after firing stops it returns in ~0.3 s.
-    back_peak: float = -0.030             # m: peak of ONE single shot; negative = back toward the eye
+    back_peak: float = -0.04             # m: peak of ONE single shot; negative = back toward the eye
     back_random: float = 0.003            # m: ± random per shot
     back_omega: float = 18.0              # rad/s (period ~0.35 s)
     back_zeta: float = 0.7
-    back_ads_scale: float = 1.15          # when fully aimed the push-back is multiplied by this (1.3 = 30% MORE push-back than at the hip; visual only: the camera and bullet direction do not change)
+    back_ads_scale: float = 1.0          # when fully aimed the push-back is multiplied by this (1.3 = 30% MORE push-back than at the hip; visual only: the camera and bullet direction do not change)
     back_x_ratio: float = 0.3             # sideways shift along with the push-back (m sideways per m back; when the gun pushes back it shifts toward screen center, so it does not slide off the right edge). Hip only; 0 when aiming
 
 
@@ -184,7 +185,7 @@ class ReloadData:
     view_fov: float = 92.0
     # (x right, y up, z forward, pitch up, yaw right, roll right), m and degrees. y 0.125 -> 0.105 after adding the gun glance (HeadCamData.glance_*): the head tilts down 18 degrees
     # and the gun follows, so the magazine at the swap (measured on the model: 27-32 degrees below the eye, ~30 cm ahead) sits ~12-16 degrees below screen center, the gun body just below center
-    view_pose: tuple = (0.07, 0.105, -0.02, 0.0, 0.0, 2.5)
+    view_pose: tuple = (0.07, 0.0, -0.02, 0.0, 0.0, 2.5)
     view_blend: float = 0.25
     # The clip keeps playing for 0.5-0.75 s after the gun, magazine and bolt are back (`Clip.settle`): only the hands settling. Shooting / aiming / swapping / reloading again are allowed
     # from `Clip.settle` minus this many seconds (never before the new magazine is seated); the tail plays on and a shot cuts it. 0 = at settle; larger = earlier (a Glock shot
@@ -334,7 +335,7 @@ class HeadCamData:
     strafe_roll: float = 0.55             # roll in degrees per m/s of sideways movement
     move_pitch: float = 0.20              # pitch down in degrees per m/s of forward movement
     turn_yaw_lag: float = 0.008           # s: the frame lags slightly behind a turn (the body arrives late)
-    body_omega: float = 7.0               # rad/s: body spring: smaller = the body arrives later
+    body_omega: float = 8.0               # rad/s: body spring: smaller = the body arrives later
     body_zeta: float = 0.75
     # footsteps when WALKING (same phase as Sway.phase, i.e. same rhythm as the footstep sounds). Bodycam-style sway: visible but not nauseating
     step_y: float = 0.012                 # m: bob (-40 % for walking, user 7/11/2026) (the -2 cm trough lands exactly when the foot touches the ground; the peak is lower because the trough is sharp)
@@ -389,18 +390,18 @@ class HeadCamData:
     glance_z: float = 0.015               # m: and moves forward
     glance_in_delay: float = 0.06         # s after pressing reload before the head starts to tilt down
     glance_in_time: float = 0.45          # s to fully tilt down (eased by gaze_enter_ease)
-    glance_out_lead: float = 0.42         # s BEFORE Clip.settle the head starts to come up (so the slow look-up ends before the clip does)
-    glance_out_time: float = 0.70         # s to fully come up (eased by gaze_leave_ease; user choice 0.7 s)
+    glance_out_lead: float = 0.7         # s BEFORE Clip.settle the head starts to come up (so the slow look-up ends before the clip does)
+    glance_out_time: float = 1.0         # s to fully come up (eased by gaze_leave_ease; user choice 0.7 s)
     glance_cancel_time: float = 0.2       # s: when reloading is cancelled the head comes back within this time
     glance_drift: float = 1.0             # deg: the eye drifts slightly while looking
     glance_drift_freq: float = 0.5        # Hz
     glance_seat_nod: float = 1.2          # deg: small nod when the magazine seats (Clip.swap)
     glance_follow: float = 1.0            # the gun follows the glance part (sign flipped): 1 = the gun stays still relative to the body and moves up to the middle of the frame on screen
     # GAZE while reloading (core/gaze.py): the look jumps between what the hands work on (saccades), rests, follows the hand slowly; each reload a little different
-    gaze_hand_weight: float = 0.65        # 0 = look at the gun, 1 = look at the left hand (it carries the magazine); the target is the point in between
+    gaze_hand_weight: float = 0.85        # 0 = look at the gun, 1 = look at the left hand (it carries the magazine); the target is the point in between
     gaze_threshold: float = 4.0           # deg: the target must move this far from where the gaze rests before the next glance
     # a HEAD glance is slow (eye saccades are 3-4x faster; see .claude/skills/camera-easing-bezier): 0.3 s + 0.012 s per degree, i.e. ~0.4 s for 8 deg
-    gaze_time: float = 0.30               # s: base duration of a glance
+    gaze_time: float = 0.4               # s: base duration of a glance
     gaze_time_per_deg: float = 0.012      # s per degree of glance amplitude
     gaze_overshoot: float = 0.0           # extra overshoot of the glance target (the settle now lives in gaze_glance_ease)
     gaze_dwell_min: float = 0.60          # s: the gaze rests at least this long on a point ... (user choice: 2-3 points per reload, ~0.7 s each)
@@ -410,7 +411,7 @@ class HeadCamData:
     gaze_enter_ease: tuple = (0.45, 0.0, 0.20, 1.0)     # the first dip: slow start, firm middle, soft landing
     gaze_glance_ease: tuple = (0.40, 0.0, 0.30, 1.04)   # glance between two points: eases in and settles with a 4% overshoot
     gaze_leave_ease: tuple = (0.45, 0.0, 0.15, 1.0)     # looking back up: slow start, long soft landing
-    gaze_jitter: float = 0.15             # +- share: each reload draws its own depth, tempo and a side offset (x8 deg)
+    gaze_jitter: float = 0.0             # +- share: each reload draws its own depth, tempo and a side offset (x8 deg)
     gaze_max_yaw: float = 14.0            # deg: the gaze never turns further sideways than this
 
 
@@ -872,7 +873,11 @@ GLOCK = GunData(
     rpm=420.0, magazine=17, reserve=85, full_auto=False, muzzle_velocity=375.0, ads_time=0.16,
     recoil=RecoilData(up=1.6, up_noise=0.35, right_noise=0.45, right_walk=0.10, camera_share=0.35, recovery=0.45, recovery_time=0.22),
     kick=GunKickData(omega=30.0, zeta=0.5, peak=(0.0, 0.007, 0.0, 2.2, 0.0, 0.0), random=(0.003, 0.002, 0.0, 0.5, 0.4, 1.8),
-                     back_peak=-0.050, back_random=0.004, back_omega=16.0, back_zeta=0.7),
+                     back_peak=-0.050, back_random=0.004, back_omega=16.0, back_zeta=0.7, back_ads_scale=1.15),
+    # 8/11/2026: the user's F1 numbers were baked into the class defaults for the M4 only; the Glock keeps the numbers it had before
+    accuracy=AccuracyData(stand=0.03, walk=0.03, air=0.03, crouch_multiplier=1.0, ads=0.03, ads_move=0.03),
+    reload=ReloadData(view_pose=(0.07, 0.105, -0.02, 0.0, 0.0, 2.5)),
+    head=HeadCamData(body_omega=7.0, glance_out_lead=0.42, glance_out_time=0.70, gaze_hand_weight=0.65, gaze_time=0.30, gaze_jitter=0.15),
     shot_sound=('assets/sounds/glock_shot_0.wav',),    # the user's recording (8/11/2026) as it is, no pitch-shifted copies (they dulled it): only the small random pitch below varies it
     shot_pitch_variation=0.02,
     shot_pool=4,

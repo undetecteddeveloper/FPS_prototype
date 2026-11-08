@@ -16,3 +16,11 @@
 - Chi phí G3 mỗi khung ~0,06 ms (tâm ngắm 53 µs là phần lớn). Đã đo ở G3 (vsync tắt, 1280x720, gồm hai loạt liên thanh): trung bình 102 FPS, 1% thấp nhất 66, khung chậm nhất 17 ms.
   Lần chạy khác trên cùng máy có lúc rớt 1% xuống ~50 và khung 29–120 ms do máy nhiễu (G2 chạy lại cũng thấy); chạy lại trước khi kết luận tụt FPS.
 
+
+## Số đã chốt từ bảng F1 (8/11/2026, chỉ M4; Glock giữ số cũ)
+- Người dùng chỉnh trên F1 khi cầm M4, chốt bằng `tools\build\bake_params.py --apply` (bản cũ của `user_params.json`: `backups\user_params.baked.20261108-0543.json`).
+- Độ tản (độ, nửa góc nón): đứng 1,00, đi 2,20, nhảy / rơi 5,05, hệ số ngồi 0,80, ngắm đứng 0,10, ngắm đi 0,25 (trước: mọi trạng thái 0,03). Không bloom.
+- Đẩy lùi: `back_peak` -0,040 m (trước -0,030), `back_ads_scale` 1,00 (ngắm = bắn hông; trước 1,15).
+- Đầu khi nạp (`HeadCamData`): `body_omega` 8,0, liếc súng ngẩng sớm 0,70 s / ngẩng trong 1,00 s, nhìn tay 0,85, thời gian liếc 0,40 s, mỗi lần một khác 0 (nạp lần nào cũng giống nhau). Súng lúc nạp: `reload.view_pose` lên 0 (trước 0,105).
+- Tầm nhìn bắn hông `player.fov` 90 (trước 96), người dùng chọn.
+- BẪY: `bake_params.py` ghi vào mặc định của LỚP (`AccuracyData`, `GunKickData`, `HeadCamData`, `ReloadData`), mà Glock dùng chung các lớp đó. Lần chốt này phải ghim số cũ vào `GLOCK = GunData(...)` bằng tay. Bảng F1 theo từng súng: đang làm (G16b).

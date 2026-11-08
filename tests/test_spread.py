@@ -5,7 +5,7 @@ import pytest
 
 from fps.core.movement import MoveState
 from fps.core.spread import Accuracy, angle_between, crosshair_gap, random_in_cone
-from fps.weapon_data import AccuracyData
+from fps.weapon_data import GUNS, AccuracyData
 
 S = MoveState
 
@@ -131,11 +131,25 @@ def test_crosshair_gap_matches_perspective_projection():
     assert gaps == sorted(gaps)
 
 
-def test_default_gun_has_only_a_tiny_mechanical_spread():
-    """Decided: the per-state cone is removed (bullets follow the barrel; the inaccuracy comes from the barrel actually drifting off)."""
-    a = Accuracy(AccuracyData())
+def test_glock_keeps_only_a_tiny_mechanical_spread():
+    """The Glock keeps the old decision: no per-state cone (bullets follow the barrel; the inaccuracy comes from the barrel actually drifting off)."""
+    a = Accuracy(GUNS['glock'].accuracy)
     for state in (S.IDLE, S.WALK, S.SPRINT, S.AIR, S.CROUCH_IDLE, S.CROUCH_WALK):
         assert a.angle(state) == pytest.approx(0.03)
         assert a.angle(state, 1.0) == pytest.approx(0.03)
     a.on_shot()
     assert a.angle(S.IDLE) == pytest.approx(0.03)          # no bloom
+
+
+def test_m4_spread_follows_the_state_as_tuned_on_the_panel():
+    """8/11/2026: the user tuned a per-state cone for the M4 on the F1 panel (baked as the class defaults): still < walk < jump, crouching tighter,
+    aiming much tighter, and still no bloom."""
+    d = GUNS['m4'].accuracy
+    assert (d.stand, d.walk, d.air, d.crouch_multiplier, d.ads, d.ads_move) == (1.0, 2.2, 5.05, 0.8, 0.1, 0.25)
+    a = Accuracy(d)
+    assert a.angle(S.IDLE) < a.angle(S.WALK) < a.angle(S.AIR)
+    assert a.angle(S.CROUCH_IDLE) < a.angle(S.IDLE)
+    assert a.angle(S.IDLE, 1.0) < a.angle(S.IDLE) and a.angle(S.WALK, 1.0) < a.angle(S.WALK)
+    before = a.angle(S.IDLE)
+    a.on_shot()
+    assert a.angle(S.IDLE) == pytest.approx(before)        # no bloom
