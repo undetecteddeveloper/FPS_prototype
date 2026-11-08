@@ -27,8 +27,13 @@ MÁY CẦN
   Windows 10/11 64-bit, card đồ hoạ có OpenGL 3.3 trở lên (Intel Iris Xe / UHD 620 trở lên, NVIDIA, AMD).
   Còn trống khoảng 1 GB bộ nhớ: đóng bớt Chrome / game khác nếu game báo thiếu bộ nhớ.
 
+Alt+Tab ra ngoài: game vẫn chạy nhưng im tiếng và thả chuột; bấm vào cửa sổ game để chơi tiếp.
+Lần đầu mở trên máy lạ, nếu game hiện "Đang tính ánh sáng..." thì chờ khoảng nửa phút.
+
 GẶP LỖI
-  Game không mở, tắt đột ngột hay màn hình đen: gửi lại cho người gửi file  logs\crash.log  (trong thư mục game) và tên card đồ hoạ của bạn.
+  Game gặp lỗi sẽ hiện hộp thoại nói lỗi gì rồi đóng. Khi đó, hoặc khi game không mở / tắt đột ngột / màn hình đen:
+  gửi lại cho người gửi file  logs\crash.log  (trong thư mục game) và tên card đồ hoạ của bạn.
+  Hộp thoại nói "không mở được cửa sổ OpenGL": cập nhật driver card đồ hoạ (Intel / NVIDIA / AMD) rồi mở lại.
   Chạy tiếp vẫn lỗi: thử mở bằng dòng lệnh  FPS_prototype.exe --window --size 1280x720  (chạy trong cửa sổ thường).
 
 Ghi công tài nguyên: CREDITS.txt.

@@ -22,6 +22,7 @@ Luật kỹ thuật của mã: `CLAUDE.md`. File này chỉ nói CÁCH LÀM VI�
 
 ## 4. Chốt số từ bảng F1
 Người chơi chỉnh bằng F1 rồi bấm Lưu (`user_params.json`). Khi người dùng nói "chốt": chạy `.venv\Scripts\python.exe -X utf8 tools\build\bake_params.py` (chỉ in bảng thay đổi), xác nhận với người dùng, rồi thêm `--apply`. Công cụ sửa đúng giá trị trong `weapon_data.py` (giữ chú thích), đối chiếu lại từng số (sai thì tự khôi phục), chuyển bản cũ vào `backups\`. Sau đó pytest và commit. Lõi: `fps/core/bake.py`, `tests/test_bake.py`; số nào có mặc định không phải số viết thẳng thì công cụ báo để sửa tay.
+Theo từng súng (8/11/2026): bảng F1 chỉnh súng đang cầm, file lưu tách `guns.m4` / `guns.glock`. Công cụ chốt ghi số M4 vào mặc định của lớp; số của Glock chỉ IN RA (người dùng chọn: Claude sửa tay trong `GLOCK = GunData(...)`, chạy pytest, xoá khỏi `user_params.json`). Nếu chốt M4 làm đổi ngầm Glock (Glock dùng chung mặc định của lớp), công cụ khôi phục file và liệt kê trường cần ghim vào GLOCK trước.
 
 ## 5. Subagent
 - Chỉ chia khi việc tách được, KHÔNG đụng chung file, và đủ lớn để bù chi phí khởi động nguội. Đáng song song: sinh tài nguyên, tra cứu.
@@ -33,6 +34,7 @@ Người chơi chỉnh bằng F1 rồi bấm Lưu (`user_params.json`). Khi ngư
 Người dùng duyệt TỪNG CÁI và phải xem/nghe xong mới được duyệt; mỗi mục kèm prompt + công cụ + chi phí. Chi tiêu theo phong bì, ghi `docs/credits.md`; hết phong bì thì DỪNG và hỏi. Mọi tài nguyên sinh ra lưu vào `assets/review/<object>/` trước, chỉ bản đã duyệt mới chép sang `assets/`.
 
 ## 7. Việc còn mở (cập nhật 7/11/2026)
+- G16 (độ ổn định theo XR-001 / XR-003 + checklist indie; `docs/sessions/G16.md`): xong 22 tiêu chí, CHỜ NGƯỜI DÙNG thử tay Alt+Tab / thu nhỏ khi đang giữ W, đang bắn; bản exe (G15) CHƯA dựng lại (người dùng bảo không dựng 8/11/2026): zip trong `build\` chưa có các sửa này. Giấy phép tài nguyên (G15) chờ người dùng xác minh.
 - ĐÃ XỬ LÝ 7/11/2026 (mã), CÒN VIỆC CỦA NGƯỜI DÙNG: cửa sổ ĐEN + âm thanh nền lặp đoạn ngắt + log dừng ở `[thông số] user_params.json` = máy hết bộ nhớ ảo (commit: RAM 15,6 GB + pagefile 3 GB, phần trống 0,7-2,1 GB, game cần 0,62-0,75 GB). Game giờ tự chọn chế độ giảm tải / từ chối có thông báo, ghi `logs/crash.log`, nạp sẵn âm thanh nền; chi tiết + bằng chứng: `docs/notes/troubleshooting.md`. Gốc rễ cần NGƯỜI DÙNG tăng pagefile (cần Admin, hướng dẫn trong file đó); chưa làm thì game vẫn chạy nhưng ở chế độ giảm tải mỗi khi máy bận.
 - NỢ TEST: `tests/test_breath.py` không nạp được và 5 bài `tests/test_prep_elevenlabs.py` trượt (do bỏ tiếng thở / đổi tiếng súng M4, commit 64c057e; người dùng tự sửa). Selftest bằng game thật không chạy được (xem `CLAUDE.md`).
 - NỢ HIỆU NĂNG: `perf_scenarios` cũ không còn chạy; đo bằng `tools\measure\g8_perf.py` và (máy yếu) `tools\measure\weak_pc.py`.

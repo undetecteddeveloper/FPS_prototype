@@ -60,3 +60,12 @@ Pagefile 3 GB quá nhỏ so với mức máy đang đặt chỗ. Tăng cố đ�
 1. Mở `logs\crash.log`: dòng `===` cuối cho biết commit trống lúc mở game; có dấu vết Python (`Windows fatal exception` / `Fatal Python error`) thì đó là chỗ chết; có `Timeout (0:02:30)!` thì đó là chỗ treo.
 2. Chưa có log (bản cũ, hoặc chết trước `main()`): Event Viewer -> Windows Logs -> Application -> `Application Error` / `python.exe` (module, offset, giờ).
 3. Đo: `tools\measure\commit_probe.py` (game chiếm bao nhiêu) và `tools\measure\job_limit_run.py` (ép thiếu bộ nhớ để tái hiện); đừng giết tiến trình theo tên (`Get-Process python | Stop-Process` giết cả game của người dùng).
+
+## G16 (7/11/2026): game không còn chết im lặng
+- **Hộp thoại "Game không mở được" / "Game gặp lỗi và phải đóng"**: một lỗi Python lúc dựng hoặc giữa trận. Game đóng cửa sổ, ghi traceback vào `logs\crash.log` (dòng `--- <giờ> lỗi Python: ...`), hiện hộp thoại nói lỗi gì, thoát mã 1 (`fps/app.py` `_fatal`, `sysmem.report_exception`). Lỗi giữa trận trước đó tắt game không một lời (bản exe không có console).
+- **"không mở được cửa sổ OpenGL (Panda chuyển sang DirectX9)"**: driver không cho OpenGL 3.3, hoặc cửa sổ bị đóng đúng lúc đang mở. Trước G16 Panda lặng lẽ chạy bằng Direct3D 9 / phần mềm, mọi shader GLSL hỏng mà game vẫn chạy (`:display:gsg:dxgsg9(error): Tried to load GLSL shader`).
+- **Đóng cửa sổ (X / Alt+F4) lúc đang tải**: thoát êm mã 0 (trước đó hiện hộp thoại lỗi và tiến trình đứng chờ).
+- **File hỏng**: `user_graphics.json` / `user_params.json` sai dạng -> một dòng console, dùng mặc định; `assets\maps\pool\*` hỏng -> tự nướng lại (~33 s, có chữ tiến độ) hoặc chụp lại phản chiếu. Mọi file game ghi đều qua file tạm + `os.replace` (`fps/core/safeio.py`).
+- **Tham số sai** (`--size 1280-720`): hộp thoại "Tham số không hợp lệ", mã 2.
+- **Alt+Tab / thu nhỏ**: game vẫn chạy nhưng nhả chuột, nhả mọi phím, tắt tiếng; quay lại: chuột được giữ lại nếu trước đó đang giữ, cú click lấy lại cửa sổ không bắn (`fps/core/focus.py`).
+- Kiểm tất cả bằng game thật: `tools\measure\chaos_check.py`, `tools\measure\launch_check.py` (xem `docs/notes/tools.md`), tiêu chí ở `docs/sessions/G16.md`.
