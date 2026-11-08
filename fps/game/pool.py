@@ -4,7 +4,9 @@
 First run (or a changed sun / map number): the light is baked on the CPU (core/lightbake.py, numpy, ~tens of seconds) and the room is captured once for the water's reflection
 (game/pool_capture.py); both land in assets/maps/pool/ with a hash in meta.json, so later runs only load two PNGs.
 """
+import io
 import json
+import math
 import time
 from pathlib import Path
 
@@ -18,6 +20,7 @@ from fps.core.poolmap import (AmbientGrid, PoolMap, bake_key, build_map, collide
                               window_box, window_rects)
 from fps.core.terrain import Terrain
 from fps.core.graphics import lite_room
+from fps.core.safeio import write_bytes_atomic, write_text_atomic
 from fps.game.shaders import load_glsl, prepare
 from fps.game.water import WaterSurface
 from fps.weapon_data import GameParams, GraphicsLevel, MapData
@@ -36,6 +39,40 @@ def _vertex_format():
     return GeomVertexFormat.register_format(fmt)
 
 
+class _BakeScreen:
+    """One line on screen while the light is baked (~40-60 s): without it the window stayed black and still for a minute (XR-001 fails a silent static
+    screen over 20 s) and Windows could call it 'Not responding'. Drawing a frame also pumps the window's messages. No window (a tool baking without
+    Ursina): does nothing."""
+    INTERVAL = 0.2                                         # s between redraws
+
+    def __init__(self):
+        from ursina import application, window
+        from fps.game.hud import UiText
+        self.base = getattr(application, 'base', None)
+        self.text = None
+        if self.base is not None and getattr(self.base, 'win', None):
+            window.update_aspect_ratio()       # the UI lens gets its size from this event, which Ursina only fires in its first frame: before it, UI text is ~20x too big
+            self.text = UiText('', (0.0, 0.0), origin=(0, 0), scale=1.1)
+        self.last = 0.0
+        self.show(0.0)
+
+    def show(self, share: float):
+        now = time.time()
+        if self.text is None or (now - self.last < self.INTERVAL and share > 0.0):
+            return
+        self.last = now
+        self.text.text = f'Đang tính ánh sáng cho phòng hồ bơi (lần đầu hoặc sau khi đổi map)... {share * 100:.0f}%'
+        self.base.graphicsEngine.render_frame()
+
+    def close(self):
+        if self.text is not None:
+            from ursina import destroy
+            for t in (self.text.main, self.text.shadow):
+                if t is not None:
+                    destroy(t)
+            self.text = None
+
+
 class PoolHall:
     def __init__(self, params: GameParams, root: Path, data: MapData = None, force_bake: bool = False, log=print):
         self.params, self.root, self.log = params, root, log
@@ -50,8 +87,7 @@ class PoolHall:
         self.key = bake_key(d, params.look)
         self.dir = root / ASSET_DIR
         self.spawn = (0.0, 0.0, -(pz + (hz - pz) / 2.0))                            # the middle of the south bank, looking north along the pool
-        self.lightmap, self.e_max = self._load_or_bake(force_bake)
-        self.ambient = AmbientGrid(json.loads((self.dir / 'ambient.json').read_text(encoding='utf-8')))
+        self.lightmap, self.e_max, self.ambient = self._load_or_bake(force_bake)
         self.entity = Entity(add_to_scene_entities=False)
         self.node = self.entity.attach_new_node(self._build_mesh())
         self.node.set_two_sided(True)
@@ -90,7 +126,7 @@ class PoolHall:
     def _write_meta(self, **changes):
         meta = {**self._meta(), **changes}
         self.dir.mkdir(parents=True, exist_ok=True)
-        (self.dir / 'meta.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
+        write_text_atomic(self.dir / 'meta.json', json.dumps(meta, indent=2))
 
     @staticmethod
     def _read_texture(path: Path, name: str) -> Texture:
@@ -103,12 +139,29 @@ class PoolHall:
         tex.set_magfilter(Texture.FT_linear)
         return tex
 
+    def _load_light(self) -> tuple:
+        """(lightmap texture, e_max, AmbientGrid) from the stored bake; raises if it is stale, missing or unreadable."""
+        meta = self._meta()
+        if meta.get('key') != self.key:
+            raise LookupError('chưa có hoặc khác thông số hiện tại')
+        e_max = float(meta['e_max'])
+        if not math.isfinite(e_max) or e_max <= 0.0:
+            raise ValueError(f'e_max = {e_max}')
+        ambient = AmbientGrid(json.loads((self.dir / 'ambient.json').read_text(encoding='utf-8')))
+        return self._read_texture(self.dir / 'lightmap.png', 'room_lightmap'), e_max, ambient
+
     def _load_or_bake(self, force: bool) -> tuple:
-        png, meta = self.dir / 'lightmap.png', self._meta()
-        if force or meta.get('key') != self.key or not png.exists():
-            self.bake_light()
-            meta = self._meta()
-        return self._read_texture(png, 'room_lightmap'), float(meta['e_max'])
+        """G16 (C3): a stored bake that cannot be read (truncated PNG, broken JSON: a crash or a full disk mid-write, a hand edit) is baked again,
+        not a crash at every start."""
+        if not force:
+            try:
+                return self._load_light()
+            except LookupError:
+                pass                                       # first run / the sun or map changed: the normal bake
+            except Exception as e:                         # anything unreadable: same cure
+                self.log(f'[map] bộ đệm ánh sáng hỏng ({type(e).__name__}: {e}), tính lại')
+        self.bake_light()
+        return self._load_light()
 
     def bake_light(self):
         """CPU bake (needs numpy) -> assets/maps/pool/lightmap.png. Invalidates the stored reflection (the room just changed)."""
@@ -122,10 +175,22 @@ class PoolHall:
                 last[0] = time.time()
                 self.log(f'[map]   {done}/{total}')
 
-        res = bake(self.pm, self.params.look, probes=self.probes, progress=progress)
+        screen = _BakeScreen()
+
+        def both(done, total):
+            progress(done, total)
+            screen.show(done / total)
+
+        try:
+            res = bake(self.pm, self.params.look, probes=self.probes, progress=both)
+        finally:
+            screen.close()
         self.dir.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(res.rgb, 'RGB').save(self.dir / 'lightmap.png')
-        (self.dir / 'ambient.json').write_text(json.dumps(res.ambient, separators=(',', ':')), encoding='utf-8')
+        png = io.BytesIO()
+        Image.fromarray(res.rgb, 'RGB').save(png, format='PNG')
+        # each file swapped in whole (G16, C2); meta.json last, so a bake cut short is simply done again at the next start
+        write_bytes_atomic(self.dir / 'lightmap.png', png.getvalue())
+        write_text_atomic(self.dir / 'ambient.json', json.dumps(res.ambient, separators=(',', ':')))
         self._write_meta(key=self.key, e_max=res.e_max, reflect=None, stats=res.stats)
         self.log(f'[map] xong sau {time.time() - t0:.1f} s ({res.stats["rays"]:,} tia, ảnh {res.rgb.shape[1]}x{res.rgb.shape[0]})')
 
@@ -133,14 +198,20 @@ class PoolHall:
         """Load (or capture) the room image the water mirrors. Needs the world shader inputs on `render` (WorldLook sets them), so Game calls this right after building the look."""
         png = self.dir / 'reflect.png'
         key = reflect_key(self.data, self.params.look, self.params.lens)
-        if force or self._meta().get('reflect') != key or not png.exists():
+        self.reflection = None
+        if not force and self._meta().get('reflect') == key and png.exists():
+            try:
+                self.reflection = self._read_texture(png, 'water_reflect')
+            except RuntimeError as e:                      # G16 (C3): unreadable -> captured again (two frames, well under a second)
+                self.log(f'[map] ảnh phản chiếu hỏng ({e}), chụp lại')
+        if self.reflection is None:
             from fps.game.pool_capture import capture_reflection
             self.water.node.hide()
             light.set_exposure(target_exposure(self.params.lens, self.params.look))
             capture_reflection(self, light, png)
             self.water.node.show()
             self._write_meta(reflect=key)
-        self.reflection = self._read_texture(png, 'water_reflect')
+            self.reflection = self._read_texture(png, 'water_reflect')
         self.water.set_reflection(self.reflection)
         for n in self._reflect_nodes:
             n.set_shader_input('water_reflect', self.reflection)

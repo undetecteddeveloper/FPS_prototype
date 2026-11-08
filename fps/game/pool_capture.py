@@ -3,6 +3,8 @@
 Runs inside the game (needs the window's graphics context and the world shader inputs on `render`). The water is hidden for the capture (the caller does it).
 The camera axes are read back after pointing each camera and compared with the table in core/cubemap.py: if Panda's idea of 'right' ever differs, this fails loudly instead of mirroring the reflection.
 """
+import os
+
 from panda3d.core import Camera, Filename, PerspectiveLens, Point3, Vec3, Vec4
 from ursina import application
 
@@ -46,8 +48,10 @@ def capture_reflection(hall, light, path, log=print):
         base.graphicsEngine.render_frame()
         tex = buf.get_texture()
         path.parent.mkdir(parents=True, exist_ok=True)
-        if not tex.write(Filename.from_os_specific(str(path))):
+        tmp = path.with_name(path.stem + '.tmp' + path.suffix)       # Panda picks the format from the extension; swapped in whole (G16, C2)
+        if not tex.write(Filename.from_os_specific(str(tmp))):
             raise RuntimeError(f'không ghi được {path}')
+        os.replace(tmp, path)
     finally:
         for cam in cams:
             cam.remove_node()
