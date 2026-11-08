@@ -28,7 +28,7 @@ CPU 1,0–1,6 ms (×2 vẫn dư). Duy nhất M4 bắn liên tục dưới 60 (kh
 3. Bản biên dịch thay thế (mỗi bản biên dịch + VẼ THỬ lúc khởi động trong `Game.warm_shader_builds`, vì trình điều khiển Intel chỉ biên dịch thật ở lần vẽ đầu: không có thì 50–150 ms khựng lần đầu xuống nước):
    - `POOL_LITE` cho nước / lòng hồ / phòng khi các cờ F2 của nút đó bằng mức Thấp (`core/graphics.py` `lite_water/lite_basin/lite_room`): tính năng tắt thành hằng `false`, mã chết bị bỏ (Intel: nhánh không chạy vẫn tốn thanh ghi).
    - Nước lite còn `VIEW_DRY` (không điểm nào ướt) / `VIEW_UNDER` (cả khung ướt, mắt dưới mặt nước), `game/underwater.py` chọn mỗi khung: bỏ nhánh dò tia lòng hồ của khung tách đôi (−0,54 ms nhìn lên).
-   - Ống kính `LENS_DRY` khi không có màng / giọt / vệt mặt nước trong tầm (`core/underwater.py band_visible`), dùng ở mọi mức (cùng hình).
+   - Ống kính `LENS_DRY` khi không có vệt lằn nước trong tầm (`core/underwater.py band_visible`), dùng ở mọi mức (cùng hình). (Màng / giọt ống kính ướt đã xoá 8/11/2026.)
 4. Cùng hình, mọi mức: vòng gợn đạn chỉ chạy qua số gợn còn sống (xếp lên đầu mảng); vòng giọt ống kính theo số giọt; `sun_visible` loại sớm theo từng cửa sổ (đúng y hệt; −0,5 ms ở lòng hồ); bầu trời trong phòng hồ chỉ là các tấm sau lỗ cửa sổ (`sky_window.vert`), vẽ sau vật đặc; khói tính xoay + ánh sáng ở vertex shader.
 5. Chỉ mức Thấp (đổi hình nhẹ): "Dưới nước: Đơn giản" thì gương phản xạ toàn phần ngoài cửa sổ Snell là màu đáy hồ phủ sương theo quãng đường (mất vân gạch phản chiếu; −3,6 ms ở 75%); F2 "Khói súng: Đơn giản" (Thấp): tô theo góc tấm + vẽ một nửa số đám (chọn theo hạt giống, đậm hơn để giữ mật độ; khói hơi mỏng hơn).
 

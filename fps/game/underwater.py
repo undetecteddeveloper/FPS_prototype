@@ -1,21 +1,18 @@
-"""G12: the camera at and under the water surface, wired to Panda. The math is in core/underwater.py (waterline on the lens port) and core/wetlens.py (wet lens).
+"""G12: the camera at and under the water surface, wired to Panda. The math is in core/underwater.py (waterline on the lens port).
 
 Every frame (Game.update, after the camera got its final position): where the waterline crosses the lens port -> the underwater.glsl inputs that every world shader,
 the gun and the lens read; the basin mesh (core/poolmap.py `basin_faces`) is drawn only while some pixel looks through the water; under the water the trigger is refused
-and the dust motes are hidden; the zoom of the flat port blends in; after surfacing the lens drains (film + drops).
+and the dust motes are hidden; the zoom of the flat port blends in.
 """
 from ursina import camera
 from panda3d.core import Geom, GeomNode, GeomTriangles, GeomVertexData, GeomVertexFormat, GeomVertexWriter, Vec4
 
 from fps.core import underwater as uw
-from fps.core.wetlens import WetLens
-from fps.game.lens import DROP_SLOTS
 from fps.core.graphics import lite_basin
 from fps.game.shaders import load_glsl, prepare
 from fps.core.poolmap import basin_faces, ramp_quad
 from fps.weapon_data import GraphicsLevel, UnderwaterData, WaterData
 
-SHARE_GRID = 12          # grid size of the wet-share count (it only drives the zoom and the wet lens)
 NEAR_DEFAULT = 0.1       # Ursina's camera near plane (m)
 NEAR_CLOSE = 0.01        # ... while the eye is within NEAR_RANGE of the water surface
 NEAR_RANGE = 0.3
@@ -61,16 +58,13 @@ class Underwater:
         self.basin_lite = False
         self.basin.set_shader(self.basin_shaders[False], 2)
         self.warm_frames = 3                 # drawn (behind the water) the first frames so its shader compiles at start, not at the first dip
-        self.wetlens = WetLens(d)
         self.full_quality = True
-        self.wetlens_on = True
         self.clock = 0.0
         self._near = NEAR_DEFAULT
         self.zoom_mix = 0.0                  # 0 .. 1 blend of the flat-port zoom (fully under)
         # the last frame's state, for the game and the checks
         self.line = (0.0, 0.0, 1.0)
         self.any_wet = self.all_wet = self.eye_under = False
-        self.share = 0.0
         self.surface = self.water_y
         self._amp = 0.0
         self.apply_params()
@@ -84,7 +78,6 @@ class Underwater:
 
     def set_level(self, g: GraphicsLevel):
         self.full_quality = g.under > 0
-        self.wetlens_on = g.wetlens
         lite = lite_basin(g)
         if lite != self.basin_lite:
             self.basin_lite = lite
@@ -109,7 +102,6 @@ class Underwater:
         # G13: the water's lite build can drop the branches this frame cannot take (water.frag VIEW_DRY / VIEW_UNDER). 'under' needs the eye below the FLAT
         # quad too (the shader's `below` test), not only below the wavy surface
         self.pool.water.set_view('dry' if not self.any_wet else ('under' if self.all_wet and ey < self.water_y - 1e-3 else 'any'))
-        self.share = (1.0 if self.all_wet else uw.wet_share(self.line, SHARE_GRID)) if self.any_wet else 0.0
         a, b, c = self.line
         u = self.light.under
         u['look_under'].set_element(0, Vec4(a, b, c, amp))
@@ -127,14 +119,11 @@ class Underwater:
             self._near = near
             camera.clip_plane_near = near
         self.zoom_mix = uw.step_toward(self.zoom_mix, 1.0 if self.all_wet else 0.0, d.zoom_time, dt)
-        self.wetlens.update(dt, self.share if self.wetlens_on else 0.0, uw.wet_top(self.line))
 
     def lens_inputs(self) -> tuple:
-        """Arguments of Lens.set_wet for this frame."""
+        """Arguments of Lens.set_water for this frame."""
         d, z = self.d, self.zoom_mix
-        edge, strength = self.wetlens.film() if self.wetlens_on else (-1.0, 0.0)
-        drops = self.wetlens.packed(DROP_SLOTS) if self.wetlens_on else []
-        return edge, strength, d.film_blur, 1.0 + (d.zoom - 1.0) * z, d.warp * z, drops, d.drop_refract, d.meniscus, self.line, self._amp
+        return 1.0 + (d.zoom - 1.0) * z, d.warp * z, d.meniscus, self.line, self._amp
 
 
 class UnderwaterAudio:

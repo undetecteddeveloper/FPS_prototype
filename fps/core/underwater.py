@@ -64,22 +64,12 @@ def coverage(line: tuple, amp: float = 0.0) -> tuple:
 
 def band_visible(line: tuple, half_width: float, amp: float = 0.0, reach: float = 1.25) -> bool:
     """G13: can some point of [-reach, reach]^2 have |h| < half_width (the meniscus band of lens.frag around the waterline), wobble included?
-    The lens reads the render a little past [-1, 1] (fisheye corners, wet-lens offsets), hence `reach`. False = the lens can use its dry build."""
+    The lens reads the render a little past [-1, 1] (fisheye corners), hence `reach`. False = the lens can use its dry build."""
     a, b, c = line
     lo = c - (abs(a) + abs(b)) * reach
     hi = c + (abs(a) + abs(b)) * reach
     margin = abs(amp) * sum(w for _, _, w in WOBBLE) + half_width
     return lo - margin < 0.0 < hi + margin
-
-
-def wet_share(line: tuple, n: int = 16) -> float:
-    """Share of the frame that is under the water (0 dry .. 1 fully under), without the wobble: a grid count, for the wet lens and the zoom."""
-    wet = 0
-    for i in range(n):
-        for j in range(n):
-            x, y = -1.0 + (2 * i + 1) / n, -1.0 + (2 * j + 1) / n
-            wet += port_height(line, x, y) < 0.0
-    return wet / (n * n)
 
 
 def waterline_y(line: tuple):
@@ -88,14 +78,6 @@ def waterline_y(line: tuple):
     if abs(b) < 1e-9:
         return None
     return -c / b
-
-
-def wet_top(line: tuple) -> float:
-    """Highest ndc y that was under the water (the film starts there when he comes up): 1 when the whole frame is under, -1 when nothing is."""
-    a, b, c = line
-    if b < 1e-9:                                  # level port (the pitch limit keeps up.y >= 0): all or nothing
-        return 1.0 if c < 0.0 else -1.0
-    return min(max(-c / b, -1.0), 1.0)            # wet below the line
 
 
 def fog(color: tuple, distance: float, d: UnderwaterData, absorption: tuple) -> tuple:

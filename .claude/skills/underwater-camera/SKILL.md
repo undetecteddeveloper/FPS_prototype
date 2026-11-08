@@ -1,9 +1,9 @@
 ---
 name: underwater-camera
-description: Camera UNDER and AT the water surface in this Ursina-Panda3D pool project - underwater optics (Snell's window 97 deg, total internal reflection, per-colour absorption / turbid fog), the action-camera (GoPro / bodycam) underwater look (magnification, edge warp), the half-in-half-out split frame (waterline on the lens port, meniscus), the wet lens after surfacing (water film sliding down + droplets that refract like small lenses, drying), muffled audio (lowpass in Panda: FMOD only). Use when touching core/underwater.py, core/wetlens.py, underwater.glsl, basin.frag, lens.frag water parts, or the underwater audio. Builds on pool-water-sim and interior-water-light.
+description: Camera UNDER and AT the water surface in this Ursina-Panda3D pool project - underwater optics (Snell's window 97 deg, total internal reflection, per-colour absorption / turbid fog), the action-camera (GoPro / bodycam) underwater look (magnification, edge warp), the half-in-half-out split frame (waterline on the lens port, meniscus), muffled audio (lowpass in Panda: FMOD only). The wet lens after surfacing was REMOVED 2026-11-08 at the user's request. Use when touching core/underwater.py, underwater.glsl, basin.frag, lens.frag water parts, or the underwater audio. Builds on pool-water-sim and interior-water-light.
 ---
 
-# Underwater camera, split frame, wet lens (researched 2026-11-07, G12)
+# Underwater camera, split frame (researched 2026-11-07, G12; wet lens removed 2026-11-08)
 
 Tool versions: Panda3D 1.10.16 (pip wheel ships p3openal_audio AND p3fmod_audio + fmodex64.dll), Ursina 8.3, Intel Iris-Xe class GPU.
 
@@ -34,13 +34,10 @@ Tool versions: Panda3D 1.10.16 (pip wheel ships p3openal_audio AND p3fmod_audio 
   render uv it samples. Wet pixels get the underwater fog / colour; dry pixels with the eye below the surface see the room via the captured cube atlas.
 - One render, no second camera: the cost is a few ALU per pixel plus the basin mesh (hidden while no pixel is wet).
 
-## 4. Wet lens (rain-on-glass family)
-- Common screen-space method: drops = SDF mask (circle + tear tail), a normal from the mask gradient offsets the screen lookup (refraction), blur where water covers the glass,
-  static drops + slow trails + fast drops. https://godotshaders.com/shader/rain-on-glass/ , https://godotshaders.com/?p=13124 (MIT) - medium - unverified.
-- Pitfall (Unreal forum): refract ONLY inside drops (mask), never the whole pane, or screen-space smears appear when the camera turns.
-  https://forums.unrealengine.com/t/strange-refraction-mapping/1327633 - medium.
-- Here (lens.frag; data from core/wetlens.py, pure and FPS independent because every drop is a closed-form function of time since surfacing): a film sheet whose top edge falls
-  (gravity-like ease) over ~1 s, a dozen drops as uniforms (x, y, radius, alpha): spherical-cap normal -> sample offset ~ magnifying lens, flipped image inside is NOT needed at this size.
+## 4. Wet lens: REMOVED (2026-11-08, user request: "xoá hiệu ứng mặt ống kính của camera ướt khi trồi từ dưới nước lên")
+- The film + drops after surfacing (core/wetlens.py, lens_film / lens_drops uniforms, F1 group, F2 row `wetlens`, UnderwaterData film_* / drop_* fields) are gone; do not rebuild them
+  unless the user asks again. What stays in lens.frag: the flat-port zoom + extra warp when fully under and the meniscus band where the waterline crosses the port (uniform `lens_water`).
+- Old settings files are safe: `user_graphics.json` rows that no longer exist are skipped (tests/test_underwater.py), unknown `user_params.json` keys are skipped and reported.
 
 ## 5. Muffled audio in Panda
 - `AudioManager.configure_filters(FilterProperties)` (lowpass, highpass, echo, reverb...) is implemented ONLY by the FMOD backend; OpenAL returns False.
@@ -60,6 +57,4 @@ Tool versions: Panda3D 1.10.16 (pip wheel ships p3openal_audio AND p3fmod_audio 
 - Basin as real geometry (22 quads + ramp) under the water node inherits its shader inputs (child node); shaded by the SAME shade_basin as the refracted view from above -> both views agree. Hidden while no pixel is wet; drawn hidden 3 frames at start so its shader compiles then. verified-in-project.
 - Underside: refract(dir, -n, 1.333) inside Snell's window -> captured room atlas; vec3(0) outside -> reflect + trace_basin from the surface (TIR mirror of the pool). Looks right in uw_up. verified-in-project.
 - Cost: under the water 222-236 FPS, looking up 193, split 251-254 vs ~185 standing on the deck (M4 / Glock, High, 1366x768, AC): cheaper than the deck view (the basin replaces the room + shafts). verified-in-project (g8_perf).
-- Wet-lens drops: pulling the sample toward the drop centre (magnifier) reads as opaque brown bubbles; sample = centre - k * offset with k ~2-3 (inverted, minified, like a real bead) reads as water. verified-in-project (shots surfaced_late).
-- Film: a hard edge where the offset starts leaves a seam; ramp the film in over ~5 % of the frame below an uneven edge. verified-in-project.
 - Underwater fog in DISPLAY space (after the tone curve) mixes consistently with the already tone-mapped room atlas; fog colour (0.07, 0.30, 0.40), turbidity 0.32 /m looked right; 0.03/0.17/0.24 + 0.42 was too dark. verified-in-project (shots), tuning open for the user.

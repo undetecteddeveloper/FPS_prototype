@@ -356,13 +356,10 @@ class Script(Entity):
         game.set_graphics(game.params.graphics.level, announce=False)
         place(0.0, d.pool_floor, -7.0, 0.0)                           # up in the shallow end: the head comes out of the water
         yield from wait(0.25)
-        film = game.lens.film[0] if game.lens else (0, 0, 0, 0)
-        check('G12: coming up, the lens is wet (a film running down + drops)', not u.eye_under and u.wetlens.film()[1] > 0.5 and film[1] > 0.5 and len(u.wetlens.drops) > 0,
-              f'mép màng {film[0]:.2f}, {len(u.wetlens.drops)} giọt')
-        yield from wait(uwd.film_time + 0.1)
-        check('... the film has run off after ~film_time, drops are left', u.wetlens.film()[1] == 0.0 and len(u.wetlens.visible_drops()) > 0, f'{len(u.wetlens.visible_drops())} giọt còn')
-        yield from wait(uwd.drop_life * 1.3 + 0.3)
-        check('... and the lens is dry a few seconds later', not u.wetlens.active() and all(game.lens.drops[i][2] == 0.0 for i in range(12)) if game.lens else not u.wetlens.active())
+        yield from wait(uwd.zoom_time + 0.15)
+        check('G12: coming up, the flat-port zoom and the extra warp blend back out and the lens is left clean (no water film, no drops: removed 8/11/2026)',
+              not u.eye_under and u.zoom_mix == 0.0 and (game.lens is None or (game.lens.extra_fisheye == 0.0 and game.lens.water[0][0] == 1.0)),
+              f'zoom_mix {u.zoom_mix:.2f}')
         check('G12: out of the water: trigger allowed again, dust back, the basin no longer drawn', not combat.underwater and u.basin.is_hidden() and (game.dust is None or not game.dust.root.is_hidden()))
 
         # --- G14: the body keeps its radius away from the pool walls (the eye used to sit ON the wall plane: the camera saw through it), and High Ready at a wall

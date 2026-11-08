@@ -636,7 +636,6 @@ class GraphicsLevel:
     gun_env: bool                 # the room mirrored on the gun's metal (else the old ambient guess)
     dust: bool                    # dust motes glinting in the sun beams
     under: int = 1                # G12 under the water: 0 simple (fog only: no caustics on the basin, flat surface seen from below), 1 full (caustics, waves bend the Snell window)
-    wetlens: bool = True          # G12 wet lens after surfacing: water film + drops refracting the image
     render_scale: float = 1.0     # G13: world + gun are drawn at this share of the window size, the lens pass upscales (text and panels stay sharp); core/graphics.py RENDER_SCALES
     smoke_simple: bool = False    # G13: gun smoke shaded per corner (colour, haze, size fade interpolated): ~40% cheaper while firing
 
@@ -645,9 +644,9 @@ SMOKE_SIMPLE_KEEP = 0.5           # G13: share of the gun smoke puffs drawn when
 
 
 GRAPHICS_LEVELS = (
-    GraphicsLevel('Thấp', 0, 0, False, 0, False, 0, 0.0, False, False, False, 0, False, 0.75, True),     # G13: 3D at 75%, simple smoke: weak laptops (UHD 620 class)
-    GraphicsLevel('Vừa', 128, 256, True, 1, True, 1, 0.6, True, True, False, 1, True),
-    GraphicsLevel('Cao', 256, 512, True, 2, True, 3, 1.0, True, True, True, 1, True),
+    GraphicsLevel('Thấp', 0, 0, False, 0, False, 0, 0.0, False, False, False, 0, 0.75, True),     # G13: 3D at 75%, simple smoke: weak laptops (UHD 620 class)
+    GraphicsLevel('Vừa', 128, 256, True, 1, True, 1, 0.6, True, True, False, 1),
+    GraphicsLevel('Cao', 256, 512, True, 2, True, 3, 1.0, True, True, True, 1),
 )
 
 
@@ -686,7 +685,7 @@ class SplashData:
 
 @dataclass
 class UnderwaterData:
-    """G12: the head under the water (core/underwater.py, game/underwater.py, assets/shaders/underwater.glsl, basin.*, lens.frag) and the wet lens after surfacing (core/wetlens.py).
+    """G12: the head under the water (core/underwater.py, game/underwater.py, assets/shaders/underwater.glsl, basin.*, lens.frag).
     The lens PORT is a small window at the eye: a pixel is under the water when its point on the port is below the surface, so near the surface the frame splits in two."""
     fog_color: tuple = (0.07, 0.30, 0.40)       # colour the murky water turns into far away (display colour, 0..1)
     turbidity: float = 0.32                     # 1/m: how fast the view fogs up under the water (0.32: half gone at 2.2 m, almost all at 9 m)
@@ -702,14 +701,6 @@ class UnderwaterData:
     snell_ripple: float = 1.0                   # how strongly the waves bend the room seen through the Snell window from below
     no_fire_text: str = 'Không thể bắn ở đây'   # shown when the trigger is pulled with the head under the water
     no_fire_time: float = 1.6                   # s the line stays
-    # --- wet lens after surfacing (core/wetlens.py) ---
-    film_time: float = 1.0                      # s: the water film runs off the lens top to bottom in this time
-    film_blur: float = 0.006                    # how much the film blurs / wobbles the picture (share of the frame)
-    drops: int = 12                             # drops left on the lens after a full dip (fewer after a partial one)
-    drop_size: float = 0.045                    # radius of a drop (share of the frame width, varies 0.5..1.4x)
-    drop_life: float = 4.5                      # s: a drop dries in about this time (each one 0.6..1.3x)
-    drop_slide: float = 0.035                   # how fast a drop creeps down (share of the frame height per second)
-    drop_refract: float = 0.55                  # how strongly a drop bends the picture like a small lens
 
 
 @dataclass

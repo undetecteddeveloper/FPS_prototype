@@ -1,4 +1,5 @@
 """G12: the camera at / under the water (core/underwater.py), walking on the deep bottom, the basin mesh, firing under the water, the F2 rows."""
+import json
 import math
 
 import pytest
@@ -51,18 +52,14 @@ def test_waterline_on_screen_follows_eye_height_and_pitch():
     assert uw.waterline_y(line_for(surface - 0.02, surface, 0)) == pytest.approx(0.4)  # 2 cm under: only the top 30 % is dry
 
 
-def test_coverage_and_share():
+def test_coverage():
     s = D.water_y
     assert uw.coverage(line_for(s + 0.5, s, 0)) == (False, False)                       # well above: nothing wet
     assert uw.coverage(line_for(s - 0.5, s, 0)) == (True, True)                         # well under: everything wet
     any_wet, all_wet = uw.coverage(line_for(s, s, 0))
     assert any_wet and not all_wet
-    assert uw.wet_share(line_for(s, s, 0)) == pytest.approx(0.5)
-    assert uw.wet_share(line_for(s - 0.02, s, 0)) == pytest.approx(0.7, abs=0.04)
     assert uw.coverage(line_for(s + U.port_half + 0.001, s, 0), amp=0.0) == (False, False)
     assert uw.coverage(line_for(s + U.port_half - 0.001, s, 0), amp=0.005)[0]           # the wobble can lap over the edge: count it
-    assert uw.wet_top(line_for(s - 0.5, s, 0)) == 1.0 and uw.wet_top(line_for(s + 0.5, s, 0)) == -1.0
-    assert uw.wet_top(line_for(s - 0.02, s, 0)) == pytest.approx(0.4)
 
 
 def test_looking_straight_down_the_port_is_all_or_nothing():
@@ -112,12 +109,20 @@ def test_basin_mesh_covers_the_pool_under_the_water():
 
 def test_graphics_rows_for_the_new_effects():
     fields = [f for f, _, _ in OPTIONS]
-    assert 'under' in fields and 'wetlens' in fields
+    assert 'under' in fields and 'wetlens' not in fields                               # the wet lens after surfacing was removed 8/11/2026
     low, high = resolve(settings_for(0)), resolve(settings_for(2))
-    assert (low.under, low.wetlens) == (0, False) and (high.under, high.wetlens) == (1, True)
-    s = cycle(GraphicsSettings(), 'wetlens', 1)
-    assert resolve(s).wetlens is False and resolve(cycle(s, 'wetlens', 1)).wetlens is True
+    assert low.under == 0 and high.under == 1
     assert resolve(cycle(GraphicsSettings(), 'under', 1)).under == 0
+
+
+def test_a_graphics_file_saved_with_the_removed_wet_lens_row_still_loads():
+    """user_graphics.json written before 8/11/2026 holds "wetlens": it is skipped, every other row (and the preset) is kept."""
+    from fps.core.graphics import from_json, to_json
+    raw = json.loads(to_json(settings_for(1)))
+    raw['graphics']['wetlens'] = True
+    assert from_json(json.dumps(raw)) == settings_for(1)
+    raw['graphics']['wetlens'] = 'not even a bool'
+    assert from_json(json.dumps(raw)) == settings_for(1)
 
 
 def test_no_shot_under_the_water_and_the_notice_hook(monkeypatch):

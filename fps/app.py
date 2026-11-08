@@ -543,7 +543,7 @@ class Game(Entity):
                 self._dust_under = under
                 self.dust.set_enabled(resolve(self.gfx).dust and not under)
             if self.lens:
-                self.lens.set_wet(*self.underwater.lens_inputs())
+                self.lens.set_water(*self.underwater.lens_inputs())
             if self.under_audio:
                 self.under_audio.update(dt, self.underwater.eye_under)
             if self.foley:

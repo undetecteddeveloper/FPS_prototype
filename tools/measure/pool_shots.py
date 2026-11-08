@@ -111,8 +111,7 @@ VIEWS = {
     'uw_wall': (-3.0, -2.12, 8.0, 290.0, 8.0),            # the west wall of the deep end close up (caustics, tiles)
     'uw_half': (0.0, -1.80, 3.87, 0.0, 0.0),              # eye at the water level: the split frame
     'uw_half_down': (0.0, -1.78, 3.73, 20.0, 12.0),       # a little higher, looking a little down: more room, the waterline low in the frame
-    'surfaced': (0.0, -0.62, -7.0, 0.0, 4.0),             # just came up (after a dip in the deep end): film running down + drops
-    'surfaced_late': (0.0, -0.62, -7.0, 0.0, 4.0),        # 1.6 s after coming up: the film is gone, the drops are left
+    'surfaced': (0.0, -0.62, -7.0, 0.0, 4.0),             # just came up (after a dip in the deep end): the lens must be clean (the wet lens was removed 8/11/2026)
     # G14: the pool ladder on the north wall (x -2.1 / -1.5)
     'ladder_front': (-1.8, -2.12, 8.5, 0.0, -6.0),        # under the water in front of it: rails to the floor, five rungs
     'ladder_wide': (-1.8, -2.12, 5.0, 0.0, -2.0),         # farther back under the water: the whole ladder against the wall
@@ -120,7 +119,7 @@ VIEWS = {
     'ladder_deck': (-1.8, 0.0, 14.2, 180.0, 22.0),        # on the north deck behind it: the arch and its sun shadow on the tiles
     'ladder_side': (-4.5, -2.12, 10.0, 40.0, -4.0),       # under the water from the side: the rails stand in front of the wall
 }
-SURFACE_AFTER = {'surfaced': 0.30, 'surfaced_late': 1.6}                       # these views first spend 1 s under the water (deep end), then come up and wait this long
+SURFACE_AFTER = {'surfaced': 0.30}                     # these views first spend 1 s under the water (deep end), then come up and wait this long
 
 
 def snap(name):

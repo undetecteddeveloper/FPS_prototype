@@ -5,7 +5,7 @@ Not using Ursina's `camera.shader` (FXAA on that path breaks the image when the 
 
 G13, 3D resolution below 100% (F2 'Độ phân giải 3D', 75% on Thấp): the scene buffer AND the lens pass run at that share of the window (the lens pass costs per
 pixel too: 2.8 ms at 1080p on the Iris Xe), then `blit.frag` stretches the result over the window. At 100% the lens draws straight to the window as before.
-The lens has two builds compiled at start-up: the full one and LENS_DRY (no film / drops / waterline band), picked every frame by `set_wet`.
+The lens has two builds compiled at start-up: the full one and LENS_DRY (no waterline band), picked every frame by `set_water`.
 """
 import math
 from direct.filter.FilterManager import FilterManager
@@ -16,9 +16,6 @@ from fps.core.movement import smoothstep
 from fps.core.underwater import band_visible
 from fps.game.shaders import load_glsl, prepare
 from fps.weapon_data import LensData
-
-
-DROP_SLOTS = 12          # wet-lens drops the shader loops over (lens.frag `lens_drops`)
 
 
 class Lens:
@@ -74,17 +71,10 @@ class Lens:
         self.quad.set_shader_input('lens_shake', self.shake)
         self.t = 0.0
         self.turn = 0.0                                     # smoothed turn speed (deg/s)
-        # G12: under the water (zoom, extra warp) and the wet lens after surfacing (core/wetlens.py): written in place by `set_wet`
-        self.film = PTA_LVecBase4f.empty_array(1)           # film edge y, film strength, film blur, zoom (1 = none)
-        self.wet = PTA_LVecBase4f.empty_array(1)            # drop refraction, meniscus thickness (m), -, -
-        self.drops = PTA_LVecBase4f.empty_array(DROP_SLOTS)
-        self.film.set_element(0, Vec4(-1.0, 0.0, 0.0, 1.0))
-        self.wet.set_element(0, Vec4(0, 0, 0, 0))
-        for i in range(DROP_SLOTS):
-            self.drops.set_element(i, Vec4(0, 0, 0, 0))
-        self.quad.set_shader_input('lens_film', self.film)
-        self.quad.set_shader_input('lens_wet', self.wet)
-        self.quad.set_shader_input('lens_drops', self.drops)
+        # G12: under the water (zoom, extra warp, the waterline band): written in place by `set_water`
+        self.water = PTA_LVecBase4f.empty_array(1)          # zoom (1 = none), meniscus thickness (m), -, -
+        self.water.set_element(0, Vec4(1.0, 0.0, 0.0, 0.0))
+        self.quad.set_shader_input('lens_water', self.water)
         self.extra_fisheye = 0.0
         if light is not None:
             light.bind_under(self.quad)                     # the same waterline as the world shaders (underwater.glsl)
@@ -118,17 +108,12 @@ class Lens:
         d = self.d
         return d.fisheye + (d.fisheye_ads - d.fisheye) * smoothstep(min(max(ads, 0.0), 1.0)) + self.extra_fisheye
 
-    def set_wet(self, film_edge: float, film_strength: float, film_blur: float, zoom: float, extra_fisheye: float, drops: list, refract: float, meniscus: float,
-                line: tuple = None, amp: float = 0.0):
-        """G12, once per frame before `update`: drops = [(x, y, r, alpha)] (core/wetlens.py WetLens.packed); `line`, `amp` = this frame's waterline on the port
-        (core/underwater.py): the meniscus band is drawn only when it can be in view. The dry build is used whenever nothing wet can show (G13)."""
+    def set_water(self, zoom: float, extra_fisheye: float, meniscus: float, line: tuple = None, amp: float = 0.0):
+        """G12, once per frame before `update`: `zoom` = magnification of the flat port (1 = none), `extra_fisheye` = extra edge warp; `line`, `amp` = this frame's
+        waterline on the port (core/underwater.py): the meniscus band is drawn only when it can be in view. The dry build is used whenever it cannot (G13)."""
         self.extra_fisheye = extra_fisheye
-        live = [dr for dr in drops[:DROP_SLOTS] if dr[2] > 0.0]          # the shader loops over the first `count` slots only
-        self.film.set_element(0, Vec4(film_edge, film_strength, film_blur, zoom))
-        self.wet.set_element(0, Vec4(refract, meniscus, float(len(live)), 0.0))
-        for i in range(DROP_SLOTS):
-            self.drops.set_element(i, Vec4(*live[i]) if i < len(live) else Vec4(0, 0, 0, 0))
-        dry = film_strength <= 0.0 and not live and not (meniscus > 0.0 and line is not None and band_visible(line, meniscus, amp))
+        self.water.set_element(0, Vec4(zoom, meniscus, 0.0, 0.0))
+        dry = not (meniscus > 0.0 and line is not None and band_visible(line, meniscus, amp))
         if dry != self.dry:
             self.dry = dry
             self.quad.set_shader(self.shaders[dry])
