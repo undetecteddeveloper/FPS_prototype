@@ -13,9 +13,10 @@ gltf_patch.apply()
 
 import ursina  # noqa: E402
 from panda3d.core import Filename, loadPrcFileData  # noqa: E402
-from ursina import Entity, Ursina, application, camera, mouse, scene, time, window  # noqa: E402
+from ursina import Entity, Ursina, application, camera, held_keys, mouse, scene, time, window  # noqa: E402
 
 from fps.core.exposure import sun_vector, target_exposure  # noqa: E402
+from fps.core.focus import FocusGuard  # noqa: E402
 from fps.core.freeaim import barrel_view_dir, view_to_world  # noqa: E402
 from fps.core.memplan import plan as memory_plan  # noqa: E402
 from fps.core.headcam import HeadCam, reload_state  # noqa: E402
@@ -183,6 +184,8 @@ class Game(Entity):
         self.combat.on_blocked = self._on_blocked
         self.graphics_level = None
         self.gfx_panel = GraphicsPanel(self)                                  # F2: graphics options, built the first time it opens
+        self.focus = FocusGuard()                                             # G16: Alt+Tab / minimise -> free the mouse, let go of keys, mute
+        self._muted = None                                                    # [(AudioManager, volume before)] while the window is in the background
         self.apply_graphics(self.gfx)
 
     # --- graphics (G10): the F2 panel edits `self.gfx`; switching changes uniforms and buffers only (no shader recompiles); anti-aliasing rebuilds the lens buffer ---
@@ -427,6 +430,45 @@ class Game(Entity):
             if splash and p.speed > 0.5:
                 splash.wade(x, z, p.sprinting)
 
+    def _update_focus(self, dt: float):
+        """G16 (D1), first thing in the frame: the window went to the background -> mouse freed, every held key let go (a key released while another
+        window had focus never reaches the game: W stayed held and he walked on), sound off. Back in front -> sound on, the mouse captured again only
+        if it was, and the activating click does not fire (core/focus.py)."""
+        win = application.base.win
+        if win is None:
+            return
+        props = win.get_properties()
+        event = self.focus.update(dt, props.get_foreground() and not props.get_minimized(), mouse.locked)
+        if event == 'lost':
+            mouse.locked = False
+            self._release_inputs()
+            self._mute(True)
+        elif event == 'gained':
+            self._release_inputs()
+            self._mute(False)
+            if self.focus.take_lock_before() and not (self.debug.is_open or self.gfx_panel.is_open):
+                mouse.locked = True                      # Ursina zeroes the mouse movement of the frame the lock comes back: no view jump
+        if self.focus.guarding:
+            held_keys['left mouse'] = held_keys['right mouse'] = 0
+            self.combat.pressed = False
+
+    def _release_inputs(self):
+        for k in list(held_keys.keys()):
+            held_keys[k] = 0
+        self.combat.pressed = False
+
+    def _mute(self, on: bool):
+        base = application.base
+        managers = [m for m in list(getattr(base, 'sfxManagerList', None) or []) + [getattr(base, 'musicManager', None)] if m is not None]
+        if on and self._muted is None:
+            self._muted = [(m, m.get_volume()) for m in managers]
+            for m in managers:
+                m.set_volume(0.0)
+        elif not on and self._muted is not None:
+            for m, v in self._muted:
+                m.set_volume(v)
+            self._muted = None
+
     def _barrel_direction(self) -> tuple:
         """Bullet direction: follows the gun barrel as it points on screen. `barrel_pose` is from the previous frame (the gun is drawn after firing), so it is off by at most one spring frame, which is not visible."""
         gun, p = self.params.gun, self.player
@@ -440,6 +482,7 @@ class Game(Entity):
         self.player.overscan = self.viewmodel.overscan = over
         # fixed order: player (look/move) -> wall probe (High Ready, G14) -> fire + reload (uses the view direction just updated) -> hand animation -> sway -> head + shake (-> lens frame) -> gun -> light, lens
         dt = time.dt
+        self._update_focus(dt)
         self.player.tick()
         self._update_wall(dt)
         if self.pool:
@@ -532,7 +575,8 @@ class Game(Entity):
         elif key == 'escape':
             mouse.locked = not mouse.locked
         elif key == 'left mouse down':
-            self.combat.pressed = True
+            if not self.focus.guarding:                  # the click that brought the window back to the front is not a shot (G16)
+                self.combat.pressed = True
         elif key == 'b':
             self.combat.weapon.toggle_mode()
         elif key == 'r':
