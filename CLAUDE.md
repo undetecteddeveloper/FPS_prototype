@@ -86,4 +86,5 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - `docs/notes/weapon-collision.md` (G14): súng chĩa lên (High Ready) khi sát tường, khoá bắn / ngắm, tia dò, tư thế, kiểm. Thân dừng cách tường 0,30 m (gờ hồ tính theo vòng tròn thân; ép phím tiến thật mới tái hiện được lỗi, đặt vị trí thì không: `docs/notes/pool-hall.md` G14). Thang hồ bơi bám thành bắc có bóng nắng nướng sẵn.
 - `docs/notes/performance.md` (G13): máy yếu ở mức Thấp, cách đo GPU / CPU và quy đổi, bẫy đo, bản biên dịch thay thế, số đo trước / sau.
 - `docs/notes/bodycam.md` (G7): FreeLook / FreeAim, headcam, lens, exposure, ánh sáng thống nhất, âm thanh ElevenLabs.
+- `docs/notes/surface-detail.md` (8/11/2026): lỗ đạn (nứt, sâu, sống 1,5 s), texture gạch có độ sâu dựng bằng numpy (`tools/build/make_surface_textures.py`, PNG trong `assets/textures/`), đổ chiều thị sai, hàng F2 "Chi tiết bề mặt". Texture KHÔNG sinh bằng AI (người dùng đã loại).
 - `docs/notes/ai-assets.md`: sinh tài nguyên AI, credit, skill học trước, thư mục review. `docs/notes/multiplayer.md`: hướng multiplayer.

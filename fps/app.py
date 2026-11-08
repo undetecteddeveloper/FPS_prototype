@@ -161,6 +161,7 @@ class Game(Entity):
         self.combat.viewmodel = self.viewmodel
         self.look = WorldLook(params.look, self.world, self.combat.decals, self.light) if look else None
         if self.pool:
+            self.combat.decals.bind_room(self.pool.lightmap, self.pool.e_max, self.pool.lightmap_at)     # a bullet hole takes the baked light of the wall it sits on
             self.pool.prepare_reflection(self.light, force=rebake)       # needs the shader inputs WorldLook just put on render; before the lens takes over the screen
             self.pool.bind_reflection(self.viewmodel.root)               # the gun's metal mirrors the same captured room (G10)
         # graphics settings (F2 panel): the user's file if there is one (and user params are wanted), else the default level
@@ -206,6 +207,7 @@ class Game(Entity):
             self.smoke.set_simple(g.smoke_simple)
         if self.underwater:
             self.underwater.set_level(g)
+        self.combat.decals.set_level(g.surface)                   # surface detail: bullet holes (and the tiles of the pool hall)
         self._set_lens(self._capped_aa(s.aa), g.render_scale)     # G13: 3D resolution (75% on Thấp)
         window.fps_counter.enabled = s.show_fps
         if announce:
@@ -266,6 +268,7 @@ class Game(Entity):
         finally:
             for node, _, prio, used in slots:
                 node.set_shader(used, prio)
+        self.combat.decals.warm(engine, camera.world_position, camera.forward)       # the bullet-hole shader: drawn once (invisible hole), or the first shot stalls
 
     def save_graphics(self):
         # G16: atomic (a crash mid-save keeps the old file whole) and off the frame (the temp file + rename took 30-70 ms on this drive: a hitch on closing F2)

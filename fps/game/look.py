@@ -63,8 +63,8 @@ class WorldLook:
         light.bind(render)
 
         floor = world.get('floor')                      # the flat map has one slab; the pool hall brings its own shaders (room, water) and has none
-        for e in ((floor,) if floor is not None else ()) + tuple(decals.entities):
-            e.shader = self.shader
+        if floor is not None:                           # the bullet holes have their own shader (decal.frag: relief, the wall's baked light)
+            floor.shader = self.shader
         if floor is not None:
             floor.set_shader_input('look_material', GROUND_MATERIAL)
 

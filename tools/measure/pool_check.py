@@ -120,25 +120,31 @@ class Script(Entity):
         check('reflection image loaded', pool.reflection is not None)
 
         # --- bullets
-        holes = combat.decals.count
+        holes = combat.decals.added
         rings = pool.water.ripples.alive(pool.water.clock, game.params.water.impact_life)
         steps = fire((0.0, 1.5, -5.0), (0.0, -200.0, 60.0))
         check('bullet on the water makes exactly one ring', pool.water.ripples.alive(pool.water.clock, game.params.water.impact_life) == rings + 1 and steps < 80)
-        check('bullet on the water leaves no hole', combat.decals.count == holes)
+        check('bullet on the water leaves no hole', combat.decals.added == holes)
         impact = combat.last_impact
         check('the ring is at the hit point on the water level', impact is not None and abs(impact.point[1] - pool.pm.water[4]) < 1e-6, f'{impact.point if impact else None}')
 
-        holes = combat.decals.count
+        holes = combat.decals.added
         fire((0.0, 1.5, 0.0), (-300.0, 0.0, 0.0))
-        check('bullet on the west wall makes a hole', combat.decals.count == holes + 1)
+        check('bullet on the west wall makes a hole', combat.decals.added == holes + 1)
         check('... at x = west wall', abs(combat.last_impact.point[0] + game.pool.data.room_x / 2) < 1e-3, f'{combat.last_impact.point}')
+        import time as pytime
+        t_end = pytime.time() + game.params.feedback.hole_life + 0.3
+        while pytime.time() < t_end:                                    # by TIME: at 400 FPS a frame count means nothing
+            yield
+        check('a bullet hole lives hole_life (1.5 s), then it is gone and the decal mesh is hidden', combat.decals.count == 0 and combat.decals.entity.is_hidden(),
+              f'{combat.decals.count} lỗ còn')
         last = combat.last_impact
-        holes = combat.decals.count
+        holes = combat.decals.added
         lived = fire((0.0, 1.5, game.pool.data.window_z[1]), (300.0, 0.0, 0.0))
-        check('bullet through a window flies out and expires (no hole, no error)', combat.decals.count == holes and combat.last_impact is last and 58 <= lived <= 62, f'{lived} bước (tuổi thọ 3 s)')
-        holes = combat.decals.count
+        check('bullet through a window flies out and expires (no hole, no error)', combat.decals.added == holes and combat.last_impact is last and 58 <= lived <= 62, f'{lived} bước (tuổi thọ 3 s)')
+        holes = combat.decals.added
         fire((0.0, 1.2, 0.0), (0.0, 300.0, 0.0))
-        check('bullet straight up hits the ceiling', combat.decals.count == holes + 1 and abs(combat.last_impact.point[1] - game.pool.data.ceiling) < 1e-3)
+        check('bullet straight up hits the ceiling', combat.decals.added == holes + 1 and abs(combat.last_impact.point[1] - game.pool.data.ceiling) < 1e-3)
         n_ring = pool.water.ripples.alive(pool.water.clock, game.params.water.impact_life)
         fire((20.0, 1.5, 0.0), (-300.0, 0.0, 0.0))                    # from outside: the east wall is hit first (or through a window if aligned)
         check('a bullet from outside hits the east wall and never rings the water', pool.water.ripples.alive(pool.water.clock, game.params.water.impact_life) == n_ring and combat.last_impact.point[0] > pool.data.room_x / 2)

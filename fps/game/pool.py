@@ -16,8 +16,8 @@ from PIL import Image
 from ursina import Entity
 
 from fps.core.exposure import sun_vector, target_exposure
-from fps.core.poolmap import (AmbientGrid, PoolMap, bake_key, build_map, colliders, lightmap_uv, pack_atlas, probe_uv, rail_meshes, pool_terrain, reflect_key,
-                              window_box, window_rects)
+from fps.core.poolmap import (AmbientGrid, PoolMap, UV_AXES, bake_key, build_map, colliders, face_at, lightmap_uv, pack_atlas, probe_uv, rail_meshes, pool_terrain,
+                              reflect_key, window_box, window_rects)
 from fps.core.terrain import Terrain
 from fps.core.graphics import lite_room
 from fps.core.safeio import write_bytes_atomic, write_text_atomic
@@ -264,6 +264,15 @@ class PoolHall:
         return node
 
     # ------------------------------------------------------------------ for the rest of the game
+    def lightmap_at(self, point, normal):
+        """(U, V) in the lightmap atlas of the wall / floor a bullet hit at `point` (facing `normal`), or None (the handrails, the ladder): the bullet hole takes the wall's baked light."""
+        i = face_at(self.faces, point, normal)
+        if i is None:
+            return None
+        f = self.faces[i]
+        ua, va = UV_AXES[f.axis]
+        return lightmap_uv(f, self.atlas.faces[i], self.atlas, point[ua], point[va])
+
     def terrain(self, radius: float) -> Terrain:
         return pool_terrain(self.pm, radius)
 

@@ -276,6 +276,18 @@ def lightmap_uv(f: Face, p: Placement, atlas: Atlas, u: float, v: float) -> tupl
     return col / atlas.width, 1.0 - row / atlas.height
 
 
+def face_at(faces: list, point, normal, tol: float = 0.01):
+    """Index in `faces` of the exposed face that the surface point `point` (facing `normal`) lies on, or None (a bullet hole asks which wall it is on, for the wall's baked light)."""
+    axis = max(range(3), key=lambda a: abs(normal[a]))
+    sign = 1 if normal[axis] > 0.0 else -1
+    ua, va = UV_AXES[axis]
+    u, v = point[ua], point[va]
+    for i, f in enumerate(faces):
+        if f.axis == axis and f.sign == sign and abs(f.plane - point[axis]) <= tol and f.u0 - tol <= u <= f.u1 + tol and f.v0 - tol <= v <= f.v1 + tol:
+            return i
+    return None
+
+
 def probe_uv(p: Placement, atlas: Atlas) -> tuple:
     """Atlas coordinates of the middle of a 2 x 2 probe patch."""
     return (p.x + p.w / 2.0) / atlas.width, 1.0 - (p.y + p.h / 2.0) / atlas.height

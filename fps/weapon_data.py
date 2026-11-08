@@ -540,10 +540,12 @@ M4 = GunData(
 
 @dataclass
 class FeedbackParams:
-    """Feedback on bullet hits: bullet holes."""
-    hole_base_size: float = 0.05          # m; a real 5.56 mm hole is too small to see, so it is enlarged
+    """Feedback on bullet hits: bullet holes (core/holes.py, game/decals.py, assets/shaders/decal.*)."""
+    hole_base_size: float = 0.28          # m: width of the whole decal (crater ~8 cm, flaked glaze ~13 cm, cracks out to ~25 cm: readable from 5-10 m); a real 5.56 mm hole is far smaller, so it is enlarged
     hole_size_per_meter: float = 0.002    # holes grow with distance (150 m: ~0.35 m)
-    max_holes: int = 200                  # past this, the oldest hole is reused
+    max_holes: int = 64                   # past this, the oldest hole is reused (a full-auto M4 makes 12.5 holes/s, each lives hole_life: ~19 alive at most)
+    hole_life: float = 1.5                # s a hole stays (user's choice 8/11/2026: gone quickly, the mesh is hidden while no hole is alive)
+    hole_fade: float = 0.4                # s at the end of its life over which the hole fades out
 
 
 @dataclass
@@ -639,14 +641,15 @@ class GraphicsLevel:
     under: int = 1                # G12 under the water: 0 simple (fog only: no caustics on the basin, flat surface seen from below), 1 full (caustics, waves bend the Snell window)
     render_scale: float = 1.0     # G13: world + gun are drawn at this share of the window size, the lens pass upscales (text and panels stay sharp); core/graphics.py RENDER_SCALES
     smoke_simple: bool = False    # G13: gun smoke shaded per corner (colour, haze, size fade interpolated): ~40% cheaper while firing
+    surface: int = 2              # 8/11/2026 surface detail (tile floor and walls, bullet holes): 0 = flat colour, 1 = normal map + cavity, 2 = also parallax (the grout / crater really sunk in)
 
 
 SMOKE_SIMPLE_KEEP = 0.5           # G13: share of the gun smoke puffs drawn when the smoke is 'Đơn giản' (core/smoke.py thin_items); the M4's full-auto smoke cost ~2 ms at 1440 x 810
 
 
 GRAPHICS_LEVELS = (
-    GraphicsLevel('Thấp', 0, 0, False, 0, False, 0, 0.0, False, False, False, 0, 0.75, True),     # G13: 3D at 75%, simple smoke: weak laptops (UHD 620 class)
-    GraphicsLevel('Vừa', 128, 256, True, 1, True, 1, 0.6, True, True, False, 1),
+    GraphicsLevel('Thấp', 0, 0, False, 0, False, 0, 0.0, False, False, False, 0, 0.75, True, 0),     # G13: 3D at 75%, simple smoke, no surface relief: weak laptops (UHD 620 class)
+    GraphicsLevel('Vừa', 128, 256, True, 1, True, 1, 0.6, True, True, False, 1, 1.0, False, 1),
     GraphicsLevel('Cao', 256, 512, True, 2, True, 3, 1.0, True, True, True, 1),
 )
 

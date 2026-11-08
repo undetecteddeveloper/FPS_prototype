@@ -63,8 +63,10 @@ META = {
     'gun.bullet_lifetime': p('Đạn sống tối đa', 'giây; quá hạn thì đạn biến mất', 0.5, 10, 0.5, 'A'),
     'gun.magazine': p('Đạn trong băng', 'viên mỗi băng', 5, 100, 1, 'R'),
     'gun.reserve': p('Đạn dự trữ', 'tổng số viên mang theo ngoài băng', 0, 600, 10, 'R'),
-    'feedback.hole_base_size': p('Cỡ lỗ đạn', 'mét; lỗ thật nhỏ hơn nhiều, phóng to cho dễ thấy', 0.01, 0.2, 0.005),
+    'feedback.hole_base_size': p('Cỡ lỗ đạn', 'mét; cả vết (miệng vỡ + vết nứt), lỗ thật nhỏ hơn nhiều', 0.02, 0.4, 0.005),
     'feedback.hole_size_per_meter': p('Lỗ to thêm theo xa', 'mét cộng thêm cho mỗi mét khoảng cách', 0, 0.01, 0.0005, 'A'),
+    'feedback.hole_life': p('Lỗ đạn: sống bao lâu', 'giây rồi biến mất (lỗ đạn tồn tại ngắn cho đỡ tốn vẽ)', 0.3, 20, 0.1),
+    'feedback.hole_fade': p('Lỗ đạn: mờ dần trong', 'giây cuối đời, lỗ mờ đi rồi mất hẳn', 0, 3, 0.05),
 
     # ---------------- Recoil ----------------
     'gun.recoil.up': p('Giật lên mỗi phát', 'độ; tổng phần vào camera và phần làm súng trôi', 0, 3, 0.02),
@@ -553,7 +555,7 @@ GROUPS = (
     ('fire', 'Bắn', (
         ('Nhịp bắn và đạn', ('gun.rpm', 'gun.muzzle_velocity', 'gun.bullet_gravity', 'gun.bullet_lifetime')),
         ('Băng đạn', ('gun.magazine', 'gun.reserve')),
-        ('Lỗ đạn', ('feedback.hole_base_size', 'feedback.hole_size_per_meter')),
+        ('Lỗ đạn', ('feedback.hole_base_size', 'feedback.hole_size_per_meter', 'feedback.hole_life', 'feedback.hole_fade')),
     )),
     ('recoil', 'Giật', (
         ('Cú giật sinh ngẫu nhiên', ('gun.recoil.up', 'gun.recoil.up_noise', 'gun.recoil.right_bias', 'gun.recoil.right_noise',

@@ -16,11 +16,11 @@ from fps.core.handling import Handling, Phase
 from fps.core.movement import MoveState
 from fps.core.recoil import CameraRecoil, GunKick
 from fps.core.spread import Accuracy, random_in_cone
-from fps.game.decals import HoleDecals, hole_texture
+from fps.game.decals import HoleDecals
 from fps.core.weapon import Weapon
 from fps.weapon_data import GameParams
 
-DUST_TINT = color.rgba(1.0, 0.92, 0.8, 0.85)
+DUST_TINT = color.rgba(1.0, 0.96, 0.90, 1.0)       # a slightly warm cast on the hole atlas (alpha comes from the texture and the hole's age)
 MAX_BULLET_STEP = 1.0 / 120.0      # s: largest hit-test step of a bullet (chord error g*dt^2/8 = 0.15 mm)
 
 
@@ -78,7 +78,7 @@ class Combat:
         self.aim_source = None                     # function returning the barrel direction (world); None = centre of screen
         self.spread_now = self.accuracy.angle(player.state, player.ads_amount)   # for the dynamic crosshair
         self.last_shot = None
-        self.decals = HoleDecals(self.fb, hole_texture())
+        self.decals = HoleDecals(self.fb)
         self.bullets = []
         self.pressed = False                       # just pulled the trigger (mouse-press event, used for semi-auto)
         self.require_locked_mouse = True           # do not fire once the player released the mouse with Esc
@@ -130,6 +130,7 @@ class Combat:
     def update(self, dt: float, real_dt: float = None):
         """`dt` is clamped to 50 ms for physics; `real_dt` is the true frame time (the reload clip runs on the Panda clock)."""
         self.frame_dt = dt
+        self.decals.update(dt if real_dt is None else real_dt)       # holes age on the true frame time: they live 1.5 s of the clock, not of the clamped physics step
         self._step_bullets(dt)           # old bullets advance first, new ones are spawned after (they already advanced to the end of the frame)
 
         mouse_ok = (mouse.locked or not self.require_locked_mouse) and not self.player.ui_open       # debug panel (F1) open: the mouse belongs to the panel

@@ -25,7 +25,7 @@ NAME = 'FPS_prototype'
 BUILD = ROOT / 'build'
 README = ROOT / 'tools' / 'build' / 'HUONG_DAN.txt'
 # what the game reads at run time (assets/review and the sound sources are not shipped)
-ASSET_DIRS = ('assets/shaders', 'assets/maps/pool', 'assets/sounds')
+ASSET_DIRS = ('assets/shaders', 'assets/maps/pool', 'assets/sounds', 'assets/textures')
 SKIP = ('assets/sounds/source', 'assets/sounds/candidates', 'assets/sounds/Tranquil_indoor_swim_wide')   # path prefixes left out (sources, an unused file)
 EXCLUDE_MODULES = ('pytest', '_pytest', 'tkinter', 'IPython', 'matplotlib', 'pygltflib')
 

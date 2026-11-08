@@ -28,12 +28,13 @@ class GraphicsSettings:
     under: int = 1            # G12 under the water: 0 simple, 1 full
     scale: int = 0           # G13: index into RENDER_SCALES
     smoke: bool = True        # G13: gun smoke shaded fully (False = per corner, cheaper)
-    aa: int = 0               # MSAA samples (0 / 2 / 4)
+    surface: int = 2          # 8/11/2026: surface detail of the tiles and bullet holes: 0 flat, 1 normal map, 2 parallax
+    aa: int = 0              # MSAA samples (0 / 2 / 4)
     show_fps: bool = False
 
 
-PRESET_FIELDS = ('sim', 'refraction', 'caustics', 'glint', 'shafts', 'splash', 'wet', 'gun_env', 'dust', 'under', 'scale', 'smoke')
-G13_FIELDS = ('scale', 'smoke')     # rows added in G13: a file saved before them keeps its preset whole (`from_json`)
+PRESET_FIELDS = ('sim', 'refraction', 'caustics', 'glint', 'shafts', 'splash', 'wet', 'gun_env', 'dust', 'under', 'scale', 'smoke', 'surface')
+G13_FIELDS = ('scale', 'smoke', 'surface')     # rows added after G12: a file saved before them keeps its preset whole (`from_json`)
 
 # (field, label, [(value, text)]) for the F2 panel; 'preset' is the row that applies a whole level
 OPTIONS = (
@@ -51,6 +52,7 @@ OPTIONS = (
     ('gun_env', 'Súng phản chiếu căn phòng', [(False, 'Tắt'), (True, 'Bật')]),
     ('under', 'Dưới nước', [(0, 'Đơn giản'), (1, 'Đầy đủ')]),
     ('smoke', 'Khói súng', [(False, 'Đơn giản'), (True, 'Đầy đủ')]),
+    ('surface', 'Chi tiết bề mặt (gạch, lỗ đạn)', [(0, 'Phẳng'), (1, 'Vừa'), (2, 'Cao')]),
     ('show_fps', 'Hiện FPS', [(False, 'Tắt'), (True, 'Bật')]),
 )
 
@@ -73,7 +75,7 @@ def settings_for(i: int, keep: GraphicsSettings = None) -> GraphicsSettings:
     g = level(i)
     s = GraphicsSettings(sim=SIM_SIZES.index((g.sim_cols, g.sim_rows)), refraction=g.refraction, caustics=g.caustics, glint=g.glint,
                          shafts=SHAFT_SAMPLES.index(g.shaft_steps), splash=SPLASH_SHARE.index(g.splash), wet=g.wet, gun_env=g.gun_env, dust=g.dust,
-                         under=g.under, scale=RENDER_SCALES.index(g.render_scale), smoke=not g.smoke_simple)
+                         under=g.under, scale=RENDER_SCALES.index(g.render_scale), smoke=not g.smoke_simple, surface=g.surface)
     if keep is not None:
         s.aa, s.show_fps = keep.aa, keep.show_fps
     return s
@@ -84,7 +86,7 @@ def resolve(s: GraphicsSettings) -> GraphicsLevel:
     p = preset_of(s)
     cols, rows = SIM_SIZES[s.sim]
     return GraphicsLevel(GRAPHICS_LEVELS[p].name if p is not None else 'Tuỳ chỉnh', cols, rows, s.refraction, s.caustics, s.glint,
-                         SHAFT_SAMPLES[s.shafts], SPLASH_SHARE[s.splash], s.wet, s.gun_env, s.dust, s.under, RENDER_SCALES[s.scale], not s.smoke)
+                         SHAFT_SAMPLES[s.shafts], SPLASH_SHARE[s.splash], s.wet, s.gun_env, s.dust, s.under, RENDER_SCALES[s.scale], not s.smoke, s.surface)
 
 
 def preset_of(s: GraphicsSettings):
