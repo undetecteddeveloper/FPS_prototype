@@ -1,0 +1,34 @@
+FPS prototype - bản demo
+========================
+
+CÁCH CHẠY
+1. Giải nén cả thư mục FPS_prototype ra một chỗ bạn ghi được (ví dụ Desktop hoặc Downloads). ĐỪNG chạy thẳng trong file zip.
+2. Bấm đúp FPS_prototype.exe. Game mở phủ kín màn hình sau vài giây.
+   Windows có thể hiện "Windows protected your PC" (vì exe chưa ký số): bấm "More info" -> "Run anyway".
+
+PHÍM
+  W A S D        đi
+  Shift (giữ)    chạy nhanh
+  Ctrl / C       ngồi
+  Space          nhảy
+  Chuột trái     bắn
+  Chuột phải     ngắm
+  R              nạp đạn
+  B              đổi chế độ bắn (M4: liên thanh / phát một)
+  1 / 2          đổi súng (M4 / Glock)
+  Esc            nhả chuột / bắt lại chuột
+  F2             bảng đồ hoạ (máy yếu thì chọn mức Thấp)
+  F1             bảng thông số (dành cho người làm game)
+  Alt + F4       thoát
+
+Có thể lội xuống hồ bơi và đi dưới đáy; dưới nước không bắn được.
+
+MÁY CẦN
+  Windows 10/11 64-bit, card đồ hoạ có OpenGL 3.3 trở lên (Intel Iris Xe / UHD 620 trở lên, NVIDIA, AMD).
+  Còn trống khoảng 1 GB bộ nhớ: đóng bớt Chrome / game khác nếu game báo thiếu bộ nhớ.
+
+GẶP LỖI
+  Game không mở, tắt đột ngột hay màn hình đen: gửi lại cho người gửi file  logs\crash.log  (trong thư mục game) và tên card đồ hoạ của bạn.
+  Chạy tiếp vẫn lỗi: thử mở bằng dòng lệnh  FPS_prototype.exe --window --size 1280x720  (chạy trong cửa sổ thường).
+
+Ghi công tài nguyên: CREDITS.txt.

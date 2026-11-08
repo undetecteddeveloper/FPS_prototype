@@ -11,6 +11,7 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 - `tools\selftests\*` HIỆN KHÔNG CHẠY ĐƯỢC (dựng bằng bia và phòng bắn đã xoá 7/11/2026; người dùng bảo không cần). Cổng kiểm tra = pytest + chạy game thật. Nhiều game cùng lúc làm bài đo thời gian trượt oan: bọc `.venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh gốc>`.
 - Đo FPS: `tools\measure\g8_perf.py --gun glock|m4 [--map flat]` (9 tình huống, ngưỡng 55; máy nóng/bận cho số thấp, đo lại một mình). Máy yếu (G13): `tools\measure\weak_pc.py --gun m4|glock` (ước UHD 620 từ ms GPU / CPU đo thật; `docs/notes/performance.md`). Map hồ bơi: `tools\measure\pool_check.py [--gun glock]` (26 mục bằng game thật), `pool_shots.py` (chụp ảnh các góc). Kiểm rút/đổi súng: `tools\measure\swap_check.py`. Chụp tư thế: `tools\measure\g8_shots.py`.
 - Công cụ đo/dựng: `tools\measure\`, `tools\build\` (dựng WAV). Danh mục + công tắc tắt để đo (`free_aim=False`, `lens=False`...): `docs/notes/tools.md`.
+- Đóng gói exe demo (G15): `.venv\Scripts\python.exe -X utf8 tools\build\build_exe.py` -> `build\FPS_prototype_demo_<ngày>.zip` (skill `pyinstaller-packaging`). Thêm thư mục tài nguyên / gói Python mà game đọc lúc chạy thì thêm vào script đó.
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15).
 
 ## Cấu trúc

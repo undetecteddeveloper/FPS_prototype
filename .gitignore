@@ -10,3 +10,7 @@ assets/review/
 user_graphics.json
 logs/
 backups/
+
+# G15: PyInstaller output (tools/build/build_exe.py)
+/build/
+/dist/
