@@ -305,8 +305,10 @@ class FreeAimData:
     zone_sprint: float = 0.35             # when sprinting
     zone_reload: float = 0.50             # when reloading
     zone_blend: float = 0.14              # s: smooth shrink / grow of the zone
-    recenter_idle: float = 0.22           # /s: standing still, the head slowly turns toward the gun (the gun keeps its world direction; only the frame catches up)
-    recenter_move: float = 1.0            # /s: while walking the body turns toward the gun faster
+    # The head used to chase the gun slowly (0.22 /s standing, 1.0 /s walking: the camera drifted toward the crosshair by itself). Off since 9/11/2026 (user): the camera now turns ONLY when the
+    # mouse pushes the gun past the zone (FreeLook.apply) or when the zone shrinks for aiming / sprinting / reloading (one quick turn, so the aim point does not jump). Kept as F1 sliders: 0 = off
+    recenter_idle: float = 0.0            # /s: standing still, the head turns toward the gun at this rate (the gun keeps its world direction; only the frame catches up)
+    recenter_move: float = 0.0            # /s: while walking
     hand_omega: float = 15.0              # rad/s: the hand moves the gun with the mouse, without sticking rigidly to it
     hand_zeta: float = 0.85
     offset_roll: float = 0.22             # gun roll per degree of horizontal offset

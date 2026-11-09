@@ -24,6 +24,7 @@
   `tools\measure\room_shots.py` (chụp phòng tập), `tools\measure\g4_ads_align.py` (đo điểm ngắm của súng, in tư thế ADS),
   `tools\measure\g5_reload_probe.py` (đo từng khung của clip nạp: băng rời / vào chỗ, bolt), `tools\measure\g5_muzzle_align.py` (đo miệng nòng),
   `tools\measure\g5_perf.py <biến thể>` (FPS lúc đứng yên so với lúc nạp, tắt từng thứ để tìm thủ phạm: base / noblend / cpuskin / noview / nolook / nofx / nohud)
+- Camera không tự trôi theo tâm ngắm (9/11/2026): `tools\measure\camera_drift_check.py [--gun m4|glock]` (game thật, bọc `with_game_lock.py`: súng lệch 8 hướng khi đứng / đi, camera phải đứng yên 3 s; chuột vẫn xoay camera khi quá vùng; ngắm xoay MỘT lần rồi dừng; thoát mã = số mục trượt).
 - Map phòng hồ bơi (G9, chi tiết `docs/notes/pool-hall.md`; bọc `with_game_lock.py`): `tools\measure\pool_check.py [--gun m4|glock]` (26 mục bằng game thật: ngân sách tam giác, đạn trúng nước / tường / cửa sổ, xuống hồ, leo thang, nhảy lên bờ, ngắm trước-sau thẳng hàng với mắt khi súng bị đẩy lệch, ánh nền của súng theo phòng; thoát mã = số mục trượt),
   `tools\measure\ads_shots.py [--gun m4|glock] [--yaws 0,2.5] [--relief 0.38]` (chụp súng đang ngắm, bị đẩy lệch tâm, `shots\ads_*.png`; `--relief` thử khoảng cách mắt-ngắm sau),
   `tools\measure\pool_shots.py [--only spawn,east] [--ring] [--holes] [--exposure 4] [--gun]` (chụp `shots\g9_<góc>.png`: spawn, down, east, west, stairs, pool, ceiling, corner, water),

@@ -265,7 +265,7 @@ def test_a_single_big_flick_equals_many_small_moves():
 
 
 def test_recentering_turns_the_screen_without_moving_the_gun_in_the_world():
-    fl = FreeLook(FreeAimData())
+    fl = FreeLook(FreeAimData(recenter_idle=0.22, recenter_move=1.0))      # the F1 sliders still work; they are 0 by default since 9/11/2026
     mouse(fl, 8.0, 3.0)
     world = list(fl.offset)
     turned = [0.0, 0.0]
@@ -279,7 +279,8 @@ def test_recentering_turns_the_screen_without_moving_the_gun_in_the_world():
 
 
 def test_walking_recenters_faster_than_standing():
-    still, walking = FreeLook(FreeAimData()), FreeLook(FreeAimData())
+    d = FreeAimData(recenter_idle=0.22, recenter_move=1.0)
+    still, walking = FreeLook(d), FreeLook(d)
     mouse(still, 8.0)
     mouse(walking, 8.0)
     for _ in range(60):
@@ -291,7 +292,7 @@ def test_walking_recenters_faster_than_standing():
 def test_recentering_is_frame_rate_independent():
     out = []
     for fps in (30, 240):
-        fl = FreeLook(FreeAimData())
+        fl = FreeLook(FreeAimData(recenter_idle=0.22))
         mouse(fl, 8.0)
         for _ in range(fps):
             fl.step(1.0 / fps)
@@ -310,6 +311,38 @@ def test_zone_shrinks_and_the_screen_compensates(kw, scale):
     assert fl.scale == pytest.approx(getattr(d, scale), abs=0.01)
     assert fl.radius() <= 1.0 + 1e-9
     assert fl.offset[0] + turned == pytest.approx(10.0)             # the aim point does not jump
+
+
+def test_the_camera_does_not_chase_the_gun_by_default():
+    """User report 9/11/2026: with the crosshair off to one side the camera slowly turned toward it by itself. Standing or walking, in any direction, the camera must stay put and the gun must stay where it was pushed."""
+    d = FreeAimData()
+    assert d.recenter_idle == 0.0 and d.recenter_move == 0.0
+    for yaw, up in ((10.0, 0.0), (-10.0, 0.0), (0.0, 6.0), (0.0, -6.0), (7.0, 4.0), (-7.0, -4.0)):      # all inside the first 70% of the zone, where only the gun moves
+        for moving in (False, True):
+            fl = FreeLook(d)
+            assert mouse(fl, yaw, up, steps=20) == [0.0, 0.0]               # inside the zone only the gun moved
+            before = list(fl.offset)
+            turned = [0.0, 0.0]
+            for _ in range(60 * 20):                                          # 20 s of frames
+                c = fl.step(1 / 60, moving=moving)
+                turned[0] += c[0]
+                turned[1] += c[1]
+            assert turned == [0.0, 0.0], (yaw, up, moving)
+            assert fl.offset == before, (yaw, up, moving)
+
+
+def test_pushing_the_gun_past_the_zone_still_turns_the_camera_after_a_long_idle():
+    """The camera is not frozen: past the edge of the zone the mouse turns it, one to one, however long the gun sat off-centre before."""
+    d = FreeAimData()
+    fl = FreeLook(d)
+    mouse(fl, d.zone_yaw * 0.9, steps=30)
+    for _ in range(60 * 10):
+        assert fl.step(1 / 60) == (0.0, 0.0)
+    gun_before = fl.offset[0]
+    cam = mouse(fl, 40.0, steps=80)
+    assert cam[0] > 25.0                                                      # most of the push turns the camera (only the room left in the zone goes to the gun)
+    assert cam[0] + (fl.offset[0] - gun_before) == pytest.approx(40.0)        # not one degree of the mouse is lost
+    assert fl.radius() <= 1.0 + 1e-9
 
 
 def test_turned_off_means_the_mouse_turns_the_screen_directly():
