@@ -264,7 +264,7 @@ class ShakeData:
     seed: int = 7
     # firing: EACH SHOT is one camera kick (spring impulse) with random strength and direction; the gun heats up while firing, kicking harder and shaking more
     # peak deviation of one shot (spring at rest, strength 1) = fire_bias + fire_spread x a signed random number in [-1, 1], per axis (x, y, z, pitch, yaw, roll)
-    fire_bias: tuple = (0.0, 0.0, -0.003, 1.0, 0.0, 0.0)              # fixed part: back 3 mm, pitch up 1 degree
+    fire_bias: tuple = (0.0, 0.0, -0.003, 1.5, 0.0, 0.0)              # fixed part: back 3 mm, pitch up 1.5 degrees (the user's F1 number for the M4, 9/11/2026; was 1.0)
     fire_spread: tuple = (0.0015, 0.0015, 0.0015, 0.30, 0.55, 2.0)    # random ± part: roll up to 2 degrees is the most visible channel (the camera recoil has no roll)
     direction_shape: float = 0.6          # exponent of the random part (< 1: few shots near 0; yaw / roll usually lean to one side)
     strength_var: float = 0.4             # strength of a shot = 1 ± this (0.6 .. 1.4)
@@ -783,7 +783,7 @@ class LensData:
     vignette_start: float = 0.78          # radius where darkening starts (unit 1 = horizontal edge)
     vignette_end: float = 1.14            # radius of full darkness; the frame corners go black like Bodycam photos
     fringe: float = 0.55                  # orange fringe at the edge of the corner darkening (light leaking past the lens rim)
-    noise: float = 0.024                  # sensor noise, stronger in dark areas (G9: 0.030 -> 0.024)
+    noise: float = 0.07                   # sensor noise, stronger in dark areas (G9: 0.030 -> 0.024; the user's F1 number 9/11/2026: 0.07)
     bloom: float = 0.45                   # bright areas bloom outward; 0 = off (cheaper)
     bloom_threshold: float = 0.72         # only brightness above this blooms
     contrast: float = 1.10                # > 1: darker darks, brighter brights
@@ -872,7 +872,7 @@ GLOCK = GunData(
     rpm=420.0, magazine=17, reserve=85, full_auto=False, muzzle_velocity=375.0, ads_time=0.16,
     recoil=RecoilData(up=1.6, up_noise=0.35, right_noise=0.45, right_walk=0.10, camera_share=0.35, recovery=0.45, recovery_time=0.22),
     kick=GunKickData(omega=30.0, zeta=0.5, peak=(0.0, 0.007, 0.0, 2.2, 0.0, 0.0), random=(0.003, 0.002, 0.0, 0.5, 0.4, 1.8),
-                     back_peak=-0.050, back_random=0.004, back_omega=16.0, back_zeta=0.7, back_ads_scale=1.15),
+                     back_peak=-0.060, back_random=0.004, back_omega=16.0, back_zeta=0.7, back_ads_scale=1.15),     # back_peak -0.050 -> -0.060: the user's F1 number (9/11/2026)
     # 8/11/2026: the user's F1 numbers were baked into the class defaults for the M4 only; the Glock keeps the numbers it had before
     accuracy=AccuracyData(stand=0.03, walk=0.03, air=0.03, crouch_multiplier=1.0, ads=0.03, ads_move=0.03),
     reload=ReloadData(view_pose=(0.07, 0.105, -0.02, 0.0, 0.0, 2.5)),
@@ -883,7 +883,8 @@ GLOCK = GunData(
     hip_offset=(0.0, 0.0, 0.15),           # push the whole viewmodel forward a little: the pack's hands sit close to the eye
     sway=SwayData(wall_pose=(0.0, -0.404, 0.173, 65.0, 0.0, 0.0)),     # G14 High Ready: the pitch turns the gun about the eye and the Glock sits farther out, so the shift is bigger than the M4's
     ads_eye_relief=0.38,                   # was 0.50: at 0.5 m the 2 mm front post was only a few pixels wide (user could not see it); 0.38 makes the sights ~30% larger. Tunable on F1
-    shake=ShakeData(reload_beats={'reload': ((29, 'mag_out'), (45, 'seat')), 'reload_empty': ((135, 'mag_out'), (151, 'seat'), (164, 'bolt'))}),
+    # fire_bias pitch 1.0 -> 1.3: the user's F1 number (9/11/2026); pinned here so the M4's own value (1.5, in the ShakeData default) does not reach the Glock
+    shake=ShakeData(reload_beats={'reload': ((29, 'mag_out'), (45, 'seat')), 'reload_empty': ((135, 'mag_out'), (151, 'seat'), (164, 'bolt'))}, fire_bias=(0.0, 0.0, -0.003, 1.3, 0.0, 0.0)),
     # measured with tools/measure/g8_measure.py (camera frame at rest, hip_offset not included)
     # rear point = the middle of the rear NOTCH (blade tops -0.0191, notch floor -0.0214: 2.3 mm deep), front point = top of the front post (-0.0199). The first version put the rear point 3.5 mm under the
     # blade tops, i.e. 1.2 mm BELOW the notch floor: the line of sight went through the slide and the front sight was hidden behind it (user report 7/11/2026)
