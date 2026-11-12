@@ -4,6 +4,7 @@
 First run (or a changed sun / map number): the light is baked on the CPU (core/lightbake.py, numpy, ~tens of seconds) and the room is captured once for the water's reflection
 (game/pool_capture.py); both land in assets/maps/pool/ with a hash in meta.json, so later runs only load two PNGs.
 """
+import dataclasses
 import io
 import json
 import math
@@ -52,8 +53,9 @@ class _BakeScreen:
     Ursina): does nothing."""
     INTERVAL = 0.2                                         # s between redraws
 
-    def __init__(self):
+    def __init__(self, label: str = 'phòng hồ bơi'):
         from ursina import application, window
+        self.label = label
         from fps.game.hud import UiText
         self.base = getattr(application, 'base', None)
         self.text = None
@@ -68,7 +70,7 @@ class _BakeScreen:
         if self.text is None or (now - self.last < self.INTERVAL and share > 0.0):
             return
         self.last = now
-        self.text.text = f'Đang tính ánh sáng cho phòng hồ bơi (lần đầu hoặc sau khi đổi map)... {share * 100:.0f}%'
+        self.text.text = f'Đang tính ánh sáng cho {self.label} (lần đầu hoặc sau khi đổi map)... {share * 100:.0f}%'
         self.base.graphicsEngine.render_frame()
 
     def close(self):
@@ -80,20 +82,56 @@ class _BakeScreen:
             self.text = None
 
 
+def rail_probes(d: MapData) -> list:
+    """One patch of baked light for the handrails (they have no UV of their own): [(position, normal)]."""
+    return [((sum(d.north_steps_x) / 2.0, 0.6, d.pool_z / 2.0 + 0.3), (0.0, 1.0, 0.0))]
+
+
+def store_bake(folder: Path, key: str, res):
+    """Write a bake: lightmap.png, ambient.json, then meta.json (key, e_max; the stored reflection is invalidated). Each file is swapped in whole (G16, C2);
+    meta.json last, so a bake cut short is simply done again at the next start."""
+    folder.mkdir(parents=True, exist_ok=True)
+    png = io.BytesIO()
+    Image.fromarray(res.rgb, 'RGB').save(png, format='PNG')
+    write_bytes_atomic(folder / 'lightmap.png', png.getvalue())
+    write_text_atomic(folder / 'ambient.json', json.dumps(res.ambient, separators=(',', ':')))
+    try:
+        meta = json.loads((folder / 'meta.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        meta = {}
+    meta.update(key=key, e_max=res.e_max, reflect=None, stats=res.stats)
+    write_text_atomic(folder / 'meta.json', json.dumps(meta, indent=2))
+
+
+def bake_map(pm: PoolMap, look, probes: list, progress=None):
+    """The CPU bake of a map: the sun through the windows (the pool hall) or the ceiling panels (G18 Backrooms floors)."""
+    from fps.core.backrooms import emitters
+    from fps.weapon_data import BACKROOMS_LIGHT_SHOWN
+    lights = emitters(pm)
+    if lights:
+        from fps.core.lightbake import bake_lights
+        return bake_lights(pm, look, lights, BACKROOMS_LIGHT_SHOWN, probes=probes, progress=progress)
+    from fps.core.lightbake import bake
+    return bake(pm, look, probes=probes, progress=progress)
+
+
 class PoolHall:
-    def __init__(self, params: GameParams, root: Path, data: MapData = None, force_bake: bool = False, log=print):
+    def __init__(self, params: GameParams, root: Path, data: MapData = None, force_bake: bool = False, log=print,
+                 pm: PoolMap = None, asset_dir: str = ASSET_DIR, key: str = None, label: str = 'phòng hồ bơi', spawn: tuple = None):
+        """G18: `pm` = a map built elsewhere (a Backrooms floor, core/backrooms.py) with its own bake folder `asset_dir`, bake `key` and start point `spawn`."""
         self.params, self.root, self.log = params, root, log
-        self.data = data or MapData()
+        self.data = pm.data if pm is not None else (data or MapData())
         d = self.data
-        self.pm: PoolMap = build_map(d)
+        self.label = label
+        self.pm: PoolMap = pm if pm is not None else build_map(d)
+        self.windows = bool(d.window_z)                                            # G18: no window = no sun anywhere (Backrooms floors are lit by their ceiling panels)
         self.faces = self.pm.exposed_faces()
         pz, hz = d.pool_z / 2.0, d.room_z / 2.0
-        mid_rails = sum(d.north_steps_x) / 2.0
-        self.probes = [((mid_rails, 0.6, pz + 0.3), (0.0, 1.0, 0.0))]            # one patch of baked light for the handrails (they have no UV of their own)
+        self.probes = rail_probes(d)
         self.atlas = pack_atlas(self.faces, d.texel, n_probes=len(self.probes))
-        self.key = bake_key(d, params.look)
-        self.dir = root / ASSET_DIR
-        self.spawn = (0.0, 0.0, -(pz + (hz - pz) / 2.0))                            # the middle of the south bank, looking north along the pool
+        self.key = key or bake_key(d, params.look)
+        self.dir = root / asset_dir
+        self.spawn = spawn or (0.0, 0.0, -(pz + (hz - pz) / 2.0))                  # the middle of the south bank, looking north along the pool
         self.lightmap, self.e_max, self.ambient = self._load_or_bake(force_bake)
         self.entity = Entity(add_to_scene_entities=False)
         self.node = self.entity.attach_new_node(self._build_mesh())
@@ -202,10 +240,9 @@ class PoolHall:
         return self._load_light()
 
     def bake_light(self):
-        """CPU bake (needs numpy) -> assets/maps/pool/lightmap.png. Invalidates the stored reflection (the room just changed)."""
-        from fps.core.lightbake import bake
+        """CPU bake (needs numpy) -> <asset_dir>/lightmap.png. Invalidates the stored reflection (the room just changed)."""
         t0 = time.time()
-        self.log(f'[map] đang tính ánh sáng cho phòng hồ bơi (lần đầu hoặc sau khi đổi nắng / map), vài chục giây...')
+        self.log(f'[map] đang tính ánh sáng cho {self.label} (lần đầu hoặc sau khi đổi nắng / map), vài chục giây...')
         last = [0.0]
 
         def progress(done, total):
@@ -213,23 +250,17 @@ class PoolHall:
                 last[0] = time.time()
                 self.log(f'[map]   {done}/{total}')
 
-        screen = _BakeScreen()
+        screen = _BakeScreen(self.label)
 
         def both(done, total):
             progress(done, total)
             screen.show(done / total)
 
         try:
-            res = bake(self.pm, self.params.look, probes=self.probes, progress=both)
+            res = bake_map(self.pm, self.params.look, self.probes, both)
         finally:
             screen.close()
-        self.dir.mkdir(parents=True, exist_ok=True)
-        png = io.BytesIO()
-        Image.fromarray(res.rgb, 'RGB').save(png, format='PNG')
-        # each file swapped in whole (G16, C2); meta.json last, so a bake cut short is simply done again at the next start
-        write_bytes_atomic(self.dir / 'lightmap.png', png.getvalue())
-        write_text_atomic(self.dir / 'ambient.json', json.dumps(res.ambient, separators=(',', ':')))
-        self._write_meta(key=self.key, e_max=res.e_max, reflect=None, stats=res.stats)
+        store_bake(self.dir, self.key, res)
         self.log(f'[map] xong sau {time.time() - t0:.1f} s ({res.stats["rays"]:,} tia, ảnh {res.rgb.shape[1]}x{res.rgb.shape[0]})')
 
     def prepare_reflection(self, light, force: bool = False):
@@ -272,8 +303,10 @@ class PoolHall:
             box = self.pm.boxes[f.box]
             rgba = (*box.albedo, box.tile)
             base = len(verts)
+            ua, va = UV_AXES[f.axis]
+            ou, ov = box.uv_origin[ua], box.uv_origin[va]                          # G18: a stair corridor lays its tiles from its own frame
             for u, v in ((f.u0, f.v0), (f.u1, f.v0), (f.u1, f.v1), (f.u0, f.v1)):
-                verts.append((f.point(u, v), rgba, (u, v), lightmap_uv(f, place, atlas, u, v)))
+                verts.append((f.point(u, v), rgba, (u - ou, v - ov), lightmap_uv(f, place, atlas, u, v)))
             tris += [(base, base + 1, base + 2), (base, base + 2, base + 3)]
         rail_rgba = (*d.rail_albedo, 0.0)
         luv = probe_uv(atlas.probes[0], atlas)
@@ -317,6 +350,8 @@ class PoolHall:
     def sun_blocked(self, point, sun_dir) -> bool:
         """Whether the sun is hidden from `point` by the room (used for the light on the gun). Pure Python, ~40 boxes."""
         from fps.core.ballistics import first_hit
+        if not self.windows:
+            return True
         far = tuple(point[i] + sun_dir[i] * 200.0 for i in range(3))
         if sun_dir[1] > 0.0 and self._ceiling_y is not None and point[1] < self._ceiling_y:
             far = _clip_to_y(point, sun_dir, self._ceiling_y + 1.0)        # G18: the ray only has to get past the ceiling slab; 200 m swept the whole floor plan
@@ -382,6 +417,8 @@ class PoolHall:
 
     def set_level(self, g: GraphicsLevel):
         """Graphics level (F2): everything the map draws."""
+        if not self.windows:                                   # G18: no sun comes in: no caustics on the pool bottom, no sun shafts (they would cost and show nothing)
+            g = dataclasses.replace(g, caustics=0, shaft_steps=0)
         self.room_quality.set_element(0, Vec4(1.0 if g.wet else 0.0, 0, 0, 0))
         self._surface_level = g.surface
         self._push_surface()
@@ -401,6 +438,16 @@ class PoolHall:
         if self.splash:
             self.splash.update(min(dt, 0.05))           # before the water: falling drops push the sim this frame
         self.water.update(dt)
+
+    def destroy(self):
+        """G18: remove everything this map put in the scene and on the GPU (the Backrooms level keeps one floor at a time)."""
+        if self.splash is not None:
+            self.splash.root.remove_node()
+            self.splash = None
+        self.water.destroy()
+        self.node.remove_node()
+        from ursina import destroy
+        destroy(self.entity)
 
     def apply_params(self):
         self.water.apply_params()

@@ -197,8 +197,9 @@ class Chaos:
         vals = (p.x, p.y, p.z, p.yaw, p.pitch, p.vx, p.vy, p.vz)
         if not all(math.isfinite(v) for v in vals):
             self.failures.append(f'{self.t:.1f}s: vị trí / hướng nhìn không hữu hạn {vals}')
-        hx, hz = self.room.room_x / 2 + 0.5, self.room.room_z / 2 + 0.5
-        if g.pool and not (-hx <= p.x <= hx and -hz <= p.z <= hz and -4.0 <= p.y <= 4.0):
+        from fps.core.poolmap import plan_bounds
+        bx0, bx1, bz0, bz1 = plan_bounds(g.pool.pm) if g.pool else (-1e9, 1e9, -1e9, 1e9)       # G18: a Backrooms floor reaches into its stair corridors
+        if g.pool and not (bx0 - 0.5 <= p.x <= bx1 + 0.5 and bz0 - 0.5 <= p.z <= bz1 + 0.5 and -4.0 <= p.y <= 4.0):
             self.failures.append(f'{self.t:.1f}s: ra ngoài phòng ({p.x:.2f}, {p.y:.2f}, {p.z:.2f})')
         cp = camera.world_position
         if not all(math.isfinite(v) for v in (cp[0], cp[1], cp[2], camera.fov)) or not 1.0 < camera.fov < 179.0:
@@ -276,8 +277,9 @@ def main():
     ap.add_argument('--seconds', type=float, default=60.0)
     ap.add_argument('--seed', type=int, default=1)
     ap.add_argument('--gun', default='m4')
+    ap.add_argument('--map', default='pool', choices=('pool', 'backrooms'), help='G18: backrooms = level 5 tầng (địch đánh, chết, chơi lại)')
     args = ap.parse_args()
-    game = create_game(size=(1280, 720), gun=args.gun)
+    game = create_game(size=(1280, 720), gun=args.gun, map_name=args.map)
     chaos = Chaos(game, args.seconds, args.seed)
     orig = app_mod.Game.update
     state = {'done': False}

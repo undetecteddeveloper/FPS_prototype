@@ -29,6 +29,7 @@ class Terrain:
         self.bounds = bounds
         self.ramps = list(ramps)
         # G18 broadphase: the queries below look only at the boxes near the point (core/broadphase.py); results are the same as a full scan
+        self.dynamic = []                     # G18: boxes [(lo, hi)] that come and go (door leaves): always tested, not in the grid
         self._top_grid = Grid2D([t[:4] for t in tops])
         self._solid_grid = Grid2D([(lo[0], hi[0], lo[2], hi[2]) for lo, hi in solids])
 
@@ -108,6 +109,8 @@ def resolve_move(t: Terrain, x: float, z: float, y: float, vx: float, vz: float,
     pad = radius + QUERY_PAD
     qx0, qx1, qz0, qz1 = min(x, tx) - pad, max(x, tx) + pad, min(z, tz) - pad, max(z, tz) + pad
     solids, tops = t.near_solids(qx0, qx1, qz0, qz1), t.near_tops(qx0, qx1, qz0, qz1)
+    if t.dynamic:
+        solids = solids + t.dynamic
     for _ in range(2):                                               # two passes: pushing out of one box can push into the next
         for lo, hi in solids:
             if hi[1] <= y + 0.05 or lo[1] >= y + height:

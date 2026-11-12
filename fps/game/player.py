@@ -42,6 +42,8 @@ class Player(Entity):
         self.sprinting = False
         self.ads = False                      # holding the aim button
         self.ui_open = False                  # debug panel F1 open: left / right mouse no longer fire / aim
+        self.frozen = False                   # G18: dead in the Backrooms level: no keys, no mouse look
+        self.slump = 0.0                       # G18: 0 .. 1 the body sinks to the floor and the head tilts (dead)
         self.wall_amount = 0.0                # G14: how far the gun is raised to High Ready because a wall is close (Game sets it each frame, core/weaponcol.py)
         self.wall_blocked = False             # G14: ... and aiming is locked while it is raised
         self.ads_blocked = False              # reloading / drawing the gun: the aim button has no effect (the hand animation does not match the aim pose)
@@ -71,6 +73,8 @@ class Player(Entity):
 
     # --- read keys ---
     def read_keys(self) -> dict:
+        if self.frozen:
+            return dict(forward=0, strafe=0, sprint=False, crouch=False, jump=False, ads=False, fire=False)
         free = not self.ui_open        # debug panel (F1) open: clicking is for dragging sliders, neither aiming nor firing
         return dict(
             forward=held_keys['w'] - held_keys['s'],
@@ -119,7 +123,7 @@ class Player(Entity):
     # --- loop (Game.update calls it, so the update order is explicit: player -> shooting -> sway -> gun -> HUD) ---
     def tick(self):
         before = tuple(self.free_look.offset)
-        if mouse.locked:
+        if mouse.locked and not self.frozen:
             self.look(mouse.velocity[0], mouse.velocity[1])
         dt = min(time.dt, MAX_DT)
         self.step(dt, **self.read_keys())
@@ -253,6 +257,10 @@ class Player(Entity):
             self._dip.kick([-p.land_dip_per_speed * self.landed * impulse_gain(p.land_dip_omega, p.land_dip_zeta)])
         self._dip.step(dt)
         self.camera_pivot.y = self.eye_height + self._dip.x[0] + self.step_offset
+        if self.slump > 0.0 or self.camera_pivot.rotation_z:                 # G18: dead, slumped on the floor
+            k = smoothstep(self.slump)
+            self.camera_pivot.y -= 1.2 * k
+            self.camera_pivot.rotation_z = 26.0 * k
 
         fov = p.fov + (self.gun.ads_fov - p.fov) * smoothstep(self.ads_amount)
         self.view_fov = fov

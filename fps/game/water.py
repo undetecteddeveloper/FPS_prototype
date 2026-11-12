@@ -140,6 +140,18 @@ class WaterSurface:
         n.set_shader_input('water_quality', self.quality)
         self.apply_params()
 
+    def destroy(self):
+        """G18: free the simulation / caustic buffers and the quad (a Backrooms floor being replaced)."""
+        if self.sim is not None:
+            self.sim.destroy()
+            self.sim = None
+        if self.caustics is not None:
+            self.caustics.destroy()
+            self.caustics = None
+        self.node.remove_node()
+        from ursina import destroy
+        destroy(self.entity)
+
     @staticmethod
     def _quad(x0, x1, z0, z1, y) -> GeomNode:
         vdata = GeomVertexData('water', GeomVertexFormat.get_v3(), Geom.UH_static)

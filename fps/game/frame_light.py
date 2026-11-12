@@ -73,6 +73,7 @@ class FrameLight:
 
     def apply_params(self):
         """The F1 panel changed a light value: push it to every node."""
+        self.nodes = [n for n in self.nodes if not n.is_empty()]     # G18: a Backrooms floor swap removes the old floor's dust / droplet nodes (Panda asserts on an empty NodePath)
         for node in self.nodes:
             self._push_static(node)
         if not self.local_ambient:

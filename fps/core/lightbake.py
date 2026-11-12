@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fps.core.poolmap import UV_AXES, Face, PoolMap, face_texels, pack_atlas
+from fps.core.poolmap import UV_AXES, Face, PoolMap, face_texels, pack_atlas, plan_bounds
 from fps.weapon_data import LookData, MapData
 
 CHUNK = 60000                      # rays per numpy batch (keeps the temporary arrays small)
@@ -45,6 +45,14 @@ class Occluders:
             if b.visible or b.caster:
                 self.albedo_by_box[i] = b.albedo
 
+    def subset(self, lo, hi) -> 'Occluders':
+        """G18: only the boxes overlapping the box [lo, hi] (the shadow rays of a face toward one light never leave it)."""
+        keep = np.all((self.lo <= np.asarray(hi)[None, :]) & (self.hi >= np.asarray(lo)[None, :]), axis=1)
+        sub = Occluders.__new__(Occluders)
+        sub.box_index, sub.lo, sub.hi, sub.albedo = self.box_index[keep], self.lo[keep], self.hi[keep], self.albedo[keep]
+        sub.albedo_by_box = self.albedo_by_box
+        return sub
+
 
 def _safe_inverse(d: np.ndarray) -> np.ndarray:
     return 1.0 / np.where(np.abs(d) < 1e-12, np.where(d < 0, -1e-12, 1e-12), d)
@@ -75,8 +83,8 @@ def cast(occ: Occluders, origins: np.ndarray, dirs: np.ndarray, t_min: float = 1
     return best_t, best_i, best_axis, sign
 
 
-def any_hit(occ: Occluders, origins: np.ndarray, dirs: np.ndarray, t_min: float = 1e-4) -> np.ndarray:
-    """Whether each ray hits any box (no distance limit: the sun is far away)."""
+def any_hit(occ: Occluders, origins: np.ndarray, dirs: np.ndarray, t_min: float = 1e-4, t_max: float = np.inf) -> np.ndarray:
+    """Whether each ray hits any box with t_min < t < t_max (default no distance limit: the sun is far away; G18 lights: a segment, dirs = end - origin, t_max < 1)."""
     n = origins.shape[0]
     d = np.broadcast_to(np.asarray(dirs, dtype=np.float64), (n, 3))
     inv = _safe_inverse(d)
@@ -86,7 +94,7 @@ def any_hit(occ: Occluders, origins: np.ndarray, dirs: np.ndarray, t_min: float 
         t2 = (occ.hi[b] - origins) * inv
         t_in = np.minimum(t1, t2).max(axis=1)
         t_out = np.maximum(t1, t2).min(axis=1)
-        blocked |= (t_out >= t_in) & (t_in > t_min)
+        blocked |= (t_out >= t_in) & (t_in > t_min) & (t_in < t_max)
     return blocked
 
 
@@ -161,11 +169,12 @@ class Gather:
     direct: np.ndarray             # (m * rays, 3) float32 direct sun irradiance at the hit (used when the second pass finds no baked value there)
 
 
-def gather(occ: Occluders, points: np.ndarray, normal: np.ndarray, look: LookData, d: MapData, rng: np.random.Generator) -> Gather:
+def gather(occ: Occluders, points: np.ndarray, normal: np.ndarray, look: LookData, d: MapData, rng: np.random.Generator, sun: bool = True) -> Gather:
     """Shoot `d.bounce_rays` cosine-weighted rays from each point (N, 3) with this surface normal and record what they hit."""
     n_pts, rays = points.shape[0], max(int(d.bounce_rays), 4)
     t1, t2 = _tangents(normal)
-    sun = unit(look.sun_dir)
+    use_sun = sun
+    sun_vec = unit(look.sun_dir)
     sun_color = np.asarray(look.sun_color, dtype=np.float64)
     total = n_pts * rays
     g = Gather(n_pts, rays, np.ones(total, dtype=bool), np.full(total, -1, dtype=np.int16), np.zeros(total, dtype=np.int8), np.zeros(total, dtype=np.int8),
@@ -190,12 +199,13 @@ def gather(occ: Occluders, points: np.ndarray, normal: np.ndarray, look: LookDat
             hn = np.zeros((hp.shape[0], 3))
             hn[np.arange(hp.shape[0]), axis[hit]] = sign[hit]
             hp = hp + hn * SURFACE_OFFSET * 2
-            ndl = np.maximum(hn @ sun, 0.0)
-            lit = ~any_hit(occ, hp, sun) & (ndl > 0)
             rows = np.nonzero(hit)[0] + start * rays
             g.box[rows] = occ.box_index[idx[hit]]
             g.axis[rows], g.sign[rows], g.point[rows] = axis[hit], sign[hit], hp
-            g.direct[rows] = (ndl * lit)[:, None] * sun_color[None, :]
+            if use_sun:                                                                                   # G18 lights: the direct light at the hit is looked up instead
+                ndl = np.maximum(hn @ sun_vec, 0.0)
+                lit = ~any_hit(occ, hp, sun_vec) & (ndl > 0)
+                g.direct[rows] = (ndl * lit)[:, None] * sun_color[None, :]
     return g
 
 
@@ -234,9 +244,10 @@ class SurfaceLookup:
         return out, found
 
 
-def resolve(g: Gather, look: LookData, albedo_by_box: np.ndarray, lookup=None, grids=None) -> np.ndarray:
-    """(m, 3) mean light brought back by the rays. Sky for rays that escaped; for a hit: albedo x (baked irradiance there if known, else the direct sun there)."""
-    sky = np.asarray(look.sky_irradiance, dtype=np.float64)
+def resolve(g: Gather, look: LookData, albedo_by_box: np.ndarray, lookup=None, grids=None, sky=None) -> np.ndarray:
+    """(m, 3) mean light brought back by the rays. Sky for rays that escaped; for a hit: albedo x (baked irradiance there if known, else the direct sun there).
+    `sky` overrides the sky irradiance (G18: a Backrooms floor has no sky, the rays that leave through a door hole bring nothing)."""
+    sky = np.asarray(look.sky_irradiance if sky is None else sky, dtype=np.float64)
     radiance = np.tile(sky, (g.box.shape[0], 1))
     hit = ~g.escaped
     e_hit = g.direct.astype(np.float64)
@@ -288,24 +299,34 @@ AMBIENT_STEP = 1.0                 # m between the ambient probes on the floor p
 AMBIENT_HEIGHT = 1.4               # m above the deck: where the gun is held
 
 
-def ambient_grid(pm: PoolMap, occ: Occluders, look: LookData, lookup, grids1, rng) -> dict:
+def ambient_grid(pm: PoolMap, occ: Occluders, look: LookData, lookup, grids1, rng, sky=None, fill=None, albedo=None, direct=None) -> dict:
     """The ambient light (sky + bounces + fill, NOT the direct sun) a gun held in the room receives, on a grid over the floor plan: irradiance on an up-facing and a down-facing surface
     (the shader mixes the two by the normal, like `ambient_at`). Probes that fall inside a column take the mean of their neighbours."""
     d = pm.data
-    hx, hz = d.room_x / 2.0, d.room_z / 2.0
-    xs = np.arange(-hx + AMBIENT_STEP / 2, hx, AMBIENT_STEP)
-    zs = np.arange(-hz + AMBIENT_STEP / 2, hz, AMBIENT_STEP)
+    bx0, bx1, bz0, bz1 = plan_bounds(pm)
+    xs = np.arange(bx0 + AMBIENT_STEP / 2, bx1, AMBIENT_STEP)
+    zs = np.arange(bz0 + AMBIENT_STEP / 2, bz1, AMBIENT_STEP)
     gx, gz = np.meshgrid(xs, zs)
     pts = np.stack([gx.ravel(), np.full(gx.size, AMBIENT_HEIGHT), gz.ravel()], axis=1)
     inside = np.zeros(len(pts), dtype=bool)
     for lo, hi in zip(occ.lo, occ.hi):
         inside |= np.all((pts > lo) & (pts < hi), axis=1)
-    sky = np.asarray(look.sky_irradiance, dtype=np.float64)
-    fill = d.fill * sky / max(sky.mean(), 1e-6)
+    if pm.bounds is not None:                                                     # G18: probes outside every air volume (beside the corridors) take their neighbours' light
+        in_air = np.zeros(len(pts), dtype=bool)
+        for lo, hi in pm.air:
+            in_air |= np.all((pts >= np.asarray(lo)) & (pts <= np.asarray(hi)), axis=1)
+        inside |= ~in_air
+    if fill is None:
+        sky_c = np.asarray(look.sky_irradiance, dtype=np.float64)
+        fill = d.fill * sky_c / max(sky_c.mean(), 1e-6)
+    lights = sky is not None
+    alb = occ.albedo_by_box if albedo is None else albedo
     out = {}
     for name, normal in (('up', (0.0, 1.0, 0.0)), ('down', (0.0, -1.0, 0.0))):
-        g = gather(occ, pts, np.array(normal), look, d, rng)
-        e = resolve(g, look, occ.albedo_by_box, lookup, grids1) * d.bounce_gain + fill
+        g = gather(occ, pts, np.array(normal), look, d, rng, sun=not lights)
+        e = resolve(g, look, alb, lookup, grids1, sky=sky) * d.bounce_gain + fill
+        if direct is not None:                                                    # G18: the ceiling panels shine on the gun directly (the game has no sun term for them)
+            e = e + direct(pts, np.array(normal))
         grid = e.reshape(len(zs), len(xs), 3)
         bad = inside.reshape(len(zs), len(xs))
         if bad.any() and (~bad).any():
@@ -364,3 +385,127 @@ def bake(pm: PoolMap, look: LookData, probes: list = (), progress=None) -> BakeR
         image[place.y - 1:place.y + 3, place.x - 1:place.x + 3] = e[0]
     ambient = ambient_grid(pm, occ, look, lookup, grids1, rng)
     return BakeResult(encode(image, d.lightmap_max), d.lightmap_max, atlas, faces, list(probes), {'rays': rays_cast, 'texels': int(atlas.width * atlas.height)}, ambient)
+
+
+# ------------------------------------------------------------------ G18: ceiling light panels (Backrooms floors)
+LIGHT_RANGE = 10.0                 # m: a panel farther than this adds nothing (its share fades out from LIGHT_FADE)
+LIGHT_FADE = 8.0
+LIGHT_SIDE = 2                     # samples per side of a panel (2 x 2: soft shadow edges)
+
+
+def light_samples(lo, hi, n_side: int = LIGHT_SIDE) -> np.ndarray:
+    """(n_side^2, 3) points spread evenly on the lower face of a panel, a hair below it (so a shadow ray stops before the panel itself)."""
+    u = (np.arange(n_side) + 0.5) / n_side
+    gx, gz = np.meshgrid(lo[0] + u * (hi[0] - lo[0]), lo[2] + u * (hi[2] - lo[2]))
+    return np.stack([gx.ravel(), np.full(gx.size, lo[1] - 2e-3), gz.ravel()], axis=1)
+
+
+def direct_lights(occ: Occluders, points: np.ndarray, normal: np.ndarray, lights: list, n_side: int = LIGHT_SIDE) -> np.ndarray:
+    """(N, 3) irradiance at points with this normal from the downward-facing panels [(lo, hi, radiance)]: E = sum Le cos_p cos_l A / (S r^2), one shadow ray per sample."""
+    n_pts = points.shape[0]
+    e = np.zeros((n_pts, 3))
+    if n_pts == 0:
+        return e
+    normal = np.asarray(normal, dtype=np.float64)
+    pmin, pmax = points.min(axis=0), points.max(axis=0)
+    for lo, hi, le in lights:
+        lo, hi = np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)
+        gap = np.maximum(np.maximum(lo - pmax, pmin - hi), 0.0)
+        if math.sqrt(float(gap[0] ** 2 + gap[2] ** 2)) > LIGHT_RANGE or lo[1] <= pmin[1]:
+            continue                                                              # too far, or the panel is not above any of the points
+        centre = (lo + hi) / 2.0
+        near = np.nonzero(np.hypot(points[:, 0] - centre[0], points[:, 2] - centre[2]) < LIGHT_RANGE + 1.0)[0]
+        if near.size == 0:
+            continue
+        pts = points[near]
+        sub = occ.subset(np.minimum(pts.min(axis=0), lo) - 0.05, np.maximum(pts.max(axis=0), hi) + 0.05)
+        q = light_samples(lo, hi, n_side)
+        share = (hi[0] - lo[0]) * (hi[2] - lo[2]) / len(q)
+        le = np.asarray(le, dtype=np.float64)
+        for qs in q:
+            for start in range(0, pts.shape[0], CHUNK):
+                p = pts[start:start + CHUNK]
+                dv = qs[None, :] - p
+                r2 = np.einsum('ij,ij->i', dv, dv)
+                r = np.sqrt(r2)
+                cos_p = (dv @ normal) / r
+                cos_l = dv[:, 1] / r
+                fade = np.clip((LIGHT_RANGE - r) / (LIGHT_RANGE - LIGHT_FADE), 0.0, 1.0)
+                ok = (cos_p > 1e-4) & (cos_l > 1e-4) & (fade > 0.0)
+                if not ok.any():
+                    continue
+                rows = np.nonzero(ok)[0]
+                w = cos_p[rows] * cos_l[rows] * share / r2[rows] * fade[rows]
+                vis = ~any_hit(sub, p[rows], dv[rows], t_min=1e-5, t_max=1.0 - 1e-4)
+                e[near[start + rows]] += (w * vis)[:, None] * le[None, :]
+    return e
+
+
+def bake_lights(pm: PoolMap, look: LookData, lights: list, shown: float, probes: list = (), progress=None) -> BakeResult:
+    """G18: bake a map lit by ceiling panels (`Box.emit`) instead of the sun. Direct light: sampled per panel with shadow rays (fine texels). Indirect: the same
+    two gathering passes as `bake`, but a ray that hits a surface reads the DIRECT light baked there (pass 1) or the light after one bounce (pass 2); a ray that
+    hits a panel brings nothing (that light is the direct term already), one that leaves through a door hole brings nothing (no sky). The panels themselves get
+    the constant `shown` (they glow in the picture)."""
+    d = pm.data
+    faces = pm.exposed_faces()
+    atlas = pack_atlas(faces, d.texel, n_probes=len(probes))
+    occ = Occluders(pm)
+    rng = np.random.default_rng(12345)
+    emit_box = np.array([b.emit is not None for b in pm.boxes])
+    bounce_albedo = occ.albedo_by_box.copy()
+    bounce_albedo[emit_box] = 0.0
+    no_sky = (0.0, 0.0, 0.0)
+    mean_le = np.mean([np.asarray(le, dtype=np.float64) for _, _, le in lights], axis=0) if lights else np.ones(3)
+    fill = d.fill * mean_le / max(mean_le.mean(), 1e-6)
+    total = len(faces)
+    fine_direct, gathers, coarse_dims, direct_c = [], [], [], []
+    rays_cast = 0
+    for fi, f in enumerate(faces):
+        nu, nv = face_texels(f, d.texel)
+        cu = max(1, math.ceil((f.u1 - f.u0) / d.coarse - 1e-9))
+        cv = max(1, math.ceil((f.v1 - f.v0) / d.coarse - 1e-9))
+        coarse_dims.append((cv, cu))
+        if emit_box[f.box]:
+            fine_direct.append(None)
+            direct_c.append(np.zeros((cv, cu, 3)))
+            gathers.append(None)
+        else:
+            normal = np.array(f.normal)
+            fine = texel_positions(f, nu, nv).reshape(-1, 3)
+            fine_direct.append(direct_lights(occ, fine, normal, lights).reshape(nv, nu, 3))
+            cpts = texel_positions(f, cu, cv).reshape(-1, 3)
+            direct_c.append(direct_lights(occ, cpts, normal, lights).reshape(cv, cu, 3))
+            gathers.append(gather(occ, cpts, normal, look, d, rng, sun=False))
+            rays_cast += cpts.shape[0] * d.bounce_rays + (fine.shape[0] + cpts.shape[0]) * LIGHT_SIDE ** 2 * len(lights)
+        if progress:
+            progress(fi + 1, 3 * total)
+    lookup = SurfaceLookup(faces)
+    grids1 = []
+    for fi in range(total):                                                       # pass 1: the light after one bounce
+        g = gathers[fi]
+        cv, cu = coarse_dims[fi]
+        b1 = np.zeros((cv, cu, 3)) if g is None else resolve(g, look, bounce_albedo, lookup, direct_c, sky=no_sky).reshape(cv, cu, 3)
+        grids1.append(direct_c[fi] + b1)
+        if progress:
+            progress(total + fi + 1, 3 * total)
+    image = np.zeros((atlas.height, atlas.width, 3), dtype=np.float64)
+    for fi, (f, place) in enumerate(zip(faces, atlas.faces)):                     # pass 2: a hit spot is as bright as pass 1 found it
+        nu, nv = face_texels(f, d.texel)
+        cv, cu = coarse_dims[fi]
+        if fine_direct[fi] is None:
+            e = np.full((nv, nu, 3), float(shown))
+        else:
+            second = _smooth(resolve(gathers[fi], look, bounce_albedo, lookup, grids1, sky=no_sky).reshape(cv, cu, 3)) * d.bounce_gain
+            gathers[fi] = None
+            e = fine_direct[fi] + _stretch(second, nu, nv) + fill
+        image[place.y - 1:place.y + nv + 1, place.x - 1:place.x + nu + 1] = np.pad(e, ((1, 1), (1, 1), (0, 0)), mode='edge')
+        if progress:
+            progress(2 * total + fi + 1, 3 * total)
+    for (pos, normal), place in zip(probes, atlas.probes):
+        pos, normal = np.asarray(pos, dtype=np.float64)[None, :], unit(normal)
+        g = gather(occ, pos, normal, look, d, rng, sun=False)
+        e = direct_lights(occ, pos, normal, lights) + resolve(g, look, bounce_albedo, lookup, grids1, sky=no_sky) * d.bounce_gain + fill
+        image[place.y - 1:place.y + 3, place.x - 1:place.x + 3] = e[0]
+    ambient = ambient_grid(pm, occ, look, lookup, grids1, rng, sky=no_sky, fill=fill, albedo=bounce_albedo,
+                           direct=lambda pts, n: direct_lights(occ, pts, n, lights))
+    return BakeResult(encode(image, d.lightmap_max), d.lightmap_max, atlas, faces, list(probes), {'rays': int(rays_cast), 'texels': int(atlas.width * atlas.height)}, ambient)

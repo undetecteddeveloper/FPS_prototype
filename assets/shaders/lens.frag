@@ -12,6 +12,7 @@ uniform vec3 lens_tint;
 uniform vec3 lens_frame;        // current distortion, time, turn speed (deg/s, positive = right)
 uniform vec3 lens_shake;        // frame shake (core/lens.py frame_shake): content offset dx, dy in p units, CCW roll in radians
 uniform vec4 lens_water;        // G12: x zoom under the water (1 = none), y meniscus thickness (m on the port), zw unused
+uniform vec4 lens_hurt;         // G18: x red frame edge 0..1 (hit / low health), y colour drained 0..1
 uniform vec4 lens_lod;          // G13: x = log2(scene buffer / window): mip levels are picked in WINDOW terms, so a 75% buffer blooms over the same screen area
 // G13: LENS_DRY = the build used while no waterline band can be in view (game/lens.py picks it every frame). It leaves the meniscus code out
 // (an unused branch still costs registers on Intel; measured 2.78 -> 2.19 ms at 1080p). Both builds are compiled at start-up.
@@ -96,6 +97,13 @@ void main() {
     float v = 1.0 - smoothstep(lens_vig.x, lens_vig.y, r);
     float band = v * (1.0 - v) * 4.0;
     c = c * v + vec3(1.0, 0.40, 0.10) * band * lens_vig.z * clamp(l, 0.0, 1.0);
+
+    // G18 health: the colour drains and the frame edge turns red (a hit flashes it, low health keeps it); 0 = no change
+    if (lens_hurt.x + lens_hurt.y > 0.0) {
+        c = mix(c, vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), lens_hurt.y);
+        float edge = smoothstep(0.35, 1.15, r) * lens_hurt.x;
+        c = mix(c, vec3(0.45, 0.02, 0.01) + c * vec3(0.5, 0.05, 0.05), clamp(edge, 0.0, 0.9));
+    }
 
     float n = hash(gl_FragCoord.xy + fract(lens_frame.y * 7.13) * 411.0) - 0.5;
     c += n * lens_vig.w * (1.35 - clamp(l, 0.0, 1.0));

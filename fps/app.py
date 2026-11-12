@@ -48,6 +48,8 @@ from fps.core.footprints import FootprintTrail  # noqa: E402
 from fps.game.dust import DustMotes  # noqa: E402
 from fps.game.ground import WALK_BOUNDS, build_ground  # noqa: E402
 from fps.game.pool import PoolHall  # noqa: E402
+from fps.game.backrooms import NOTICE_GLYPHS, Level  # noqa: E402
+from fps.core.level import WON  # noqa: E402
 from fps.game.underwater import Underwater, UnderwaterAudio  # noqa: E402
 from fps.core.sway import Sway, ads_target_for  # noqa: E402
 from fps.game.viewmodel import Viewmodel  # noqa: E402
@@ -92,8 +94,10 @@ class Game(Entity):
         self.params = params
         self.low_memory = low_memory                  # the machine is short of virtual memory (fps/core/memplan.py): no MSAA, the second gun is built on the first switch
         self._aa_cap = 0 if low_memory else None      # MSAA samples allowed while the user has not touched the anti-aliasing row himself (None = no cap)
-        self.map_name = map_name                      # 'pool' = the pool hall (G9); 'flat' = the old white slab (kept to compare FPS)
-        look = look or map_name == 'pool'             # the pool hall is drawn by shaders that WorldLook feeds
+        self.map_name = map_name                      # 'pool' = the pool hall (G9); 'flat' = the old white slab (kept to compare FPS); 'backrooms' = the 5-floor level (G18)
+        look = look or map_name in ('pool', 'backrooms')     # the pool hall is drawn by shaders that WorldLook feeds
+        self.root = ROOT
+        self.level = None                             # G18: the Backrooms level (fps/game/backrooms.py)
         self.gun_name = gun_name                      # key in GUNS of the gun in hand
         self._audio_defaults = (dict(params.audio.cues), dict(params.audio.sound_files))     # M4 sound beats / files: restored when switching back to a gun without its own
         self._sound, self._effects, self._shake_on, self._free_aim = sound, effects, shake, free_aim
@@ -113,7 +117,16 @@ class Game(Entity):
         self._age = 0.0
         self._draw_pending = draw         # draw the gun on the first frame (not during build: loading the model makes the first frame very long)
         self.pool = None
-        if map_name == 'pool':
+        self.shake = None                             # (built below; the Backrooms level reads it when a strike lands)
+        if map_name == 'backrooms':
+            self.level = Level(self, sound=sound, rebake=rebake)
+            self.pool = self.level.hall
+            self.world = self.pool.world
+            sx, sy, sz, syaw = self.level.start_pose()
+            self.player = Player(params.player, WALK_BOUNDS, params.gun, self.level.current.terrain, (sx, sy, sz))
+            self.player.yaw = syaw
+            self.player._apply_view()
+        elif map_name == 'pool':
             self.pool = PoolHall(params, ROOT, force_bake=rebake)
             self.world = self.pool.world
             self.player = Player(params.player, WALK_BOUNDS, params.gun, self.pool.terrain(params.player.radius), self.pool.spawn)
@@ -154,6 +167,8 @@ class Game(Entity):
         self.shake_view = ShakeView(self.shake, self.head, params.lens) if shake else None      # all of it moves the LENS FRAME, not the world camera
         self.combat = Combat(params, self.player, self.world['colliders'], audio=self.audio, fx=self.fx, shake=self.shake)
         self.combat.aim_source = self._barrel_direction
+        self.combat.targets = self.level                                       # G18: bullets hit the enemy capsules (None elsewhere)
+        self._shots_heard = 0                                                  # G18: shots already reported to the swarm (hearing)
         self.wall_ready = WallReady(params.gun.wall)                           # G14 High Ready: the gun rises when a wall is close, firing / aiming locked meanwhile
         self._wall_reach = reach_of(params.gun)
         self._wall_solids = self.combat.box_index             # G18: the probe asks the grid for the boxes near the eye
@@ -180,12 +195,15 @@ class Game(Entity):
         self.debug = DebugPanel(self, self.params_store, USER_PARAMS)         # F1 panel: built lazily the first time it opens; costs nothing while closed
         self.params_store.subscribe(self._on_params_changed)
         self._kits = {gun_name: GunKit(params.gun, self.viewmodel, self.fx, self.audio, self.foley)}     # gun key -> GunKit; `preload_guns` adds the others
-        self.notice = Notice()                                                # a short line top-centre (e.g. the settings saved)
-        self.notice_low = Notice((0.0, -0.40), 0.85, params.underwater.no_fire_text)   # G12: a small line at the bottom ("Không thể bắn ở đây")
+        self.notice = Notice(warm=NOTICE_GLYPHS if self.level else '')        # a short line top-centre (e.g. the settings saved; G18 floor / win / death lines)
+        self.notice_low = Notice((0.0, -0.40), 0.85, params.underwater.no_fire_text + (' Còn 0123456789' if self.level else ''))   # G12: a small line at the bottom ("Không thể bắn ở đây")
         self.combat.on_blocked = self._on_blocked
         self.graphics_level = None
         self.gfx_panel = GraphicsPanel(self)                                  # F2: graphics options, built the first time it opens
         self.focus = FocusGuard()                                             # G16: Alt+Tab / minimise -> free the mouse, let go of keys, mute
+        if self.level is not None:
+            self.level.current.view.update(self.level.current.swarm, self.pool.local_ambient)     # the capsules exist before the shader warm-up draws a frame
+            self.notice.show(self.level.floor_title(), 3.5)
         self._muted = None                                                    # [(AudioManager, volume before)] while the window is in the background
         self.apply_graphics(self.gfx)
 
@@ -392,6 +410,66 @@ class Game(Entity):
         if any(s.id == 'gun.ads_eye_relief' for s in specs):
             self.sway.ads_target = ads_target_for(self.params.gun)
 
+    # --- G18 Backrooms: floor swap / restart (the level says when; this rewires everything that holds the old floor) ---
+    def _enter_floor(self, old, offset=None):
+        """The level's current floor changed (halfway up the stairs: `offset` moves the player to the same spot of the same corridor; restart: None = the start
+        pose). Rewires the player, bullets, bullet holes, water extras, underwater, dust and reflections, then frees the old floor."""
+        lvl, p, params = self.level, self.player, self.params
+        new = lvl.current
+        hall = new.hall
+        if offset is not None:
+            p.x, p.y, p.z = p.x + offset[0], p.y + offset[1], p.z + offset[2]
+        else:
+            sx, sy, sz, syaw = lvl.start_pose()
+            p.x, p.y, p.z = sx, sy, sz
+            p.vx = p.vz = p.vy = 0.0
+            p.yaw, p.pitch = syaw, 0.0
+            p._apply_view()
+            p.on_ground = True
+        p.terrain = new.terrain
+        x0, x1, z0, z1, wy = hall.pm.water
+        p.water = (x0, x1, z0, z1, wy, hall.data.wade_depth)
+        self._feet = (p.x, p.z)
+        self.wake, self.trail = Wake(), FootprintTrail()
+        self.pool, self.world = hall, hall.world
+        c = self.combat
+        c.set_static_boxes(hall.world['colliders'])
+        c.dynamic_boxes, c.bullets = [], []
+        c.decals.clear()
+        c.decals.bind_room(hall.lightmap, hall.e_max, hall.lightmap_at)
+        self._wall_solids = c.box_index
+        if self.look:
+            self.look.world = self.world
+        if self._effects:
+            hall.attach_splash(WaterSplash(params.splash, self.light, wy))
+        old.hall.node.hide()                                 # the reflection capture (first visit of a floor) must see only the new floor
+        old.hall.water.node.hide()
+        old.door_view_hide(True)
+        hall.prepare_reflection(self.light)
+        for kit in self._kits.values():
+            hall.bind_reflection(kit.viewmodel.root)
+        if self.underwater:
+            self.underwater = Underwater(params.underwater, params.water, hall, self.light)
+        if self.dust:
+            self.dust.root.remove_node()
+            self.dust = DustMotes(params.look, self.light, hall)
+        old.destroy()
+        self.apply_graphics(self.gfx)
+        self._refill_ammo()
+        new.view.update(new.swarm, hall.local_ambient)
+        self.notice.show(lvl.floor_title(), 3.5)
+
+    def _refill_ammo(self):
+        """G18: every floor starts with full magazines and reserves (all guns)."""
+        w, g = self.combat.weapon, self.params.gun
+        w.mag, w.reserve = g.magazine, g.reserve
+        self._ammo = {}
+
+    def _restart_level(self):
+        old = self.level.restart()
+        self.player.frozen, self.player.slump = False, 0.0
+        self._enter_floor(old, None)
+
     def _on_blocked(self, reason: str = 'water'):
         """The trigger was pulled where it cannot fire: a small line at the bottom of the screen."""
         if reason == 'wall':
@@ -490,6 +568,13 @@ class Game(Entity):
         self._update_focus(dt)
         self.player.tick()
         self._update_wall(dt)
+        if self.level is not None:                       # G18: doors, the swarm, health, progress (after the player moved, before the shots of this frame)
+            for event in self.level.update(dt):
+                if event == 'swap':
+                    old, offset = self.level.take_next()
+                    self._enter_floor(old, offset)
+                elif event == 'restart':
+                    self._restart_level()
         if self.pool:
             self._water_feet()
         if self.look:
@@ -501,6 +586,9 @@ class Game(Entity):
         if self.underwater:
             self.combat.underwater = self.underwater.eye_under          # last frame's camera (the camera moves after shooting): one frame late at most
         self.combat.update(min(dt, 0.05), dt)
+        if self.level is not None and self.combat.shots_fired != self._shots_heard:    # G18: the swarm hears the shots
+            self._shots_heard = self.combat.shots_fired
+            self.level.on_gunshot(self.player.x, self.player.z)
         if self._draw_pending and dt < 0.1:          # wait for the first normal frame: the long build frame must not count toward the draw time
             self._draw_pending = False
             if not self.combat.handling.start_draw():
@@ -554,6 +642,8 @@ class Game(Entity):
         if self.smoke:
             self.smoke.update(min(dt, 0.1))                 # after set_camera: the puffs face this frame's camera
         if self.lens:
+            if self.level is not None:
+                self.lens.set_hurt(*self.level.hurt_inputs())
             self.lens.update(dt, self.player.ads_amount, inp.look[0], frame)
         if self.hud:
             self.hud.update(dt, self.combat)
@@ -579,6 +669,9 @@ class Game(Entity):
                 self.debug.on_input(key)
         elif key == 'escape':
             mouse.locked = not mouse.locked
+        elif key == 'enter' and self.level is not None and self.level.state.phase == WON:
+            self.notice.show('', 0.01)
+            self._restart_level()
         elif key == 'left mouse down':
             if not self.focus.guarding:                  # the click that brought the window back to the front is not a shot (G16)
                 self.combat.pressed = True
@@ -669,7 +762,8 @@ def main(argv=None):
     ap.add_argument('--mute', action='store_true', help='tắt tiếng súng')
     ap.add_argument('--gun', default='m4', choices=sorted(GUNS), help='súng dùng khi khởi động (m4 / glock / m1014)')
     ap.add_argument('--defaults', action='store_true', help='bỏ qua user_params.json, chạy bằng thông số mặc định')
-    ap.add_argument('--map', default='pool', choices=('pool', 'flat'), help='pool = phòng hồ bơi (mặc định); flat = nền trắng phẳng cũ (để so FPS)')
+    ap.add_argument('--map', default='pool', choices=('pool', 'flat', 'backrooms'),
+                    help='pool = phòng hồ bơi (mặc định); flat = nền trắng phẳng cũ (để so FPS); backrooms = level 5 tầng Backrooms - Pool rooms có kẻ địch')
     ap.add_argument('--rebake', action='store_true', help='nướng lại ánh sáng và chụp lại phản chiếu của phòng hồ bơi (thường game tự làm khi cần)')
     ap.add_argument('--low-memory', action='store_true', help='ép chế độ giảm tải (tắt khử răng cưa, nạp súng thứ hai muộn); thường game tự chọn khi máy thiếu bộ nhớ ảo')
     args = ap.parse_args(argv)

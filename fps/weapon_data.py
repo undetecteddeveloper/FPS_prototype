@@ -525,6 +525,11 @@ class GunData:
     muzzle_velocity: float = 500.0        # m/s
     bullet_gravity: float = 9.81          # m/s^2
     bullet_lifetime: float = 3.0          # s; past this the bullet is removed (it flew out of the lane)
+    # G18 damage to enemies (core/enemies.py): per bullet / per pellet, full up to damage_near m, then linearly down to damage_min x at damage_far m
+    damage: float = 34.0                  # M4: 3 body hits drop a normal enemy (100 HP)
+    damage_near: float = 30.0
+    damage_far: float = 80.0
+    damage_min: float = 0.6
     # per-gun model / animation hooks; the defaults keep the M4 behaviour
     ready_pose: tuple = None              # (anim, frame) of the ready pose (bolt closed); None = last frame of the 'draw' clip (M4)
     locked_pose: tuple = None             # (anim, frame) of the pose with the slide/bolt locked open (empty magazine); None = first frame of 'reload_empty' (M4)
@@ -1002,6 +1007,9 @@ M1014 = GunData(
 )
 
 GUNS = {'m4': M4, 'glock': GLOCK, 'm1014': M1014}
+# G18 damage per gun (kept here, out of the long GunData(...) calls): the Glock needs 4 body hits, one close M1014 blast (9 pellets) drops a normal enemy
+GLOCK.damage, GLOCK.damage_near, GLOCK.damage_far, GLOCK.damage_min = 26.0, 15.0, 45.0, 0.5
+M1014.damage, M1014.damage_near, M1014.damage_far, M1014.damage_min = 16.0, 6.0, 22.0, 0.3
 
 
 @dataclass
@@ -1079,6 +1087,103 @@ class AudioData:
 
 
 @dataclass
+class EnemyKind:
+    """One kind of melee chaser (G18 Backrooms; a capsule, core/enemies.py). Speeds in m/s, times in s."""
+    radius: float = 0.34
+    height: float = 1.80
+    hp: float = 100.0
+    speed: float = 4.0                    # chase speed (the player walks 4.5, sprints 6.8: walking away is not enough, sprinting is)
+    patrol_speed: float = 1.3
+    accel: float = 14.0
+    turn_rate: float = 360.0              # deg/s
+    reach: float = 1.35                   # m from the capsule centre line to the player's: a strike lands within this
+    windup: float = 0.40                  # telegraph before the strike (eyes flare, the capsule leans in): leaving the reach dodges it
+    recover: float = 0.70                 # after a strike
+    damage: float = 16.0
+    knockback: float = 3.5                # m/s pushed into the player on a hit
+    stagger: float = 0.22                 # stopped this long by a bullet hit
+    head_share: float = 0.22              # top share of the height that counts as the head (x enemy.headshot damage)
+    color: tuple = (0.10, 0.10, 0.11)     # albedo (linear)
+
+
+@dataclass
+class RunnerKind(EnemyKind):
+    """Small, fast, fragile (a subclass so the F1 'chốt' tool finds each default in its own class body)."""
+    radius: float = 0.27
+    height: float = 1.45
+    hp: float = 55.0
+    speed: float = 5.6
+    patrol_speed: float = 1.8
+    accel: float = 20.0
+    turn_rate: float = 540.0
+    reach: float = 1.15
+    windup: float = 0.30
+    recover: float = 0.55
+    damage: float = 10.0
+    knockback: float = 2.5
+    stagger: float = 0.30
+    head_share: float = 0.22
+    color: tuple = (0.16, 0.05, 0.04)
+
+
+@dataclass
+class BruteKind(EnemyKind):
+    """Big, slow, hits hard, barely staggers."""
+    radius: float = 0.55
+    height: float = 2.30
+    hp: float = 340.0
+    speed: float = 2.7
+    patrol_speed: float = 1.0
+    accel: float = 8.0
+    turn_rate: float = 200.0
+    reach: float = 1.75
+    windup: float = 0.65
+    recover: float = 1.10
+    damage: float = 34.0
+    knockback: float = 6.5
+    stagger: float = 0.10
+    head_share: float = 0.22
+    color: tuple = (0.05, 0.07, 0.12)
+
+
+@dataclass
+class EnemyData:
+    """G18 swarm AI (skill `enemy-swarm-ai`, core/flowfield.py + core/enemies.py)."""
+    normal: EnemyKind = field(default_factory=EnemyKind)
+    runner: EnemyKind = field(default_factory=RunnerKind)
+    brute: EnemyKind = field(default_factory=BruteKind)
+    headshot: float = 2.0                 # damage multiplier on the head
+    tokens: int = 3                       # at most this many enemies attack at the same time (Doom 2016 attack tokens); the others circle at `hold_ring`
+    hold_ring: float = 2.6                # m from the player where an enemy without a token waits
+    view_range: float = 26.0              # m
+    view_cone: float = 120.0              # deg, full angle
+    hearing: float = 30.0                 # m: a gunshot alerts every enemy this close (through walls)
+    shout: float = 7.0                    # m: an alerted enemy alerts its neighbours this close
+    alert_delay: float = 0.35             # s between noticing the player and starting the chase
+    separation: float = 1.6               # weight of keeping apart from the neighbours
+    flank_angle: float = 35.0             # deg: within flank_range each enemy aims this far to its side of the player, so the group surrounds him
+    flank_range: float = 7.0
+    seek_range: float = 9.0               # m: with a clear line to the player inside this, go straight at him (the flow field otherwise)
+    deep_cost: float = 6.0                # extra flow-field cost per metre of water above the knees (they avoid the deep end)
+    cell: float = 0.5                     # m, flow-field grid
+    field_budget: int = 450               # cells settled per frame by the time-sliced Dijkstra (~1 ms)
+    corpse_time: float = 2.5              # s a dead enemy stays (falls over, sinks, fades)
+
+
+@dataclass
+class HealthData:
+    """G18 the player's health. No numbers on screen (Bodycam): a hit flashes the frame edge red, low health keeps it red and drains the colour."""
+    max_hp: float = 100.0
+    regen_delay: float = 5.0              # s without a hit before health comes back
+    regen_rate: float = 8.0               # HP / s
+    flash: float = 0.85                   # red edge strength right after a hit (x damage / 25, capped at 1)
+    flash_decay: float = 2.2              # 1 / s
+    low_start: float = 0.55               # health share where the steady red edge starts
+    low_desaturate: float = 0.75          # colour drained at 0 health
+    death_time: float = 3.0               # s from death to the restart at floor 1
+
+
+@dataclass
 class GameParams:
     player: PlayerParams = field(default_factory=PlayerParams)
     gun: GunData = field(default_factory=lambda: M4)
@@ -1090,3 +1195,70 @@ class GameParams:
     graphics: GraphicsData = field(default_factory=GraphicsData)
     splash: SplashData = field(default_factory=SplashData)
     underwater: UnderwaterData = field(default_factory=UnderwaterData)
+    enemy: EnemyData = field(default_factory=EnemyData)
+    health: HealthData = field(default_factory=HealthData)
+
+
+# ---------------------------------------------------------------- G18: Backrooms - Pool rooms (core/backrooms.py builds the floors; NOT on the F1 panel: any change re-bakes that floor)
+def _backrooms_hall(**kw) -> MapData:
+    """A Poolrooms hall: white tiles, no windows (no sun: the light comes from the ceiling panels), the pool centred like the pool hall's."""
+    base = dict(window_z=(), column_z=(), stair_count=0, north_steps=False,
+                wall_albedo=(0.80, 0.82, 0.80), floor_albedo=(0.84, 0.85, 0.83), rail_albedo=(0.62, 0.64, 0.66),
+                texel=0.12, coarse=0.45, bounce_rays=256, bounce_gain=1.7, fill=0.05, lightmap_max=4.0)
+    base.update(kw)
+    return MapData(**base)
+
+
+@dataclass(frozen=True)
+class FloorSpec:
+    """One floor of the Backrooms level. Lengths in metres, local coordinates of the floor (the pool is centred on the origin, deck top y = 0)."""
+    name: str
+    hall: MapData
+    pillars: tuple = ()               # (x, z, size): square pillars, full height
+    walls: tuple = ()                 # (x0, z0, x1, z1, height): tiled partition walls standing on the deck (height >= ceiling: up to the ceiling)
+    lights: tuple = ()                # (x, z, size_x, size_z): ceiling light panels
+    exit_x: float = 0.0               # x of the door in the NORTH wall (to the stairs up)
+    arrive_x: float = 0.0             # x of the door in the SOUTH wall (from the stairs below)
+    enemies: tuple = (8, 0, 0)        # how many (normal, runner, brute)
+    seed: int = 1                     # spawn places
+
+
+def _grid_lights(xs, zs, size=(1.2, 0.6), skip=()) -> tuple:
+    return tuple((x, z, *size) for x in xs for z in zs if (x, z) not in skip)
+
+
+BACKROOMS = (
+    FloorSpec('Sảnh đầu', _backrooms_hall(room_x=22.0, room_z=28.0, ceiling=3.6, pool_x=8.0, pool_z=14.0, slope_z=(-2.0, 3.0), pool_deep=-1.92),
+              pillars=tuple((x, z, 0.8) for x in (-7.5, 7.5) for z in (-9.0, -3.0, 3.0, 9.0)),
+              walls=((-11.0, 4.5, -8.5, 4.8, 1.1), (8.5, -5.0, 11.0, -4.7, 1.1)),
+              lights=_grid_lights((-4.5, 4.5), (-11.0, -6.0, -1.0, 4.0, 9.0), skip=((4.5, -1.0),)) + ((-9.5, 0.0, 1.2, 0.6), (9.5, 0.0, 1.2, 0.6)),
+              exit_x=5.0, arrive_x=-5.0, enemies=(8, 0, 0), seed=11),
+    FloorSpec('Hàng cột', _backrooms_hall(room_x=26.0, room_z=26.0, ceiling=3.2, pool_x=10.0, pool_z=10.0, slope_z=(-1.0, 3.0), pool_deep=-1.62),
+              pillars=tuple((x, z, 0.7) for x in (-10.0, -7.0, 7.0, 10.0) for z in (-10.0, -6.0, -2.0, 2.0, 6.0, 10.0))
+              + tuple((x, z, 0.7) for x in (-3.0, 3.0) for z in (-9.0, 9.0)),
+              lights=_grid_lights((-8.5, -1.5, 1.5, 8.5), (-11.0, -7.5, -4.0, 0.0, 4.0, 7.5, 11.0), skip=((-8.5, 4.0), (8.5, -7.5), (1.5, 11.0))),
+              exit_x=-1.0, arrive_x=1.0, enemies=(8, 2, 0), seed=23),
+    FloorSpec('Sảnh cao', _backrooms_hall(room_x=24.0, room_z=34.0, ceiling=6.0, pool_x=10.0, pool_z=22.0, slope_z=(-4.0, 6.0), pool_deep=-2.12),
+              walls=((-12.0, -12.5, -8.0, -12.2, 6.0), (-8.3, -12.5, -8.0, -5.0, 6.0), (-8.3, -1.5, -8.0, 6.0, 6.0), (-8.3, 9.5, -8.0, 12.5, 6.0),
+                     (8.0, -12.5, 8.3, -9.0, 6.0), (8.0, -5.5, 8.3, 2.0, 6.0), (8.0, 5.5, 8.3, 12.5, 6.0), (8.0, 12.2, 12.0, 12.5, 6.0)),
+              pillars=((-6.5, -14.0, 1.0), (6.5, -14.0, 1.0), (-6.5, 14.0, 1.0), (6.5, 14.0, 1.0)),
+              lights=_grid_lights((-3.5, 3.5), (-14.0, -9.0, -4.0, 1.0, 6.0, 11.0, 15.0), size=(1.6, 0.8))
+              + _grid_lights((-10.0, 10.0), (-8.0, 0.0, 8.0), size=(1.0, 1.0), skip=((10.0, 0.0),)),
+              exit_x=-3.0, arrive_x=3.0, enemies=(8, 3, 1), seed=37),
+    FloorSpec('Mê cung', _backrooms_hall(room_x=28.0, room_z=28.0, ceiling=3.4, pool_x=6.0, pool_z=10.0, slope_z=(-1.0, 3.0), pool_deep=-1.62),
+              walls=((-14.0, -8.0, -7.0, -7.7, 3.4), (-4.0, -8.0, 4.0, -7.7, 3.4), (7.0, -8.0, 14.0, -7.7, 3.4),
+                     (-14.0, 8.0, -9.0, 8.3, 3.4), (-6.0, 8.0, 6.0, 8.3, 3.4), (9.0, 8.0, 14.0, 8.3, 3.4),
+                     (-7.0, -4.0, -6.7, 4.0, 3.4), (6.7, -4.0, 7.0, 4.0, 3.4), (-11.0, -3.0, -10.7, 3.0, 1.2), (10.7, -3.0, 11.0, 3.0, 1.2),
+                     (-11.0, 11.0, -10.7, 14.0, 3.4), (10.7, -14.0, 11.0, -11.0, 3.4)),
+              lights=((-10.0, -11.0, 1.2, 0.6), (0.0, -11.5, 1.2, 0.6), (10.0, -11.0, 1.2, 0.6), (-10.0, 0.0, 1.2, 0.6), (0.0, -5.0, 1.2, 0.6), (0.0, 5.0, 1.2, 0.6),
+                      (10.0, 0.0, 1.2, 0.6), (-10.0, 11.0, 1.2, 0.6), (3.0, 11.5, 1.2, 0.6), (12.0, 11.0, 1.2, 0.6), (-4.0, 0.0, 0.6, 1.2)),
+              exit_x=-4.0, arrive_x=4.5, enemies=(8, 4, 2), seed=41),
+    FloorSpec('Hồ lớn', _backrooms_hall(room_x=32.0, room_z=32.0, ceiling=5.0, pool_x=16.0, pool_z=18.0, slope_z=(-3.0, 5.0), pool_deep=-2.12),
+              pillars=((-11.0, -11.0, 1.6), (11.0, -11.0, 1.6), (-11.0, 11.0, 1.6), (11.0, 11.0, 1.6), (-12.0, 0.0, 1.0), (12.0, 0.0, 1.0)),
+              walls=((-16.0, -4.0, -14.0, -3.7, 1.1), (14.0, 3.7, 16.0, 4.0, 1.1)),
+              lights=_grid_lights((-12.0, -6.0, 0.0, 6.0, 12.0), (-13.0, -6.5, 0.0, 6.5, 13.0), size=(1.4, 0.7), skip=((0.0, 0.0), (-12.0, 13.0), (12.0, -13.0))),
+              exit_x=0.0, arrive_x=0.0, enemies=(8, 4, 3), seed=53),
+)
+BACKROOMS_LIGHT = (7.5, 7.3, 6.6)     # radiance of a ceiling panel (linear; slightly warm fluorescent)
+BACKROOMS_CORRIDOR_LIGHT = (2.3, 2.25, 2.05)   # the two panels of a stair corridor: a narrow white shaft bounces its light many times (at hall strength it burnt out white)
+BACKROOMS_LIGHT_SHOWN = 3.6           # lightmap value written on the panels themselves (they glow in the picture; <= MapData.lightmap_max)

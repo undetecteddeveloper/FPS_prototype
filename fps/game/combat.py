@@ -65,6 +65,7 @@ class Combat:
         self.player = player
         self.set_static_boxes(static_boxes)
         self.dynamic_boxes = []                    # G18: boxes that come and go (doors of the Backrooms level): always tested, never indexed
+        self.targets = None                        # G18: the Backrooms level (hit_test(p0, p1) -> (t, enemy, head) / on_bullet(hit, bullet, distance)) or None
         self.rng = rng or random.Random()
         self.audio = audio                         # GunAudio or None (muted)
         self.fx = fx                               # Effects (muzzle flash, tracer) or None
@@ -238,6 +239,14 @@ class Combat:
         for _ in range(steps):
             new_pos, new_vel = advance(bullet.pos, bullet.vel, self.gun.bullet_gravity, step, self.gun.bullet_drag)
             hit = first_hit(bullet.pos, new_pos, self._candidates(bullet.pos, new_pos), ground_y=None)       # the ground is a finite slab among the boxes, not an infinite plane
+            if self.targets is not None:                                     # G18: an enemy in front of the wall takes the bullet
+                th = self.targets.hit_test(bullet.pos, new_pos)
+                if th is not None and (hit is None or th[0] < hit.t):
+                    t = th[0]
+                    point = tuple(bullet.pos[i] + (new_pos[i] - bullet.pos[i]) * t for i in range(3))
+                    bullet.alive, bullet.end_pos = False, point
+                    self.targets.on_bullet(th, bullet, distance_between(bullet.origin, point))
+                    return False
             if hit:
                 bullet.alive, bullet.end_pos = False, hit.point
                 self._on_hit(bullet, hit)

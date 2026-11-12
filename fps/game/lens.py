@@ -76,6 +76,9 @@ class Lens:
         self.water.set_element(0, Vec4(1.0, 0.0, 0.0, 0.0))
         self.quad.set_shader_input('lens_water', self.water)
         self.extra_fisheye = 0.0
+        self.hurt = PTA_LVecBase4f.empty_array(1)           # G18: red frame edge (hit / low health) and colour drain, written in place by `set_hurt`
+        self.hurt.set_element(0, Vec4(0.0, 0.0, 0.0, 0.0))
+        self.quad.set_shader_input('lens_hurt', self.hurt)
         if light is not None:
             light.bind_under(self.quad)                     # the same waterline as the world shaders (underwater.glsl)
         self.apply_params()
@@ -117,6 +120,10 @@ class Lens:
         if dry != self.dry:
             self.dry = dry
             self.quad.set_shader(self.shaders[dry])
+
+    def set_hurt(self, edge: float, drain: float):
+        """G18: the player's health on the picture (no numbers on screen, Bodycam): `edge` 0..1 red frame edge, `drain` 0..1 colour drained."""
+        self.hurt.set_element(0, Vec4(edge, drain, 0.0, 0.0))
 
     def update(self, dt: float, ads: float, yaw_step: float, shake: tuple = (0.0, 0.0, 0.0)):
         """`yaw_step` = degrees of horizontal mouse turn in this frame (for rolling shutter and blur when turning).

@@ -33,6 +33,8 @@ class Box:
     visible: bool = True          # drawn and lit (False: only a collision shape)
     bullets: bool = True          # stops bullets
     caster: bool = False          # G14: not drawn, no collision, but it blocks the sun in the light bake: stands for the handrail tubes (meshes, not boxes) so they cast a shadow
+    emit: tuple = None            # G18: radiance (r, g, b) of a ceiling light panel (core/lightbake.py bake_lights); drawn as a glowing panel
+    uv_origin: tuple = (0.0, 0.0, 0.0)    # G18: the tile pattern is laid from this point (a stair corridor's own frame, so both copies of it look identical)
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,7 @@ class PoolMap:
     interior: tuple               # (lo, hi) of the room interior
     water: tuple                  # (x0, x1, z0, z1, y) of the water surface
     ramp: tuple = None            # (x0, x1, z0, z1, y0, y1): the sloping pool bottom between the shallow shelf and the deep end (not a box: walked on via core/terrain.py, drawn by water.frag)
+    bounds: tuple = None          # G18: (x0, x1, z0, z1) of everything the player can reach (None: the room interior)
 
     def exposed_faces(self) -> list:
         if not hasattr(self, '_faces'):
@@ -472,12 +475,19 @@ def walk_tops(pm: PoolMap) -> list:
     return [(b.lo[0], b.hi[0], b.lo[2], b.hi[2], b.hi[1]) for b in pm.boxes if b.walk]
 
 
+def plan_bounds(pm: PoolMap) -> tuple:
+    """(x0, x1, z0, z1) of the walkable floor plan: `pm.bounds` (a Backrooms floor with its corridors) or the room interior."""
+    if pm.bounds is not None:
+        return pm.bounds
+    hx, hz = pm.data.room_x / 2.0, pm.data.room_z / 2.0
+    return (-hx, hx, -hz, hz)
+
+
 def pool_terrain(pm: PoolMap, radius: float):
     """The walkable map for the player: box tops, the sloping pool bottom (down to the 2 m deep end, G12) and the room walls (minus his radius)."""
     from fps.core.terrain import Terrain
-    d = pm.data
-    hx, hz = d.room_x / 2.0, d.room_z / 2.0
-    return Terrain(walk_tops(pm), solid_boxes(pm), (-hx + radius, hx - radius, -hz + radius, hz - radius), ramps=[pm.ramp] if pm.ramp else [])
+    x0, x1, z0, z1 = plan_bounds(pm)                       # the room interior (G18: a Backrooms floor adds its corridors)
+    return Terrain(walk_tops(pm), solid_boxes(pm), (x0 + radius, x1 - radius, z0 + radius, z1 - radius), ramps=[pm.ramp] if pm.ramp else [])
 
 
 def solid_boxes(pm: PoolMap) -> list:

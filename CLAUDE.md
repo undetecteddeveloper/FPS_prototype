@@ -5,7 +5,7 @@ LUẬT CỨNG: với MỌI prompt của người dùng, dòng đầu tiên của
 Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm việc (hỏi theo cỡ việc, phiên, subagent): `docs/WORKFLOW.md`, ĐỌC ĐẦU MỖI PHIÊN. Chi tiết từng giai đoạn: `docs/notes/` (danh sách cuối file).
 
 ## Lệnh
-- Chạy game: `run.bat` (hoặc `.venv\Scripts\python.exe main.py`; cửa sổ không viền phủ kín). Tuỳ chọn: `--novsync`, `--window --size 1280x720`, `--quit-after 5`, `--mute`, `--defaults` (bỏ `user_params.json`), `--map flat` (nền trắng phẳng cũ, để so FPS; mặc định là phòng hồ bơi), `--rebake` (nướng lại ánh sáng + chụp lại phản chiếu của phòng hồ), `--low-memory` (ép chế độ giảm tải; game tự chọn khi máy thiếu bộ nhớ ảo).
+- Chạy game: `run.bat` (hoặc `.venv\Scripts\python.exe main.py`; cửa sổ không viền phủ kín). Tuỳ chọn: `--novsync`, `--window --size 1280x720`, `--quit-after 5`, `--mute`, `--defaults` (bỏ `user_params.json`), `--map flat` (nền trắng phẳng cũ, để so FPS; mặc định là phòng hồ bơi), `--map backrooms` (G18: level 5 tầng Backrooms - Pool rooms có kẻ địch), `--rebake` (nướng lại ánh sáng + chụp lại phản chiếu của phòng hồ), `--low-memory` (ép chế độ giảm tải; game tự chọn khi máy thiếu bộ nhớ ảo).
 - Game chết / treo / cửa sổ đen lúc khởi động: mở `logs\crash.log` (dòng đầu mỗi lần chạy ghi commit trống; crash native và treo > 150 s để lại dấu vết Python), rồi `docs/notes/troubleshooting.md`. Nguyên nhân đã biết (7/11/2026): máy hết commit (pagefile 3 GB). Đừng giết tiến trình theo tên (`Stop-Process python`): đó có thể là game của người dùng.
 - Test thuần (toán + nạp glb, không mở cửa sổ): `.venv\Scripts\python.exe -X utf8 -m pytest` (~30 s).
 - `tools\selftests\*` HIỆN KHÔNG CHẠY ĐƯỢC (dựng bằng bia và phòng bắn đã xoá 7/11/2026; người dùng bảo không cần). Cổng kiểm tra = pytest + chạy game thật. Nhiều game cùng lúc làm bài đo thời gian trượt oan: bọc `.venv\Scripts\python.exe -X utf8 tools\with_game_lock.py <lệnh gốc>`.
@@ -13,6 +13,7 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 - Độ ổn định (G16): `tools\measure\chaos_check.py [--seconds 60]` (phá game thật bằng đầu vào ngẫu nhiên, khựng, thu nhỏ cửa sổ; cổng cho mọi sửa đụng vòng lặp game), `tools\measure\launch_check.py [--runs 10]` (mở / đóng như Alt+F4). Lỗi Python giờ hiện hộp thoại + ghi `logs\crash.log`; tiêu chí: `docs/sessions/G16.md`, skill `game-stability-qa`.
 - Công cụ đo/dựng: `tools\measure\`, `tools\build\` (dựng WAV). Danh mục + công tắc tắt để đo (`free_aim=False`, `lens=False`...): `docs/notes/tools.md`.
 - Đóng gói exe demo (G15): `.venv\Scripts\python.exe -X utf8 tools\build\build_exe.py` -> `build\FPS_prototype_demo_<ngày>.zip` (skill `pyinstaller-packaging`). Thêm thư mục tài nguyên / gói Python mà game đọc lúc chạy thì thêm vào script đó.
+- Backrooms (G18, `docs/notes/backrooms.md`): kiểm bằng game thật `tools\measure\backrooms_check.py [--vsync]` (5 tầng, địch, đổi tầng, thắng / chết); nướng sẵn ánh sáng 5 tầng `tools\build\bake_backrooms.py` (commit `assets/maps/backrooms/`); tiếng địch `tools\build\make_enemy_sounds.py`.
 - Súng: phím **1** M4, **2** Glock 17, **3** Benelli M1014 (shotgun; `--gun m4|glock|m1014` chọn súng lúc mở). Kiểm M1014: `tools\measure\m1014_check.py` (game thật, 34 mục); camera không tự trôi: `tools\measure\camera_drift_check.py`.
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15).
 
@@ -20,9 +21,9 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 ```
 main.py  run.bat  requirements.txt  pytest.ini  CLAUDE.md  CREDITS.txt    <- cửa vào, cấu hình, sổ luật
 fps/        app.py (Game, create_game() dựng tất cả, prune_scene_entities(), main()), weapon_data.py (MỌI thông số, dataclass)
-  core/     toán thuần, KHÔNG import ursina, có pytest: weaponcol (G14, súng ngóc lên sát tường), underwater (G12), memplan (chọn chế độ theo commit trống), movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, params + param_meta (bảng F1),
+  core/     toán thuần, KHÔNG import ursina, có pytest: backrooms (G18 tầng + hành lang), flowfield + enemies (G18 AI đàn), level (G18 tiến trình + máu), broadphase (lưới va chạm), weaponcol (G14, súng ngóc lên sát tường), underwater (G12), memplan (chọn chế độ theo commit trống), movement, ballistics, weapon, recoil, spread, spring, sway, handling, fx, shake, cues, footsteps, params + param_meta (bảng F1),
             freeaim, headcam, gaze, smoke, lens, exposure, easing, poolmap (map dựng từ hộp), lightbake (nướng ánh sáng, numpy), terrain (bậc thang + va chạm), waves (sóng nước), cubemap (ảnh phản chiếu 3×2)
-  game/     ghép Ursina/Panda: player, combat, viewmodel, ground, sky, smoke, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake, debug_panel (F1), frame_light, lens, decals, gltf_maps, pool (phòng hồ bơi), water, pool_capture, sysmem (commit trống + crash log, không import ursina)
+  game/     ghép Ursina/Panda: backrooms (G18 Level / Floor), enemies (vẽ capsule + cửa), player, combat, viewmodel, ground, sky, smoke, hud, gltf_patch, gun_audio, effects, look, shaders, foley, camera_shake, debug_panel (F1), frame_light, lens, decals, gltf_maps, pool (phòng hồ bơi), water, pool_capture, sysmem (commit trống + crash log, không import ursina)
 assets/     guns/ (glb), sounds/ (wav; source/ = gốc, mp3 ElevenLabs, candidates/), shaders/ (GLSL, light_common.glsl dùng chung; room, water), maps/pool/ (ánh sáng nướng + ảnh phản chiếu, tự sinh)
 tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.md, notes/, sessions/)  backups/ shots/ (gitignore)
 ```
@@ -91,6 +92,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - `docs/notes/range-lights-signs.md` (G6; phần phòng/đèn/bia/biển đã xoá, còn đúng: shake, bảng F1, foley, bước chân).
 - `docs/notes/pool-hall.md` (G9-G12): map phòng hồ bơi, camera dưới nước, nước, ánh sáng nướng sẵn, phản chiếu, bậc thang / va chạm, số đo.
 - `docs/notes/weapon-collision.md` (G14): súng chĩa lên (High Ready) khi sát tường, khoá bắn / ngắm, tia dò, tư thế, kiểm. Thân dừng cách tường 0,30 m (gờ hồ tính theo vòng tròn thân; ép phím tiến thật mới tái hiện được lỗi, đặt vị trí thì không: `docs/notes/pool-hall.md` G14). Thang hồ bơi bám thành bắc có bóng nắng nướng sẵn.
+- `docs/notes/backrooms.md` (G18): level 5 tầng Backrooms - Pool rooms: mẹo hành lang đổi tầng, cửa, nướng bằng đèn trần, flow field + đàn địch, lượt tấn công, máu / viền đỏ, kiểm tra, hạn chế.
 - `docs/notes/m1014.md` (G17): Benelli M1014: đặc trưng shotgun, sửa file glb, clip và khung viên vào ổ, nạp từng viên, rút / cất bằng mã, âm thanh, điểm ngắm, kiểm tra, hạn chế.
 - `docs/notes/performance.md` (G13): máy yếu ở mức Thấp, cách đo GPU / CPU và quy đổi, bẫy đo, bản biên dịch thay thế, số đo trước / sau.
 - `docs/notes/bodycam.md` (G7): FreeLook / FreeAim, headcam, lens, exposure, ánh sáng thống nhất, âm thanh ElevenLabs.
