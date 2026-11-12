@@ -53,7 +53,7 @@ from fps.core.level import WON  # noqa: E402
 from fps.game.underwater import Underwater, UnderwaterAudio  # noqa: E402
 from fps.core.sway import Sway, ads_target_for  # noqa: E402
 from fps.game.viewmodel import Viewmodel  # noqa: E402
-from fps.weapon_data import GUNS, M4, GameParams  # noqa: E402
+from fps.weapon_data import GUNS, M4, GameParams, GraphicsData  # noqa: E402
 
 USER_PARAMS = ROOT / 'user_params.json'      # user parameters saved from the debug panel (F1); gitignored
 USER_GRAPHICS = ROOT / 'user_graphics.json'  # graphics settings saved by the F2 panel; gitignored
@@ -709,7 +709,8 @@ class _ArgParser(argparse.ArgumentParser):
 def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, quit_after: float = 0.0,
                 sound: bool = True, draw: bool = True, effects: bool = True, look: bool = True, shake: bool = True,
                 user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True,
-                borderless: bool = False, gun: str = 'm4', map_name: str = 'pool', rebake: bool = False, low_memory: bool = False) -> Game:
+                borderless: bool = False, gun: str = 'm4', map_name: str = 'pool', rebake: bool = False, low_memory: bool = False,
+                frame_cap: float = 0.0) -> Game:
     # Ursina(vsync=False) alone does not turn vsync off; the Panda config must be set directly
     loadPrcFileData('', f'sync-video {int(vsync)}')
     # Panda cleans its state cache with a job every frame (~0.5 ms here); when off, states are freed by reference counting instead
@@ -718,6 +719,8 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     icon = Path(ursina.__file__).parent / 'textures' / 'ursina.ico'   # absolute path; otherwise Ursina looks in the game folder
     app = Ursina(title='FPS prototype', icon=Filename.from_os_specific(str(icon)), vsync=vsync, borderless=borderless, fullscreen=fullscreen, size=size,
                  development_mode=False)
+    if frame_cap > 0.0 and not vsync:
+        set_frame_cap(frame_cap)
     api = app.pipe.get_interface_name() if getattr(app, 'pipe', None) is not None else ''
     if api != 'OpenGL':
         # G16: when the OpenGL window does not open (old / missing driver, or the window closed while it was opening), Panda silently falls back to
@@ -746,6 +749,21 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     return game
 
 
+def set_frame_cap(fps: float):
+    """G19: cap the frame rate with Panda's clock (it sleeps the rest of each frame). The 'clock-mode' config is read when panda3d is imported, so it is set at run
+    time. The Windows timer is raised to 1 ms for the run, otherwise every sleep is rounded up to a 15.6 ms tick (a 120 cap ran at ~64 with jitter)."""
+    from panda3d.core import ClockObject
+    if sys.platform == 'win32':
+        import atexit
+        import ctypes
+        winmm = ctypes.windll.winmm
+        if winmm.timeBeginPeriod(1) == 0:
+            atexit.register(winmm.timeEndPeriod, 1)
+    clock = ClockObject.get_global_clock()
+    clock.set_mode(ClockObject.M_limited)
+    clock.set_frame_rate(float(fps))
+
+
 def _size_arg(text: str) -> tuple:
     try:
         return parse_size(text)
@@ -755,7 +773,8 @@ def _size_arg(text: str) -> tuple:
 
 def main(argv=None):
     ap = _ArgParser()
-    ap.add_argument('--novsync', action='store_true')
+    ap.add_argument('--novsync', action='store_true', help='không vsync, không giới hạn khung (đo FPS)')
+    ap.add_argument('--vsync', action='store_true', help='bật vsync như trước G19 (mặc định: không vsync, giới hạn 120 khung / s: mượt hơn khi đánh nhau)')
     ap.add_argument('--window', action='store_true', help='chạy trong cửa sổ thường (mặc định: lấp đầy màn hình)')
     ap.add_argument('--size', default='1280x720', type=_size_arg, help='cỡ cửa sổ khi dùng --window, ví dụ 1280x720')
     ap.add_argument('--quit-after', type=float, default=0.0)
@@ -778,7 +797,8 @@ def main(argv=None):
     size = args.size if args.window else desktop_size()
     sysmem.start_watchdog(STARTUP_WATCHDOG_S)
     try:
-        game = create_game(vsync=not args.novsync, size=size, borderless=not args.window,
+        cap = 0.0 if (args.vsync or args.novsync) else GraphicsData().frame_cap
+        game = create_game(vsync=args.vsync, frame_cap=cap, size=size, borderless=not args.window,
                            quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake, low_memory=mem.low_memory)
     except Exception as e:                       # G16 (A3): a missing file, a GPU that cannot make a buffer, a shader that does not compile...
         sysmem.stop_watchdog()

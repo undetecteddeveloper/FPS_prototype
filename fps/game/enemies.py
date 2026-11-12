@@ -4,7 +4,7 @@ Every enemy / door is one small node with the enemy shader; its per-frame number
 edited in place, so nothing calls `set_shader_input` per frame (that changes the draw state of the scene graph, see frame_light.py).
 """
 from panda3d.core import Geom, GeomNode, GeomTriangles, GeomVertexData, GeomVertexFormat, GeomVertexWriter, PTA_LVecBase4f, Vec4
-from ursina import Entity, destroy
+from ursina import application
 
 from fps.core.backrooms import door_box
 from fps.core.enemies import capsule_mesh
@@ -46,11 +46,12 @@ def box_geom(name: str, size: tuple) -> GeomNode:
 
 
 class _Body:
-    """One drawn object: an Entity (transform) holding a GeomNode with the enemy shader and its PTA inputs."""
+    """One drawn object: a plain Panda node (transform) holding a GeomNode with the enemy shader and its PTA inputs.
+    G19: not an Ursina Entity: its position / rotation setters convert through Vec3 and read the rotation back (~37 000 getter calls in a 15 s fight)."""
 
     def __init__(self, geom: GeomNode, color: tuple, eyes: bool, shape: tuple, shader):
-        self.entity = Entity(add_to_scene_entities=False)
-        self.node = self.entity.attach_new_node(geom)
+        self.root = application.base.render.attach_new_node('enemy_body')
+        self.node = self.root.attach_new_node(geom)
         n = self.node
         n.set_two_sided(True)
         n.set_shader(shader, 2)
@@ -64,13 +65,16 @@ class _Body:
         n.set_shader_input('enemy_amb_up', self.amb_up)
         n.set_shader_input('enemy_amb_down', self.amb_down)
 
+    def place(self, x: float, y: float, z: float, yaw: float = 0.0, pitch: float = 0.0):
+        """Ursina's convention (y up, rotation_y = yaw, rotation_x = pitch forward) in one Panda call: Entity.rotation sets Hpr(-ry, -rx, rz)."""
+        self.root.set_pos_hpr(x, y, z, -yaw, -pitch, 0.0)
+
     def light(self, up: tuple, down: tuple):
         self.amb_up.set_element(0, Vec4(*up, 0))
         self.amb_down.set_element(0, Vec4(*down, 0))
 
     def destroy(self):
-        self.node.remove_node()
-        destroy(self.entity)
+        self.root.remove_node()
 
 
 class SwarmView:
@@ -92,11 +96,8 @@ class SwarmView:
             if b is None:
                 geom, k = self.geoms[e.kind_name]
                 b = self.bodies[e.id] = _Body(geom.make_copy(), e.kind.color, True, (k.radius, k.height, k.height * 0.86, 0.0), self.shader)
-            ent = b.entity
             sink = max(0.0, e.dead_t - 0.6) * 0.5 if not e.alive else 0.0
-            ent.position = (e.x, e.y - sink, e.z)
-            ent.rotation_y = e.yaw
-            ent.rotation_x = 12.0 * e.lean + 88.0 * e.fall * e.fall
+            b.place(e.x, e.y - sink, e.z, e.yaw, 12.0 * e.lean + 88.0 * e.fall * e.fall)
             visible = 1.0 if e.alive else max(0.0, 1.0 - max(0.0, e.dead_t - 0.9) / max(swarm.d.corpse_time - 0.9, 0.1))
             glow = e.lean if e.alive else 0.0
             b.state.set_element(0, Vec4(e.flash, glow, visible, 0))
@@ -121,7 +122,7 @@ class DoorView:
         for dr in doors:
             size = tuple(dr.hi[i] - dr.lo[i] for i in range(3))
             b = _Body(box_geom(f'door_{dr.name}', size), DOOR_COLOR, False, (0, 0, 0, 0), shader)
-            b.entity.position = dr.lo
+            b.place(*dr.lo)
             mid = ((dr.lo[0] + dr.hi[0]) / 2, (dr.lo[2] + dr.hi[2]) / 2)
             _, down = ambient(*mid)
             b.light(down, down)                 # a vertical leaf: the up-facing value holds the panels' direct light from above (a door under a panel glowed white)
@@ -131,7 +132,7 @@ class DoorView:
         """amounts: door name -> opening 0..1."""
         for dr, b in zip(self.doors, self.bodies):
             lo, _ = door_box(dr, amounts.get(dr.name, 0.0))
-            b.entity.position = lo
+            b.place(*lo)
 
     def destroy(self):
         for b in self.bodies:

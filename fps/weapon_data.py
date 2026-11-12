@@ -753,6 +753,10 @@ class UnderwaterData:
 @dataclass
 class GraphicsData:
     level: int = 2                # index in GRAPHICS_LEVELS at start (F2 cycles while playing)
+    # G19 frame pacing (run.bat): NO vsync + a frame cap. Measured 12/11/2026 in a Backrooms fight, borderless 1920x1080 at 50%: with vsync 11-12% of the frames came
+    # later than 20 ms (a frame a hair late waits for the next refresh and pushes the next one back); no vsync capped at 120: 3%; uncapped (~140 FPS): 2-3%.
+    # The cap keeps the laptop cooler (a hot laptop clocks down and stutters again). Windows composes a borderless window, so no tearing. `--vsync` brings vsync back.
+    frame_cap: float = 120.0
 
 
 @dataclass(frozen=True)

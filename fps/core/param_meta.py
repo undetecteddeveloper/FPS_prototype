@@ -820,6 +820,7 @@ EXCLUDED = {
     'player.step_up': 'hình học thân người chơi, đo theo bậc thang của map', 'player.step_smooth': 'độ mượt khi bước lên bậc, chỉ nhìn thấy khi lên thang',
     'water.ripple_slots': 'cỡ mảng vòng sóng trong shader, tạo lúc dựng',
     'graphics.level': 'mức đồ hoạ lúc mở game khi chưa có user_graphics.json; bảng F2 đổi lúc chơi',
+    'graphics.frame_cap': 'giới hạn khung khi tắt vsync, đặt lúc mở game (run.bat; --vsync / --novsync đổi)',
     'audio.ambience_file': 'đường dẫn file', 'audio.under_ambience_file': 'đường dẫn file', 'audio.folder_under': 'chữ',
     'underwater.no_fire_text': 'chữ', 'gun.wall.blocked_text': 'chữ',
     'audio.folder': 'chữ', 'audio.pool': 'số bản phát tạo lúc dựng', 'audio.cues': 'bảng mốc âm thanh theo khung clip',
