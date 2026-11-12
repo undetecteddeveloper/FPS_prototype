@@ -3,6 +3,7 @@
 # Lệnh
 - Chạy game: bấm đúp `run.bat` (hoặc `.venv\Scripts\python.exe main.py`): cửa sổ không viền phủ kín màn hình. Tuỳ chọn: `--novsync`, `--window` + `--size 1280x720`,
   `--quit-after 5` (tự thoát sau 5 giây, dùng để kiểm tra mà không phải tắt tiến trình).
+- G19: mọi công cụ gọi `create_game` chạy ẨN mặc định (`window_type='offscreen'`, `fps/app.py` `SHOW_WINDOW`, `_offscreen_mouse`), `--show` để hiện cửa sổ. Ngoại lệ có cửa sổ thật: `g8_perf.py` (và `weak_pc.py` gọi nó), `chaos_check.py`, `backrooms_check.py --vsync`. Có cửa sổ mà không được lên tiền cảnh (người dùng đang làm việc khác) thì cơ chế G16 nhả phím: các mục ngắm / bóp cò trượt oan; chạy ẩn thì không bị.
 - Kiểm tra bằng game thật (điều khiển qua `held_keys`/`combat.pressed`, đo, chụp ảnh vào `shots\`; thoát mã 1 nếu trượt):
   `.venv\Scripts\python.exe -X utf8 tools\selftests\g1_selftest.py` (di chuyển), `tools\selftests\g2_selftest.py` (bắn: nhịp, độ rơi từng bia, đạn, hit marker, lỗ)
   `tools\selftests\g3_selftest.py` (recoil, độ tản theo trạng thái, bloom, tâm ngắm so với phép chiếu thật, kick súng trên màn hình),

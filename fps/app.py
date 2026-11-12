@@ -61,6 +61,12 @@ CRASH_LOG = ROOT / 'logs' / 'crash.log'      # Python stack of a native crash + 
 # Panda STREAMS a sound file bigger than this (audio-preload-threshold, default 1 MB): the main thread refills a 3 s queue every frame, so a long main-thread stall starves it.
 # The looping room tone (2 MB) is the biggest sound; kept in memory it loops inside OpenAL and no stall of the game can interrupt it (tests/test_memplan.py checks the sizes).
 AUDIO_PRELOAD_BYTES = 16_000_000
+# G19: the check / measuring tools build the game WITHOUT a window by default (an offscreen buffer: everything runs and draws, screenshots work, nothing pops up
+# or grabs the mouse while the user works). `--show` on a tool's command line brings the window back; it is taken out of sys.argv here, before the tool parses
+# its own arguments. Tools that need a real window (true FPS, Alt+Tab / minimise checks) pass hidden=False; main.py (the game) always shows it.
+SHOW_WINDOW = '--show' in sys.argv
+if SHOW_WINDOW:
+    sys.argv = [a for a in sys.argv if a != '--show']
 STARTUP_WATCHDOG_S = 150.0                   # a start-up slower than this is written to the crash log with the place it is stuck at (a normal one takes 2-3 s; a light bake ~60 s)
 
 
@@ -520,6 +526,8 @@ class Game(Entity):
         win = application.base.win
         if win is None:
             return
+        if not hasattr(win, 'get_properties'):              # G19: an offscreen buffer (hidden checks) has no focus to lose
+            return
         props = win.get_properties()
         event = self.focus.update(dt, props.get_foreground() and not props.get_minimized(), mouse.locked)
         if event == 'lost':
@@ -710,17 +718,24 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
                 sound: bool = True, draw: bool = True, effects: bool = True, look: bool = True, shake: bool = True,
                 user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True,
                 borderless: bool = False, gun: str = 'm4', map_name: str = 'pool', rebake: bool = False, low_memory: bool = False,
-                frame_cap: float = 0.0) -> Game:
+                frame_cap: float = 0.0, hidden: bool = None) -> Game:
+    """`hidden`: None = no window unless the tool was started with --show (see SHOW_WINDOW); False = a real window; True = never."""
+    if hidden is None:
+        hidden = not SHOW_WINDOW
     # Ursina(vsync=False) alone does not turn vsync off; the Panda config must be set directly
     loadPrcFileData('', f'sync-video {int(vsync)}')
     # Panda cleans its state cache with a job every frame (~0.5 ms here); when off, states are freed by reference counting instead
     loadPrcFileData('', 'garbage-collect-states 0')
     loadPrcFileData('', f'audio-preload-threshold {AUDIO_PRELOAD_BYTES}')       # see AUDIO_PRELOAD_BYTES
     icon = Path(ursina.__file__).parent / 'textures' / 'ursina.ico'   # absolute path; otherwise Ursina looks in the game folder
+    if hidden:
+        loadPrcFileData('', f'win-size {size[0]} {size[1]}')        # the offscreen buffer takes this size
     app = Ursina(title='FPS prototype', icon=Filename.from_os_specific(str(icon)), vsync=vsync, borderless=borderless, fullscreen=fullscreen, size=size,
-                 development_mode=False)
+                 development_mode=False, window_type='offscreen' if hidden else 'onscreen')
     if frame_cap > 0.0 and not vsync:
         set_frame_cap(frame_cap)
+    if hidden:
+        _offscreen_mouse()
     api = app.pipe.get_interface_name() if getattr(app, 'pipe', None) is not None else ''
     if api != 'OpenGL':
         # G16: when the OpenGL window does not open (old / missing driver, or the window closed while it was opening), Panda silently falls back to
@@ -747,6 +762,21 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
         game.preload_guns()         # the other gun too: a weapon switch then loads nothing (it used to freeze the game 0.5-1.7 s)
     game.warm_shader_builds()       # G13: every lite / view / dry build drawn once now, not in the middle of play
     return game
+
+
+def _offscreen_mouse():
+    """G19 hidden checks: Ursina's mouse.locked setter asks the window to confine / hide the cursor, which an offscreen buffer cannot do. Keep only the flag
+    (the game reads it to decide whether the mouse belongs to the view)."""
+    from ursina.mouse import Mouse
+
+    def _set(self, value):
+        self._locked = value
+    Mouse.locked = property(lambda self: getattr(self, '_locked', False), _set)
+    # the pointer position is read from the window (base.win.get_pointer): keep a stored one instead (0, 0 = the middle; tools may set it)
+    from ursina import Vec3
+    Mouse.x = property(lambda self: getattr(self, '_off_x', 0.0), lambda self, v: setattr(self, '_off_x', float(v)))
+    Mouse.y = property(lambda self: getattr(self, '_off_y', 0.0), lambda self, v: setattr(self, '_off_y', float(v)))
+    Mouse.position = property(lambda self: Vec3(self.x, self.y, 0.0), lambda self, v: (setattr(self, '_off_x', float(v[0])), setattr(self, '_off_y', float(v[1]))))
 
 
 def set_frame_cap(fps: float):
@@ -798,7 +828,7 @@ def main(argv=None):
     sysmem.start_watchdog(STARTUP_WATCHDOG_S)
     try:
         cap = 0.0 if (args.vsync or args.novsync) else GraphicsData().frame_cap
-        game = create_game(vsync=args.vsync, frame_cap=cap, size=size, borderless=not args.window,
+        game = create_game(hidden=False, vsync=args.vsync, frame_cap=cap, size=size, borderless=not args.window,
                            quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake, low_memory=mem.low_memory)
     except Exception as e:                       # G16 (A3): a missing file, a GPU that cannot make a buffer, a shader that does not compile...
         sysmem.stop_watchdog()

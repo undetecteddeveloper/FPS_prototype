@@ -279,7 +279,7 @@ def main():
     ap.add_argument('--gun', default='m4')
     ap.add_argument('--map', default='pool', choices=('pool', 'backrooms'), help='G18: backrooms = level 5 tầng (địch đánh, chết, chơi lại)')
     args = ap.parse_args()
-    game = create_game(size=(1280, 720), gun=args.gun, map_name=args.map)
+    game = create_game(hidden=False, size=(1280, 720), gun=args.gun, map_name=args.map)    # G19: focus / minimise checks need a real window
     chaos = Chaos(game, args.seconds, args.seed)
     orig = app_mod.Game.update
     state = {'done': False}

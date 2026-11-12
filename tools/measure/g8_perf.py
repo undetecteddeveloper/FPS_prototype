@@ -30,7 +30,7 @@ ap.add_argument('--cpu-factor', type=float, default=2.0)
 ap.add_argument('--at', default='', help='x,z,yaw: đứng chỗ khác chỗ xuất phát (vd 3,5,75 = giữa vệt nắng nhìn về mặt trời)')
 args = ap.parse_args()
 W, H = (int(v) for v in args.size.lower().split('x'))
-game = create_game(vsync=args.vsync, borderless=args.borderless, size=(W, H), sound=False, draw=False, gun=args.gun, map_name=args.map)
+game = create_game(hidden=False, vsync=args.vsync, borderless=args.borderless, size=(W, H), sound=False, draw=False, gun=args.gun, map_name=args.map)    # G19: true FPS needs a real window
 if args.level >= 0:
     game.set_graphics(args.level, announce=False)
 if args.at:                                                   # e.g. --at 3,5,75: inside the sun beams looking at the sun (shafts + dust + water: the heaviest view)

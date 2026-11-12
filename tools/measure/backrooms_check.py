@@ -31,7 +31,7 @@ W, H = (int(v) for v in args.size.split('x'))
 SHOTS = ROOT / 'shots'
 SHOTS.mkdir(exist_ok=True)
 
-game = create_game(vsync=args.vsync, size=(W, H), sound=False, draw=False, map_name='backrooms')
+game = create_game(hidden=False if args.vsync else None, vsync=args.vsync, size=(W, H), sound=False, draw=False, map_name='backrooms')    # --vsync measures true FPS: real window
 mouse.locked = False
 game.combat.require_locked_mouse = False
 level, player, combat = game.level, game.player, game.combat
