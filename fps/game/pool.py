@@ -40,6 +40,12 @@ def _vertex_format():
     return GeomVertexFormat.register_format(fmt)
 
 
+def _clip_to_y(p, d, y):
+    """The point where the ray p + t d (d[1] > 0) reaches height y."""
+    t = (y - p[1]) / d[1]
+    return (p[0] + d[0] * t, y, p[2] + d[2] * t)
+
+
 class _BakeScreen:
     """One line on screen while the light is baked (~40-60 s): without it the window stayed black and still for a minute (XR-001 fails a silent static
     screen over 20 s) and Windows could call it 'Not responding'. Drawing a frame also pumps the window's messages. No window (a tool baking without
@@ -102,6 +108,9 @@ class PoolHall:
         self.water = WaterSurface(self.pm, params.water, self.ambient, sun_vector(params.look))
         self._bind_sun_windows()
         self.world = {'floor': None, 'colliders': colliders(self.pm) + [self.water.collider()], 'pool': self}
+        from fps.core.broadphase import BoxIndex
+        self._sun_index = BoxIndex(self.world['colliders'][:-1])                 # [:-1]: the water box is not an occluder
+        self._ceiling_y = max((hi[1] for _, hi, _ in self.world['colliders'][:-1]), default=None)     # nothing above this blocks the sun
         self.reflection = None
         self._reflect_nodes = []
         # G10 wet deck + wet footprints (room.frag): flags per graphics level, footprints in a PTA ring (Game adds them)
@@ -309,7 +318,9 @@ class PoolHall:
         """Whether the sun is hidden from `point` by the room (used for the light on the gun). Pure Python, ~40 boxes."""
         from fps.core.ballistics import first_hit
         far = tuple(point[i] + sun_dir[i] * 200.0 for i in range(3))
-        return first_hit(point, far, self.world['colliders'][:-1], ground_y=None) is not None       # [:-1]: the water box is not an occluder
+        if sun_dir[1] > 0.0 and self._ceiling_y is not None and point[1] < self._ceiling_y:
+            far = _clip_to_y(point, sun_dir, self._ceiling_y + 1.0)        # G18: the ray only has to get past the ceiling slab; 200 m swept the whole floor plan
+        return first_hit(point, far, self._sun_index.segment(point, far), ground_y=None) is not None
 
     def local_ambient(self, x: float, z: float) -> tuple:
         """((r, g, b) up, (r, g, b) down): the ambient light for the gun at floor position (x, z) (baked: `ambient.json`)."""

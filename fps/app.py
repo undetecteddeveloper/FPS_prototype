@@ -156,7 +156,7 @@ class Game(Entity):
         self.combat.aim_source = self._barrel_direction
         self.wall_ready = WallReady(params.gun.wall)                           # G14 High Ready: the gun rises when a wall is close, firing / aiming locked meanwhile
         self._wall_reach = reach_of(params.gun)
-        self._wall_solids = list(self.world['colliders'])
+        self._wall_solids = self.combat.box_index             # G18: the probe asks the grid for the boxes near the eye
         self.combat.foley = self.foley
         self.combat.viewmodel = self.viewmodel
         self.look = WorldLook(params.look, self.world, self.combat.decals, self.light) if look else None
@@ -636,6 +636,9 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     # Ursina's camera.overlay is a full-screen alpha-blended quad (color.clear) kept for fades this game never uses: it blended the whole window
     # every frame for no visible change (G13, measured 1.6-3.3 ms GPU at 1080p on the Iris Xe; tools/measure/g8_perf.py --passes)
     camera.overlay.enabled = False
+    # G18: Ursina casts a picking ray into the UI and into the whole scene every frame (hover / click on colliders). Nothing in this game uses it: the F1 / F2 panels hit-test
+    # mouse.x / mouse.y themselves. `update_step` is compared with a counter that is never reset, so a huge value skips the picking for good (mouse movement is still read).
+    mouse.update_step = 1 << 62
     setup_fonts()
     # a copy of the gun: the debug panel writes straight into the gun data, so the shared GunData must not be dirtied (tests, measuring tools)
     game = Game(GameParams(gun=copy.deepcopy(GUNS[gun])), quit_after, sound, draw, effects, look, shake=shake,

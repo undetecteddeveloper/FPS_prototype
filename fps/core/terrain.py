@@ -8,6 +8,10 @@ the eye ended up exactly on the pool wall plane and the camera looked through th
 """
 import math
 
+from fps.core.broadphase import Grid2D
+
+QUERY_PAD = 1.0          # m added around a move's swept rectangle when picking candidate boxes (a push out of one box moves the circle at most ~its radius)
+
 
 def ramp_y(ramp: tuple, z: float) -> float:
     """Height of a ramp (x0, x1, z0, z1, y0, y1) at z: y0 at z0, y1 at z1, linear between."""
@@ -24,10 +28,23 @@ class Terrain:
         self.solids = solids
         self.bounds = bounds
         self.ramps = list(ramps)
+        # G18 broadphase: the queries below look only at the boxes near the point (core/broadphase.py); results are the same as a full scan
+        self._top_grid = Grid2D([t[:4] for t in tops])
+        self._solid_grid = Grid2D([(lo[0], hi[0], lo[2], hi[2]) for lo, hi in solids])
+
+    def near_solids(self, x0: float, x1: float, z0: float, z1: float) -> list:
+        s = self.solids
+        return [s[i] for i in self._solid_grid.box(x0, x1, z0, z1)]
+
+    def near_tops(self, x0: float, x1: float, z0: float, z1: float) -> list:
+        t = self.tops
+        return [t[i] for i in self._top_grid.box(x0, x1, z0, z1)]
 
     def _surfaces(self, x: float, z: float):
         """Every walkable height at (x, z): box tops and ramps."""
-        for x0, x1, z0, z1, top in self.tops:
+        tops = self.tops
+        for i in self._top_grid.at(x, z):
+            x0, x1, z0, z1, top = tops[i]
             if x0 <= x <= x1 and z0 <= z <= z1:
                 yield top
         for r in self.ramps:
@@ -88,8 +105,11 @@ def resolve_move(t: Terrain, x: float, z: float, y: float, vx: float, vz: float,
             tx, tz, vx = bx, bz, 0.0
         else:
             tx, tz, vx, vz = x, z, 0.0, 0.0
+    pad = radius + QUERY_PAD
+    qx0, qx1, qz0, qz1 = min(x, tx) - pad, max(x, tx) + pad, min(z, tz) - pad, max(z, tz) + pad
+    solids, tops = t.near_solids(qx0, qx1, qz0, qz1), t.near_tops(qx0, qx1, qz0, qz1)
     for _ in range(2):                                               # two passes: pushing out of one box can push into the next
-        for lo, hi in t.solids:
+        for lo, hi in solids:
             if hi[1] <= y + 0.05 or lo[1] >= y + height:
                 continue
             tx, tz, nx, nz = push_out_of_box(tx, tz, radius, lo, hi)
@@ -98,7 +118,7 @@ def resolve_move(t: Terrain, x: float, z: float, y: float, vx: float, vz: float,
                 if into < 0.0:
                     vx, vz = vx - into * nx, vz - into * nz
         limit = y + step_up + 1e-9
-        for x0, x1, z0, z1, top in t.tops:                           # G14: a walkable top the feet cannot step onto is a wall for the whole body circle
+        for x0, x1, z0, z1, top in tops:                           # G14: a walkable top the feet cannot step onto is a wall for the whole body circle
             if top <= limit:
                 continue
             tx, tz, nx, nz = push_out_of_box(tx, tz, radius, (x0, 0.0, z0), (x1, 0.0, z1))

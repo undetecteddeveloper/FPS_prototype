@@ -43,6 +43,8 @@ def solids_in_range(boxes: list, origin: tuple, radius: float) -> list:
 
 def probe_distance(origin: tuple, yaw: float, pitch: float, boxes: list, max_dist: float, side_angle: float = 18.0) -> float:
     """Distance (m) to the nearest solid along the view direction and `side_angle` degrees to each side; `max_dist` when nothing is in range."""
+    if hasattr(boxes, 'near'):                         # a BoxIndex (G18): only the boxes in the probe's square of the floor plan
+        boxes = boxes.near(origin[0], origin[2], max_dist)
     near = solids_in_range(boxes, origin, max_dist)
     if not near:
         return max_dist

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from ursina import color, held_keys, mouse
 
 from fps.core.ballistics import advance, distance_between, first_hit
+from fps.core.broadphase import BoxIndex
 from fps.core.freeaim import FreeAim
 from fps.core.handling import Handling, Phase
 from fps.core.movement import MoveState
@@ -62,7 +63,8 @@ class Combat:
         self.gun = params.gun
         self.fb = params.feedback
         self.player = player
-        self.static_boxes = static_boxes           # [(lo, hi, owner)]
+        self.set_static_boxes(static_boxes)
+        self.dynamic_boxes = []                    # G18: boxes that come and go (doors of the Backrooms level): always tested, never indexed
         self.rng = rng or random.Random()
         self.audio = audio                         # GunAudio or None (muted)
         self.fx = fx                               # Effects (muzzle flash, tracer) or None
@@ -187,9 +189,18 @@ class Combat:
             self.fx.update(dt)
         self.spread_now = self.accuracy.angle(self.player.state, self.player.ads_amount)
 
+    def set_static_boxes(self, boxes: list):
+        """The map's boxes [(lo, hi, owner)] bullets hit, with a floor-plan grid (G18): each bullet step tests only the boxes near it."""
+        self.static_boxes = boxes
+        self.box_index = BoxIndex(boxes)
+
     def _boxes(self) -> list:
-        """Boxes bullets hit: the ground slab."""
+        """Boxes bullets hit (whole list; `_advance` asks the grid for the few near each step)."""
         return self.static_boxes
+
+    def _candidates(self, p0, p1) -> list:
+        near = self.box_index.segment(p0, p1)
+        return near + self.dynamic_boxes if self.dynamic_boxes else near
 
     def _fire(self, origin, direction, age: float):
         """One shot: `pellets` projectiles (1 for a rifle / pistol). The pattern is random within `pellet_spread` around `direction`; the first pellet drives the muzzle flash, the smoke and the
@@ -226,7 +237,7 @@ class Combat:
         step = dt / steps
         for _ in range(steps):
             new_pos, new_vel = advance(bullet.pos, bullet.vel, self.gun.bullet_gravity, step, self.gun.bullet_drag)
-            hit = first_hit(bullet.pos, new_pos, boxes, ground_y=None)       # the ground is a finite slab among `boxes`, not an infinite plane
+            hit = first_hit(bullet.pos, new_pos, self._candidates(bullet.pos, new_pos), ground_y=None)       # the ground is a finite slab among the boxes, not an infinite plane
             if hit:
                 bullet.alive, bullet.end_pos = False, hit.point
                 self._on_hit(bullet, hit)

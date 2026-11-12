@@ -36,3 +36,9 @@ CPU 1,0–1,6 ms (×2 vẫn dư). Duy nhất M4 bắn liên tục dưới 60 (kh
 - Độ phân giải tự động theo FPS (người dùng chọn cố định 75%). Shader súng bản lite (đo chỉ −0,02 ms). Mipmap chói sáng tự dựng (−0,1 ms).
 - M4 bắn liên tục ở mức Thấp ước ~56 FPS (1% thấp 51) với hệ số ×4; với hệ số 3,5 (theo benchmark) là ~64. Muốn hơn nữa: khói vẽ ở nửa độ phân giải (lượt riêng) hoặc giảm `SMOKE_SIMPLE_KEEP`.
 - Chưa thử trên máy UHD 620 thật.
+
+## G18 (12/11/2026): CPU, chuẩn bị cho map nhiều hộp
+- Đánh giá: phần vẽ đã gọn từ G13; phần Python còn ~1,5 ms/khung. Hai chỗ thừa: Ursina bắn tia dò chuột vào giao diện + cả cảnh MỖI KHUNG (game không dùng: bảng F1 / F2 tự xét `mouse.x/y`) và mọi phép thử va chạm quét HẾT danh sách hộp (đạn mỗi bước 1/120 s, tia dò tường G14, tia nắng của súng, chân + thân người chơi).
+- Đã làm: `mouse.update_step = 1 << 62` (tắt dò chuột, vẫn đọc chuột); lưới mặt bằng `core/broadphase.py` (ô 2 m) cho `Terrain`, `Combat` (`box_index`, `dynamic_boxes` cho vật đến / đi), `probe_distance`, `PoolHall.sun_blocked` (tia nắng chỉ dò tới hết trần thay vì 200 m). Kết quả giữ y hệt quét hết (`tests/test_broadphase.py`).
+- Số đo (perf_profile fire, 1366×768, vsync tắt, có profiler): 6,09 → 5,51 ms/khung. Lợi lớn hơn ở map nhiều hộp (Backrooms) và khi có địch dùng chung hàm va chạm.
+- Còn lại, cố ý chưa làm: 8 `set_shader_input` / khung của Ursina cho các Entity chỉ có logic (~0,1 ms; tắt đi có thể làm sai sương của con nếu có).
