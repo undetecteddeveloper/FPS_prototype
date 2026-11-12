@@ -17,6 +17,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 import fps.app as app_mod  # noqa: E402
 from fps.game import viewmodel as vm_mod  # noqa: E402
 from main import create_game  # noqa: E402
+from fps.weapon_data import GUNS  # noqa: E402
 from ursina import Entity, application, mouse, time  # noqa: E402
 
 records = []          # (source, gun shown, window drawing, clip key, gun key) per frame the engine draws
@@ -34,7 +35,7 @@ class EngineProxy:
         if game is None:
             return
         vm = game.viewmodel
-        records.append((source, not vm.sway.is_hidden(), application.base.win.is_active(), vm.clip_key, vm.gun.name.split()[0].lower()))     # 'M4' / 'Glock 17' -> key
+        records.append((source, not vm.sway.is_hidden(), application.base.win.is_active(), vm.clip_key, next(k for k, g in GUNS.items() if g.name == vm.gun.name)))     # the key in GUNS
 
     def renderFrame(self):
         self._note('frame')
@@ -123,7 +124,7 @@ class Script(Entity):
     def run(self):
         yield from self.wait(2.0)                         # the draw clip finishes
         check('mở game (M4)', records, 'm4')
-        for target in ('glock', 'm4', 'glock'):
+        for target in ('glock', 'm4', 'glock', 'm1014', 'm4', 'm1014', 'glock'):
             records.clear()
             self.dts.clear()
             game.request_gun(target)

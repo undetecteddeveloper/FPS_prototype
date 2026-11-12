@@ -23,7 +23,9 @@ class Weapon:
         self.shot_times = deque(maxlen=2048)  # time of each shot (for the RPM check)
 
     def toggle_mode(self):
-        self.auto = not self.auto
+        """Key B: auto <-> semi. A gun without `selective_fire` (the M1014) keeps its mode."""
+        if self.gun.selective_fire:
+            self.auto = not self.auto
 
     @property
     def can_reload(self) -> bool:
@@ -40,6 +42,14 @@ class Weapon:
         self.mag += take
         self.reserve -= take
         return take
+
+    def load_shell(self) -> int:
+        """Tube magazine: ONE round goes in from the reserve (when the shell is pushed into the loading port). Returns the number loaded: 1, or 0 if the gun is full / the reserve is empty."""
+        if self.mag >= self.mag_size or self.reserve <= 0:
+            return 0
+        self.mag += 1
+        self.reserve -= 1
+        return 1
 
     def update(self, dt: float, trigger_held: bool, trigger_pressed: bool) -> list:
         self.clock += dt

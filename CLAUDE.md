@@ -13,6 +13,7 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 - Độ ổn định (G16): `tools\measure\chaos_check.py [--seconds 60]` (phá game thật bằng đầu vào ngẫu nhiên, khựng, thu nhỏ cửa sổ; cổng cho mọi sửa đụng vòng lặp game), `tools\measure\launch_check.py [--runs 10]` (mở / đóng như Alt+F4). Lỗi Python giờ hiện hộp thoại + ghi `logs\crash.log`; tiêu chí: `docs/sessions/G16.md`, skill `game-stability-qa`.
 - Công cụ đo/dựng: `tools\measure\`, `tools\build\` (dựng WAV). Danh mục + công tắc tắt để đo (`free_aim=False`, `lens=False`...): `docs/notes/tools.md`.
 - Đóng gói exe demo (G15): `.venv\Scripts\python.exe -X utf8 tools\build\build_exe.py` -> `build\FPS_prototype_demo_<ngày>.zip` (skill `pyinstaller-packaging`). Thêm thư mục tài nguyên / gói Python mà game đọc lúc chạy thì thêm vào script đó.
+- Súng: phím **1** M4, **2** Glock 17, **3** Benelli M1014 (shotgun; `--gun m4|glock|m1014` chọn súng lúc mở). Kiểm M1014: `tools\measure\m1014_check.py` (game thật, 30 mục); camera không tự trôi: `tools\measure\camera_drift_check.py`.
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15).
 
 ## Cấu trúc
@@ -39,7 +40,8 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
   G12: đi bộ xuống đáy 2 m, camera dưới nước (`core/underwater.py`, `game/underwater.py`, `underwater.glsl` dùng chung ở mọi shader: pixel nào nhìn qua nước), lòng hồ thành lưới thật (`basin.*`), khung tách đôi ở mặt nước, dưới nước không bắn được. Ống kính ướt khi trồi lên (màng nước + giọt) ĐÃ XOÁ 8/11/2026 theo yêu cầu người dùng: đừng dựng lại; vệt lằn nước (meniscus) và phóng to khi chìm hẳn vẫn còn.
   G13 (hiệu năng, `docs/notes/performance.md`): mức Thấp vẽ 3D ở 75% (F2 "Độ phân giải 3D"), khói đơn giản (F2 "Khói súng"); nước / lòng hồ / phòng / ống kính / khói có BẢN BIÊN DỊCH THAY THẾ (`POOL_LITE`, `VIEW_DRY` / `VIEW_UNDER`, `LENS_DRY`, `SMOKE_LITE`) chọn bằng Python, mỗi bản phải được vẽ thử trong `Game.warm_shader_builds` (trình điều khiển Intel biên dịch ở lần vẽ đầu: không vẽ thử = khựng 50-150 ms). Thêm bản mới thì thêm vào đó.
   Sửa hình học map (`MapData`) hay nắng (`sun_dir`, `sun_color`, `sky_irradiance`) thì game tự nướng lại (~60 s). Numpy chỉ dùng lúc nướng và ở test.
-- `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) bị gitignore.
+- `assets\guns\animated_fps_hands_rifle_animation_pack.glb` (109 MB) và `assets\guns\fps_benelli_m4_animations.glb` (66 MB, gốc của M1014) bị gitignore.
+- Camera (9/11/2026): `FreeAimData.recenter_idle / recenter_move` mặc định **0**: camera KHÔNG tự trôi theo súng; chỉ xoay khi chuột đẩy súng ra khỏi vùng tự do hoặc MỘT lần khi vùng co lại (ngắm / chạy / nạp). Đừng bật lại mặc định (`docs/notes/bodycam.md`).
 
 ## Quy trình git (chép từ dự án NeonPool 7/11/2026, chỉnh theo dự án này: nhánh làm việc là `dev`)
 1. Commit trên nhánh làm việc `dev`, KHÔNG BAO GIỜ commit thẳng `main`. Message tiếng Việt `type(scope): ...` (feat, fix, refactor, perf, test, docs, chore). Mỗi commit MỘT việc. Commit xong thì DỪNG, không làm tiếp việc khác. Chỉ commit sau khi cổng kiểm tra qua (mục Quy ước); chỉ sửa tài liệu thì bỏ cổng.
@@ -65,6 +67,10 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - Da tay = vật liệu `Hand_D` (cả M4 lẫn Glock; chỉ là đầu ngón tay + chỗ găng không che), tô bằng `ViewLightData.skin_color` / `skin_detail` (F1 "Vật liệu súng"). Đừng ép nó thành màu "tay áo" tối như bản trước 8/11/2026: tay trông đen thui. Mu bàn tay và cẳng tay phần lớn là mesh `Glove_D` (tối, có chủ ý).
 - File CÓ normal map và tangent; `gltf_patch` bỏ chúng lúc nạp (đường cố định của Panda không dùng được), `game/gltf_maps.py` đọc lại cho shader súng. Thân súng có specular 0 trong file: độ bóng là số chỉnh tay (`ViewLightData`).
 
+## Benelli M1014 (G17, 9/11/2026; `docs/notes/m1014.md`)
+- ĐỪNG nạp thẳng `fps_benelli_m4_animations.glb`: mesh súng to gấp ~82 lần tay, texture 4096, có `KHR_texture_transform`. Game dùng `assets/guns/benelli_m1014.glb` dựng bằng `tools/build/prep_benelli_glb.py`. Sau `gltf_patch` trục của gói là tới trước -Z, lên -Y: `GunData.model_hpr=(0,-90,0)`, `model_scale` 0,25 (súng dài ~1 m).
+- Shotgun: `GunData.pellets / pellet_spread / pellet_center_bias / bullet_drag` (F1 tab Shotgun); băng ống nạp từng viên (`shell_reload`, `Clip.swap` / `Clip.swaps`, `Handling` nối các lượt, sự kiện `chain`, `Handling.first / last`); `selective_fire=False` (B vô tác dụng); gói không có clip rút / cất nên `procedural_swap` (nâng / hạ bằng tư thế chạy). Tiếng nạp chỉ dùng beat đầu của file người dùng.
+
 ## Ursina/Windows
 - `Ursina(vsync=False)` KHÔNG tắt vsync; muốn đo FPS thật: `loadPrcFileData('', 'sync-video 0')` trước `Ursina()`. Game thật chạy vsync (60 Hz).
 - `color.rgb(r,g,b)` của Ursina 8 nhận 0–1, không phải 0–255.
@@ -84,6 +90,7 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 - `docs/notes/range-lights-signs.md` (G6; phần phòng/đèn/bia/biển đã xoá, còn đúng: shake, bảng F1, foley, bước chân).
 - `docs/notes/pool-hall.md` (G9-G12): map phòng hồ bơi, camera dưới nước, nước, ánh sáng nướng sẵn, phản chiếu, bậc thang / va chạm, số đo.
 - `docs/notes/weapon-collision.md` (G14): súng chĩa lên (High Ready) khi sát tường, khoá bắn / ngắm, tia dò, tư thế, kiểm. Thân dừng cách tường 0,30 m (gờ hồ tính theo vòng tròn thân; ép phím tiến thật mới tái hiện được lỗi, đặt vị trí thì không: `docs/notes/pool-hall.md` G14). Thang hồ bơi bám thành bắc có bóng nắng nướng sẵn.
+- `docs/notes/m1014.md` (G17): Benelli M1014: đặc trưng shotgun, sửa file glb, clip và khung viên vào ổ, nạp từng viên, rút / cất bằng mã, âm thanh, điểm ngắm, kiểm tra, hạn chế.
 - `docs/notes/performance.md` (G13): máy yếu ở mức Thấp, cách đo GPU / CPU và quy đổi, bẫy đo, bản biên dịch thay thế, số đo trước / sau.
 - `docs/notes/bodycam.md` (G7): FreeLook / FreeAim, headcam, lens, exposure, ánh sáng thống nhất, âm thanh ElevenLabs.
 - `docs/notes/surface-detail.md` (8/11/2026): lỗ đạn (nứt, sâu, sống 1,5 s), texture gạch có độ sâu dựng bằng numpy (`tools/build/make_surface_textures.py`, PNG trong `assets/textures/`), đổ chiều thị sai, hàng F2 "Chi tiết bề mặt". Texture KHÔNG sinh bằng AI (người dùng đã loại).

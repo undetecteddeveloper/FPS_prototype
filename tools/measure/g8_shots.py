@@ -21,6 +21,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--size', default='1366x768')
 ap.add_argument('--gun', default='glock')
 ap.add_argument('--only', default='')
+ap.add_argument('--relief', type=float, default=0.0, help='override GunData.ads_eye_relief (m) for the shots: a longer eye relief shows the sight picture smaller and clearer')
 args = ap.parse_args()
 W, H = (int(v) for v in args.size.lower().split('x'))
 only = set(filter(None, args.only.split(',')))
@@ -29,9 +30,13 @@ game = create_game(vsync=False, size=(W, H), sound=False, draw=False, gun=args.g
 mouse.locked = False
 game.combat.require_locked_mouse = False
 player, combat, vm = game.player, game.combat, game.viewmodel
+if args.relief > 0.0:
+    from fps.core.sway import ads_target_for
+    game.params.gun.ads_eye_relief = args.relief
+    game.sway.ads_target = ads_target_for(game.params.gun)
 SHOTS = ROOT / 'shots'
 SHOTS.mkdir(exist_ok=True)
-tag = args.gun
+tag = args.gun + (f'_relief{args.relief:g}' if args.relief > 0.0 else '')
 
 
 def want(name):
@@ -92,7 +97,7 @@ class Script(Entity):
             snap('fire')
             yield from self.wait(40)
         if want('reload'):
-            combat.weapon.mag = 9          # a full magazine cannot be reloaded
+            combat.weapon.mag = min(9, combat.weapon.mag_size - 2)          # a full magazine cannot be reloaded
             combat.request_reload()
             for i in range(10):
                 yield from self.sec(0.27)

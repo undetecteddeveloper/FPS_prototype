@@ -23,7 +23,7 @@ from fps.core.sway import aim_translation_weight
 from fps.game.frame_light import FrameLight
 from fps.game.gltf_maps import read_normal_maps
 from fps.game.shaders import load_glsl
-from fps.weapon_data import GunData, LookData
+from fps.weapon_data import GunData, LookData, is_reload_key
 
 MATERIALS = ('Hand_D', 'Glove_D', 'M4_D', 'Bullet5_56x45mm_D')
 # multiplied into the gloss / focus / reflection of ViewLightData per material. The asset gives the gun body specular 0, so the gun's numbers are set by hand
@@ -59,6 +59,8 @@ class Viewmodel:
         self.mag_groups = None                        # guns with GunData.mag_nodes: ([nodes seated in the ready pose], [nodes seated in the locked pose]); set in _hide_reload_props
         self._mags_state = None
         self.reload_props = []
+        self._more = False                            # tube guns: another reload cycle follows the running one (set by the 'start' event): the reload view stays up between cycles
+        self._swap = 0.0                              # 0 .. 1: how far the gun is lowered out of the frame while a procedural draw / holster plays (GunData.procedural_swap)
         self._fade = None                             # fading from the still pose of the cancelled clip back to the ready pose
         self._empty = 0.0                             # 0 bolt closed .. 1 bolt locked back (empty magazine)
         self._view = 0.0                              # 0 .. 1 separate view for the reload clip (wide FOV, gun raised)
@@ -69,6 +71,7 @@ class Viewmodel:
         # the file is in cm and faces -z: convert to metres and turn 180 degrees so it looks toward +z
         self.rig.set_scale(gun.model_scale)
         self.rig.set_h(180)
+        self.actor.set_hpr(*gun.model_hpr)           # a file whose forward / up axes differ from the M4 pack's (the Benelli file: the skeleton keeps its authoring orientation after gltf_patch)
         self.hold_ready_pose()
 
         # translate so that FPS_Camera sits exactly at the origin (= the camera position used to draw the gun)
@@ -200,10 +203,14 @@ class Viewmodel:
         """M4: Mag2 and its bullet exist only in the reload clip; outside reloading they hover below the gun, so they are hidden.
         Guns with `mag_nodes` (the Glock pack alternates two magazines between its clips) pick the visible magazine per state in `_update_mags`."""
         self.reload_props = []
+        if self.gun.reload_props:                            # tube gun: the hand-held shell (a node of its own in the skinned model) shows only while a reload clip plays
+            self.reload_props = [n for g in self.gun.reload_props for n in self.actor.find_all_matches('**/' + g)]
+            self._update_props()
+            return
         if self.gun.mag_nodes:                               # each entry is a glob: a magazine and its round are two nodes (Mag2_*-parent)
             self.mag_groups = tuple(list(self.actor.find_all_matches('**/' + g)) for g in self.gun.mag_nodes)
             self._mags_state = None
-            self._update_mags()
+            self._refresh_parts()
             return
         mag2 = self.actor.find('**/Mag2_M4_D_0-parent')
         if mag2.is_empty():
@@ -224,7 +231,7 @@ class Viewmodel:
         """Two points the reload gaze looks between: the left hand (it carries the magazine) and the gun body (midway between the rear sight and the muzzle)."""
         names = [j.get_name() for j in self.actor.getJoints()]
         hand = re.compile(r'^LeftHand_\d+$')
-        name = next((n for n in names if hand.match(n)), None)
+        name = self.gun.hand_joint if self.gun.hand_joint in names else next((n for n in names if hand.match(n)), None)
         self._gaze_hand = self.actor.exposeJoint(None, 'modelRoot', name) if name else None
         self._gaze_gun = self.sway.attach_new_node('gaze_gun')
         g = self.gun
@@ -264,7 +271,7 @@ class Viewmodel:
         self.actor.disableBlend()
         self.actor.pose(*self._ready_frame())
         self._bundle.force_update()
-        self._update_mags()
+        self._refresh_parts()
 
     def hide_until_draw(self):
         """Keep the gun out of the picture until the draw clip starts (user 7/11/2026). Before that it stands in the pack's idle pose (or, while the model is still loading and
@@ -308,6 +315,8 @@ class Viewmodel:
             win.set_active(False)
         if self.mag_groups:
             self._set_mags(True, True)
+        for node in self.reload_props:
+            node.show()                                  # the hand-held shell too: its draw state must reach the GPU now, not in the first reload
         try:
             for _ in range(frames):
                 engine.render_frame()
@@ -318,19 +327,32 @@ class Viewmodel:
                 self.sway.hide()
         if self.mag_groups:
             self._mags_state = None
-            self._update_mags()
+        self._refresh_parts()
 
     def _set_mags(self, rest_visible: bool, locked_visible: bool):
         for group, visible in zip(self.mag_groups, (rest_visible, locked_visible)):
             for node in group:
                 node.show() if visible else node.hide()
 
+    def _update_props(self):
+        """Tube guns: the hand-held shell is drawn during a reload clip (and while a cancelled reload slides back), never otherwise: outside a reload the pack parks it under the gun."""
+        if not self.reload_props:
+            return
+        visible = is_reload_key(self.clip_key) or bool(self._fade)
+        for node in self.reload_props:
+            node.show() if visible else node.hide()
+
+    def _refresh_parts(self):
+        """Which magazine and which reload props are drawn (call whenever the clip, the cancel fade or the bolt state changes)."""
+        self._update_mags()
+        self._update_props()
+
     def _update_mags(self):
         """Which magazine is drawn (guns with `mag_nodes`): the pack seats a DIFFERENT magazine node in the ready / fire / draw clips (and parks the other one far away) than in the
         locked-slide pose and the reload clips, so only the one that is in the gun may show. During a reload clip (or the slide-back cancel fade) both show: one leaves, the other arrives."""
         if not self.mag_groups:
             return
-        if self.clip_key in ('reload', 'reload_empty') or self._fade:
+        if is_reload_key(self.clip_key) or self._fade:
             state = 'both'
         elif self._empty >= 0.5:
             state = 'locked'
@@ -345,6 +367,7 @@ class Viewmodel:
         name = event[0]
         if name == 'start':
             self.reveal()                                # the first clip after `hide_until_draw` is the draw: poses its first frame below, so the gun appears already in motion
+            self._more = len(event) > 3 and bool(event[3])
             self._play(event[1], event[2])
         elif name == 'done':
             self.hold_ready_pose()
@@ -359,7 +382,7 @@ class Viewmodel:
         self.actor.play(clip.anim, fromFrame=clip.start, toFrame=clip.end)
         self.actor.setPlayRate(speed, clip.anim)
         self.clip_key = key
-        self._update_mags()
+        self._refresh_parts()
 
     def on_shot(self, last_round: bool):
         """Every shot: play the slide cycle clip (guns with GunData.fire_clips). Not while drawing / reloading (those clips own the pose).
@@ -386,22 +409,34 @@ class Viewmodel:
         self.actor.setControlEffect(ready_anim, 0.0)
         self._fade = {'anim': anim, 't': 0.0}
         self.clip_key = None
-        self._update_mags()
+        self._refresh_parts()
 
     def _reload_view_wanted(self) -> bool:
         """Reloading and not yet at `Clip.settle` minus the blend time: the reload view (wide FOV, gun raised) must be switched OFF by the time the gun is back in place,
         not wait for the clip to end (the last part is only the fingers folding back; if the gun stays raised with nothing happening, it looks misplaced)."""
-        if self.clip_key not in ('reload', 'reload_empty'):
+        if not is_reload_key(self.clip_key):
             return False
+        if self._more:
+            return True                                  # tube gun, more shells to go: the gun stays raised between the cycles
         clip = self.gun.clips[self.clip_key]
         settle = clip.settle if clip.settle is not None else clip.end
         left = (settle - self.actor.getCurrentFrame(clip.anim)) / 30.0 / max(self.gun.reload.speed, 1e-3)
         return left > self.gun.reload.view_blend
 
+    def _swap_amount(self) -> float:
+        """0 .. 1: how far the gun is lowered out of the frame by a PROCEDURAL draw / holster (GunData.procedural_swap): the pack has no such clips, so the clip's frames only run the idle pose
+        and the gun rises from (draw) / sinks into (holster) the sprint pose along the clip's progress."""
+        if not self.gun.procedural_swap or self.clip_key not in ('draw', 'holster'):
+            return 0.0
+        clip = self.gun.clips[self.clip_key]
+        k = min(max((self.actor.getCurrentFrame(clip.anim) - clip.start) / max(clip.end - clip.start, 1), 0.0), 1.0)
+        return 1.0 - smoothstep(k) if self.clip_key == 'draw' else smoothstep(k)
+
     def animate(self, dt: float, magazine_empty: bool, ads: float = 0.0):
         """Every frame (before `update`): progress of the cancel slide, and the rear bolt locking / releasing with an empty / loaded magazine."""
         r = self.gun.reload
         self.ads = ads
+        self._swap = self._swap_amount()
         self._view = step_toward(self._view, 1.0 if self._reload_view_wanted() else 0.0, 1.0 / max(r.view_blend, 1e-3), dt)
         if self._fade:
             f = self._fade
@@ -428,7 +463,7 @@ class Viewmodel:
                 self._empty = 1.0
                 self.actor.pose(*self._locked_frame())
                 self._bundle.force_update()
-                self._update_mags()
+                self._refresh_parts()
                 return
         elif self.clip_key:
             return                                        # the clip runs on the Panda clock by itself
@@ -436,7 +471,7 @@ class Viewmodel:
         if self._empty == target:
             return
         self._empty = step_toward(self._empty, target, 1.0 / max(r.bolt_lock_blend, 1e-3), dt)
-        self._update_mags()
+        self._refresh_parts()
         ready, locked = self._ready_frame(), self._locked_frame()
         if self._empty <= 0.0 or self._empty >= 1.0:
             self.actor.disableBlend()
@@ -464,6 +499,8 @@ class Viewmodel:
         k = smoothstep(self._view)
         if k > 0.0:
             poses = poses + (tuple(c * k for c in self.gun.reload.view_pose),)
+        if self._swap > 0.0:
+            poses = poses + (tuple(c * self._swap for c in self.gun.sway.sprint_pose),)
         self.base_pose = tuple(sum(c) for c in zip(*poses)) if poses else (0.0,) * 6
         self.aim_pose = tuple(sum(c) for c in zip(*aim)) if aim else (0.0,) * 6
         self.barrel_pose = tuple(b + a for b, a in zip(self.base_pose, self.aim_pose))

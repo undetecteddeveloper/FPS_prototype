@@ -30,9 +30,8 @@ from fps.core.movement import MoveState, smoothstep
 from fps.core.shake import smooth_noise
 from fps.core.spring import Spring, impulse_gain
 from fps.core.sway import MOVING_ON_GROUND, SwayInput
-from fps.weapon_data import Clip, HeadCamData
+from fps.weapon_data import Clip, HeadCamData, is_reload_key
 
-RELOAD_KEYS = ('reload', 'reload_empty')
 ZERO = (0.0,) * 6
 
 
@@ -42,6 +41,8 @@ class ReloadState:
     clip: Clip
     t: float
     speed: float = 1.0
+    first: bool = True          # tube guns chain one-round cycles: the glance opens only in the FIRST cycle and closes only in the LAST (a magazine gun is always both)
+    last: bool = True
 
     def real(self, clip_seconds: float) -> float:
         return clip_seconds / max(self.speed, 1e-3)
@@ -59,7 +60,12 @@ class ReloadState:
 
     @property
     def swap_time(self):
-        return None if self.clip.swap is None else self.real(self.clip.swap_time)
+        return None if self.clip.swap_time is None else self.real(self.clip.swap_time)
+
+    @property
+    def swap_times(self) -> tuple:
+        """Real seconds of every moment a round goes in (one for a magazine, several for the M1014's long empty reload)."""
+        return tuple(self.real(t) for t in self.clip.swap_times)
 
     @property
     def end_time(self) -> float:
@@ -68,17 +74,23 @@ class ReloadState:
 
 def reload_state(handling) -> ReloadState:
     """Read `core.handling.Handling`: ReloadState while reloading (draw does not count), otherwise None."""
-    if handling is None or handling.key not in RELOAD_KEYS:
+    if handling is None or not is_reload_key(handling.key):
         return None
-    return ReloadState(handling.clip, handling.t, handling.speed)
+    return ReloadState(handling.clip, handling.t, handling.speed, getattr(handling, 'first', True), getattr(handling, 'last', True))
 
 
 def glance_weight(d: HeadCamData, rs: ReloadState) -> float:
     """0..1 amount of glancing down at the gun, by reload progress (pure function of the clip time)."""
     t = rs.elapsed
-    w_in = smoothstep((t - d.glance_in_delay) / d.glance_in_time) if d.glance_in_time > 0 else float(t >= d.glance_in_delay)
+    if not rs.first:
+        w_in = 1.0                                          # a later cycle of a tube-gun chain: the head is already down
+    else:
+        w_in = smoothstep((t - d.glance_in_delay) / d.glance_in_time) if d.glance_in_time > 0 else float(t >= d.glance_in_delay)
     back = rs.settle_time - d.glance_out_lead
-    w_out = 1.0 - smoothstep((t - back) / d.glance_out_time) if d.glance_out_time > 0 else float(t < back)
+    if not rs.last:
+        w_out = 1.0                                         # and stays down until the last cycle
+    else:
+        w_out = 1.0 - smoothstep((t - back) / d.glance_out_time) if d.glance_out_time > 0 else float(t < back)
     return max(0.0, min(w_in, w_out))
 
 
@@ -216,7 +228,8 @@ class HeadCam:
             self._last_elapsed = -1.0
         cancelled = self._reloading and not reloading and self._window          # reload ended while the gaze was still down: cancelled
         self._reloading = reloading
-        open_at, close_at = d.glance_in_delay, (rs.settle_time - d.glance_out_lead) if reloading else 0.0
+        open_at = d.glance_in_delay if (not reloading or rs.first) else -1e9           # (a later cycle of a tube-gun chain: the window is already open)
+        close_at = ((rs.settle_time - d.glance_out_lead) if rs.last else 1e9) if reloading else 0.0
         window = reloading and open_at <= rs.elapsed < close_at
         since = 0.0
         if window and not self._window:
@@ -228,9 +241,10 @@ class HeadCam:
         pitch, yaw = self.gaze.update(dt, window, target, enter_time=d.glance_in_time, leave_time=leave, since=since)
         w = self.gaze.engaged()                                              # how far down the gaze is: drives the small eye shift + roll
         if reloading:
-            swap, now = rs.swap_time, rs.elapsed
-            if swap is not None and self._last_elapsed < swap <= now:
-                self.jolt.kick([0.0, 0.0, 0.0, -d.glance_seat_nod * gain * max(w, 0.3), 0.0, 0.0])    # magazine seats: small nod
+            now = rs.elapsed
+            for swap in rs.swap_times:
+                if self._last_elapsed < swap <= now:
+                    self.jolt.kick([0.0, 0.0, 0.0, -d.glance_seat_nod * gain * max(w, 0.3), 0.0, 0.0])    # magazine seats / a shell goes in: small nod
             self._last_elapsed = now
         self.glance = w
         if w <= 0.0 and abs(pitch) < 1e-4 and abs(yaw) < 1e-4:

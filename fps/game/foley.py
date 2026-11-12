@@ -150,12 +150,12 @@ class Foley:
 
     # --- hooked into Game.update ---
     def on_handling_event(self, event: tuple):
-        """Event from core.handling.Handling: ('start', key, speed) / ('swap', key) / ('done', key) / ('cancel', key, frame)."""
+        """Event from core.handling.Handling: ('start', key, speed[, more]) / ('chain', key) / ('swap', key) / ('done', key) / ('cancel', key, frame)."""
         kind = event[0]
         if kind == 'start':
             key, speed = event[1], event[2]
             self.schedule.start(self.audio.cues.get(key, ()), self.gun.clips[key], speed)
-        elif kind in ('done', 'ready'):          # 'ready': the clip's sounds all lie before it (the tail is only the hands settling); anything left plays now
+        elif kind in ('done', 'ready', 'chain'):          # 'ready': the clip's sounds all lie before it (the tail is only the hands settling); anything left plays now. 'chain': a tube gun's cycle ended, the next starts at once
             self._play_cues(self.schedule.flush())
         elif kind == 'cancel':
             self.schedule.cancel(self.audio)

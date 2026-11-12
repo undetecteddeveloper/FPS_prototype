@@ -5,12 +5,12 @@ Windows refuses a memory request once COMMIT (RAM + page file, minus what every 
 between ~0.7 and ~2.1 GB with whatever else is open, and the game takes 0.62 GB (0.72 GB with 4x MSAA), so it fails whenever the others happen to leave less than that.
 The plan reads the FREE commit once, before the window opens, and picks how much to build:
   full      everything the saved settings ask for;
-  reduced   no MSAA (-0.1 GB) and the second gun is built on the first weapon switch, not at start-up (-0.12 GB; that one switch then takes one long frame);
+  reduced   no MSAA (-0.1 GB) and the other guns are built on the first weapon switch, not at start-up (-0.12 GB each; that one switch then takes one long frame);
   critical  not even the reduced game fits: do not start (a clear message instead of a crash half way through the build).
 """
 from dataclasses import dataclass
 
-FULL_MB = 950.0              # peak commit of the full game (742 MB measured with 4x MSAA) + a margin: other programs keep allocating while the game builds
+FULL_MB = 1000.0             # peak commit of the full game: 742 MB with two guns, 887 MB with the three (M1014 added 9/11/2026; 1280x720, 4x MSAA) + a margin: other programs keep allocating while the game builds
 REDUCED_MB = 700.0           # the reduced game peaks at 0.50-0.61 GB (measured with the machine busy, G11 session) + a margin of at least 0.1 GB
 NOTICE_REDUCED = 'Máy thiếu bộ nhớ ảo: đã tắt khử răng cưa, súng thứ hai nạp muộn (chi tiết ở console)'      # the one line shown on screen (fps/game/hud.py Notice)
 

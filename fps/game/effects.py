@@ -281,6 +281,11 @@ class Effects:
         if fx.is_traced(self.burst, self.gun.tracer.every):
             self.tracers.spawn(bullet, muzzle)
 
+    def on_pellet(self, bullet):
+        """A pellet after the first of a shotgun shot: only a tracer streak (the flash and the smoke of this shot were made by the first pellet), if this burst's shot is a traced one."""
+        if fx.is_traced(self.burst, self.gun.tracer.every):
+            self.tracers.spawn(bullet, self.muzzle_offset())
+
     def _emit_smoke(self, bullet, muzzle: tuple):
         """Smoke leaves the muzzle along the bullet's direction, and the ejection port toward the gun's upper right (camera frame -> world)."""
         eye = camera.world_position

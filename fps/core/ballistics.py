@@ -17,10 +17,17 @@ class Hit:
     owner: object     # object of the box that was hit, or GROUND
 
 
-def advance(pos, vel, gravity, dt):
-    """Advance dt seconds. Exact formula for constant gravity, so it does not depend on FPS."""
+def advance(pos, vel, gravity, dt, drag: float = 0.0):
+    """Advance dt seconds. Exact formula for constant gravity (and, with `drag` > 0, linear air drag: the velocity relaxes toward the terminal fall speed (0, -g / drag, 0)
+    as exp(-drag t)), so it does not depend on FPS. drag = 0 is the plain ballistic arc."""
     x, y, z = pos
     vx, vy, vz = vel
+    if drag > 1e-9:
+        decay = math.exp(-drag * dt)
+        along = (1.0 - decay) / drag                  # integral of exp(-drag t) over dt: how far the initial velocity carries
+        vt = -gravity / drag                          # terminal vertical velocity
+        return ((x + vx * along, y + vt * dt + (vy - vt) * along, z + vz * along),
+                (vx * decay, vt + (vy - vt) * decay, vz * decay))
     return ((x + vx * dt, y + vy * dt - 0.5 * gravity * dt * dt, z + vz * dt),
             (vx, vy - gravity * dt, vz))
 

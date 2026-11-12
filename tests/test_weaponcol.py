@@ -39,8 +39,8 @@ def test_wall_target_is_zero_far_one_close_and_linear_between():
 def test_body_radius_is_always_inside_the_full_raise_for_the_rifle():
     """The body stops 0.30 m from a wall: facing it head on the M4 is fully raised (the user: the closer, the higher)."""
     d = WallData()
-    for gun in (M4, GLOCK):
-        assert wall_target(0.30, reach_of(gun), d.clear_ratio, d.full_ratio) == 1.0       # the closest a wall gets (body radius 0.30 m): both guns fully up
+    for gun in (M4, GLOCK, GUNS['m1014']):
+        assert wall_target(0.30, reach_of(gun), d.clear_ratio, d.full_ratio) == 1.0       # the closest a wall gets (body radius 0.30 m): every gun fully up
 
 
 def test_probe_distance_hits_the_wall_ahead_and_ignores_water_and_far_walls():
@@ -110,7 +110,7 @@ def test_block_flag_has_hysteresis_so_the_trigger_does_not_flicker():
     assert not w.blocked                                                     # and does not lock again inside the band when coming from above
 
 
-@pytest.mark.parametrize('key', ['m4', 'glock'])
+@pytest.mark.parametrize('key', ['m4', 'glock', 'm1014'])
 def test_wall_pose_points_the_barrel_up_and_keeps_the_receiver_where_the_hands_rest(key):
     """The pitch turns the gun about the EYE: without the shift the receiver (and the hands with it) would fly out of the top of the frame.
     `hip_offset` is part of the model's position inside the turned node, so it turns with the gun (Glock: 0.15 m farther out, hence its own shift)."""

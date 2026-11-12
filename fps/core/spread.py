@@ -53,8 +53,9 @@ class Accuracy:
         self.bloom = max(0.0, self.bloom - d.bloom_recovery * recovering)
 
 
-def random_in_cone(direction: tuple, half_angle_deg: float, rng) -> tuple:
-    """Uniform random direction on a disc of radius `half_angle_deg` around `direction` (unit vector)."""
+def random_in_cone(direction: tuple, half_angle_deg: float, rng, center_bias: float = 0.0) -> tuple:
+    """Random direction on a disc of radius `half_angle_deg` around `direction` (unit vector): uniform by area when `center_bias` is 0; a larger bias moves the points toward the
+    middle (the radius fraction sqrt(u) becomes sqrt(u) ** (1 + bias): a shotgun pattern is dense at its centre)."""
     if half_angle_deg <= 0:
         return direction
     dx, dy, dz = direction
@@ -63,7 +64,10 @@ def random_in_cone(direction: tuple, half_angle_deg: float, rng) -> tuple:
     rn = math.sqrt(rx * rx + ry * ry + rz * rz)
     rx, ry, rz = rx / rn, ry / rn, rz / rn
     vx, vy, vz = dy * rz - dz * ry, dz * rx - dx * rz, dx * ry - dy * rx      # up' = d x right
-    off = math.tan(math.radians(half_angle_deg) * math.sqrt(rng.random()))    # sqrt: uniform by disc area
+    radial = math.sqrt(rng.random())                                          # sqrt: uniform by disc area
+    if center_bias > 0.0:
+        radial **= 1.0 + center_bias
+    off = math.tan(math.radians(half_angle_deg) * radial)
     phi = 2.0 * math.pi * rng.random()
     c, s = math.cos(phi) * off, math.sin(phi) * off
     x, y, z = dx + rx * c + vx * s, dy + ry * c + vy * s, dz + rz * c + vz * s

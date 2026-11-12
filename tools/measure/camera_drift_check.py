@@ -24,6 +24,7 @@ game = create_game(vsync=False, size=(800, 450), sound=False, draw=False, map_na
 mouse.locked = False
 game.combat.require_locked_mouse = False
 player = game.player
+game._update_focus = lambda dt: None          # the checks click and hold keys by code: another window taking the focus must not drop them (G16 focus guard)
 failures = []
 
 

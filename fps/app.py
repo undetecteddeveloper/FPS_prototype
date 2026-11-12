@@ -590,6 +590,8 @@ class Game(Entity):
             self.request_gun('m4')
         elif key == '2':
             self.request_gun('glock')
+        elif key == '3':
+            self.request_gun('m1014')
 
 
 def desktop_size() -> tuple:
@@ -662,7 +664,7 @@ def main(argv=None):
     ap.add_argument('--size', default='1280x720', type=_size_arg, help='cỡ cửa sổ khi dùng --window, ví dụ 1280x720')
     ap.add_argument('--quit-after', type=float, default=0.0)
     ap.add_argument('--mute', action='store_true', help='tắt tiếng súng')
-    ap.add_argument('--gun', default='m4', choices=sorted(GUNS), help='súng dùng khi khởi động (m4 / glock)')
+    ap.add_argument('--gun', default='m4', choices=sorted(GUNS), help='súng dùng khi khởi động (m4 / glock / m1014)')
     ap.add_argument('--defaults', action='store_true', help='bỏ qua user_params.json, chạy bằng thông số mặc định')
     ap.add_argument('--map', default='pool', choices=('pool', 'flat'), help='pool = phòng hồ bơi (mặc định); flat = nền trắng phẳng cũ (để so FPS)')
     ap.add_argument('--rebake', action='store_true', help='nướng lại ánh sáng và chụp lại phản chiếu của phòng hồ bơi (thường game tự làm khi cần)')

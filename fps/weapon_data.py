@@ -43,6 +43,8 @@ class Clip:
     swap: int = None   # frame where the new magazine seats (measured with tools/measure/g5_reload_probe.py); reload clips only
     settle: int = None  # frame where the gun, magazine and bolt are back in place: the rest of the clip is only the hand re-folding its fingers (the reload view is switched off at this frame).
                         # Draw clips: the gun is up and still (measured: joints move < 0.5 cm per frame after it); firing / aiming are allowed from here while the tail plays on
+    swaps: tuple = ()   # tube-magazine guns (GunData.shell_reload): the frames at which ONE round goes in. A clip that loads several rounds ('reload_empty' of the M1014) lists them all; a one-round
+                        # cycle may use `swap` instead. The last round in a clip that ends a reload may be the bolt closing on the chamber (the M1014's empty reload: 7 shells + the chambered round)
 
     @property
     def duration(self) -> float:
@@ -55,8 +57,15 @@ class Clip:
 
     @property
     def swap_time(self) -> float:
-        """Seconds (clip time at speed 1) from the clip start to the magazine swap; None if there is none."""
-        return None if self.swap is None else (self.swap - self.start) / 30.0
+        """Seconds (clip time at speed 1) from the clip start to the magazine swap (the LAST round of a tube-gun clip); None if there is none."""
+        last = self.swaps[-1] if self.swaps else self.swap
+        return None if last is None else (last - self.start) / 30.0
+
+    @property
+    def swap_times(self) -> tuple:
+        """Seconds (clip time at speed 1) of every moment a round goes in: `swaps`, else the single `swap`, else ()."""
+        frames = self.swaps or (() if self.swap is None else (self.swap,))
+        return tuple((f - self.start) / 30.0 for f in frames)
 
 
 @dataclass
@@ -191,6 +200,7 @@ class ReloadData:
     # from `Clip.settle` minus this many seconds (never before the new magazine is seated); the tail plays on and a shot cuts it. 0 = at settle; larger = earlier (a Glock shot
     # that early snaps the left hand to the fire clip: a pop of several cm)
     ready_lead: float = 0.0
+    interrupt_fire: bool = True           # tube-magazine guns (GunData.shell_reload): pulling the trigger while a round is being loaded stops the reload and fires with the rounds already in (the user's choice 9/11/2026; sprinting cancels as before)
 
 
 @dataclass
@@ -238,6 +248,11 @@ class TracerData:
     tail_color: tuple = (1.0, 0.36, 0.06)
     intensity: float = 1.0
     pool: int = 16                        # max streaks at once
+
+
+def is_reload_key(key) -> bool:
+    """Clip keys of reload clips: 'reload', 'reload_empty', and the alternate one-round cycle 'reload_alt' of tube-magazine guns."""
+    return key is not None and key.startswith('reload')
 
 
 def _m4_reload_beats() -> dict:
@@ -518,6 +533,18 @@ class GunData:
     materials: dict = None                # material name -> (specular, gloss, env, albedo) multipliers of ViewLightData; None = the M4 table in game/viewmodel.py
     sound_cues: dict = None               # clip key -> tuple of SoundCue; None = AudioData.cues (M4)
     sound_files: dict = None              # extra logical sound name -> file group in AudioData.folder, merged into AudioData.sound_files
+    # shotgun traits (the M1014; the defaults keep the one-bullet rifle / pistol behaviour)
+    pellets: int = 1                      # projectiles per shot (a 12-gauge 00 buckshot shell: 9 pellets)
+    pellet_spread: float = 0.0            # deg: half angle of the pellet pattern; each pellet flies in a random direction within this cone around the aim direction (the mechanical spread moves the whole pattern)
+    pellet_center_bias: float = 0.0       # 0 = pellets spread evenly over the disc of the pattern; larger = more of them near the middle (a real pattern is dense in the centre)
+    pellet_tracers: int = 1               # how many pellets of one shot get a tracer streak (the first one also drives the muzzle flash and the smoke; 0 = none)
+    bullet_drag: float = 0.0              # 1/s: air drag on the projectile (speed decays like exp(-drag t); light buckshot loses about a quarter of its speed in 50 m, a rifle bullet is left at 0)
+    shell_reload: bool = False            # tube magazine: a reload loads one round per clip cycle (Clip.swap / Clip.swaps) and chains cycles until full; firing (ReloadData.interrupt_fire) or sprinting stops it, the rounds loaded so far stay
+    selective_fire: bool = True           # False: the B key does nothing (a gun that only fires semi-auto)
+    model_hpr: tuple = (0.0, 0.0, 0.0)    # extra rotation of the model inside the rig (heading, pitch, roll), degrees: for a file whose forward / up axes are not the M4's
+    hand_joint: str = None                # joint name of the left hand (the reload gaze looks at it); None = the M4 pack's 'LeftHand_<n>'
+    reload_props: tuple = None            # globs of nodes drawn ONLY while a reload clip plays (the hand-held shell); None = the M4 logic (Mag2 + bullet stay hidden)
+    procedural_swap: bool = False         # the pack has no Draw / Holster clips: the gun is raised / lowered by code (the sprint pose) while the clip's frames play
 
 
 M4 = GunData(
@@ -896,7 +923,80 @@ GLOCK = GunData(
     smoke=SmokeData(puffs=4, speed=7.0, size=0.04, growth=0.35, opacity=0.34, life=0.85, ejection_port=(0.072, -0.016, 0.35)),
 )
 
-GUNS = {'m4': M4, 'glock': GLOCK}
+# Benelli M1014 (the US military name of the Benelli M4 Super 90): 12-gauge, semi-automatic (inertia-driven action: ONE trigger pull per shot, no auto), tube magazine under the barrel
+# (7 shells + 1 in the chamber = 8), loaded one shell at a time through the loading port, ghost-ring rear sight + front post. Viewmodel = the Sketchfab pack "FPS Benelli M4 Animations" by Cransh
+# (CC BY 4.0), converted by tools/build/prep_benelli_glb.py into assets/guns/benelli_m1014.glb (the pack's gun meshes are ~82x too large next to its hands, its textures 4096 x 4096).
+# The pack has Idle / Walk / Run / Fire / Fire_LastRoundCheck / ReloadOne_type1 / ReloadOne_type2 / ReloadFull_type1 and NO Draw / Holster: those two are made by code (procedural_swap).
+# Every clip has its own timeline from frame 0 (a clip of N frames wraps frame N to 0: the last valid frame is N - 1). Shell-in frames were measured with the hand-held shell joint
+# (Shell_058): it reaches its final spot in the loading port at frame 21 (ReloadOne_type1), 27 (type2) and 21 / 48 / 72 / 96 / 123 / 147 / 171 (ReloadFull), the bolt closes at 186.
+M1014_SOUND_CUES = {
+    # the user's reload recording (assets/sounds/source/m1014/Beneli_M1014_reload_sound.wav): ONLY its first beat is used, once per shell (tools/build/prep_m1014_audio.py); the file starts
+    # `lead` = 4 frames before the clack, so cue frame = frame the shell seats - 4 - 1 (the shell is pushed in during the last frames before it settles)
+    'reload': (SoundCue(16, 'm1014_shell', 1.0),),
+    'reload_alt': (SoundCue(22, 'm1014_shell', 1.0),),
+    'reload_empty': tuple(SoundCue(f - 5, 'm1014_shell', 1.0) for f in (21, 48, 72, 96, 123, 147, 171)) + (SoundCue(186, 'bolt_release', 1.0),),
+    'draw': (SoundCue(1, 'draw_a', 0.8), SoundCue(14, 'draw_b', 0.6)),
+    'holster': (SoundCue(32, 'draw_b', 0.5),),
+}
+M1014_SOUND_FILES = {'m1014_shell': 'm1014_shell'}
+
+M1014 = GunData(
+    name='Benelli M1014',
+    glb='assets/guns/benelli_m1014.glb',
+    credit='M1014: FPS Benelli M4 Animations by Cransh (CC BY 4.0)',
+    clips={
+        'reload': Clip('Rig|M4_ReloadOne_type1', 0, 44, swap=21, settle=41),                       # one shell: fetch 0-12, push in 12-21, hold, hands back 36-42
+        'reload_alt': Clip('Rig|M4_ReloadOne_type2', 0, 48, swap=27, settle=45),                   # the same with another hand path (the chain alternates the two)
+        'reload_empty': Clip('Rig|M4_ReloadFull_type1', 0, 211, swaps=(21, 48, 72, 96, 123, 147, 171, 186), settle=203),   # bolt locked open: 7 shells, then the bolt closes on the chamber (the 8th round)
+        'fire': Clip('Rig|M4_Fire', 0, 19),                                                         # the bolt cycles back and forward within frames 0-6
+        'fire_last': Clip('Rig|M4_Fire_LastRoundCheck', 0, 64),                                     # the last round: the bolt stays back, the hand checks the chamber
+        'draw': Clip('Rig|M4_Idle', 0, 21, settle=19),                                              # idle frames only; the gun rises from the sprint pose (procedural_swap)
+        'holster': Clip('Rig|M4_Idle', 30, 45),
+    },
+    ready_pose=('Rig|M4_Idle', 0),
+    locked_pose=('Rig|M4_Fire_LastRoundCheck', 64),
+    fire_clips=('fire', 'fire_last'),
+    fire_clip_speed=2.0,
+    eye_joint='pose_controller_00',
+    hand_joint='hand_L_05',
+    model_hpr=(0.0, -90.0, 0.0),
+    model_scale=0.25,                                    # the pack's skeleton units (the gun mesh is scaled to match by prep_benelli_glb.py; 1 unit ~ 2.2 cm after that, the Panda skeleton has them x0.088)
+    procedural_swap=True,
+    shell_reload=True,
+    selective_fire=False,
+    reload_props=('12g_12gauge_0_12gauge_0',),
+    materials={'12gauge': (0.5, 0.6, 0.5, 1.0), 'matchsaverz': (0.9, 1.0, 1.0, 1.0), 'TTI_Benelli_M4': (1.0, 1.0, 1.0, 1.0),
+               'glove_hardknuckle': (0.22, 0.4, 0.35, 0.8), 'sleeve_st6_generalist': (0.1, 0.3, 0.2, 0.9)},
+    sound_cues=M1014_SOUND_CUES,
+    sound_files=M1014_SOUND_FILES,
+    # 12-gauge 00 buckshot: 9 pellets, ~400 m/s, a cylinder-bore pattern about 1 inch wide per yard (0.8 degrees half angle: widened to 2 for the game), pellets lose a quarter of their speed in 50 m
+    pellets=9, pellet_spread=2.0, pellet_center_bias=0.6, pellet_tracers=3, bullet_drag=1.8,
+    rpm=240.0, magazine=8, reserve=32, full_auto=False, muzzle_velocity=400.0, ads_time=0.24, sprint_in_time=0.24, sprint_out_time=0.30,
+    # heavy recoil: a 12-gauge slug-weight shove (~30 ft-lb of free recoil) with a long recovery
+    recoil=RecoilData(up=3.4, up_noise=0.7, right_bias=0.1, right_noise=0.9, right_walk=0.12, camera_share=0.45, ads_scale=0.8, recovery=0.55, recovery_delay=0.15, recovery_time=0.35),
+    kick=GunKickData(omega=24.0, zeta=0.5, peak=(0.0, 0.012, 0.0, 5.0, 0.0, 0.0), random=(0.004, 0.003, 0.0, 0.8, 0.7, 2.5),
+                     back_peak=-0.12, back_random=0.006, back_omega=14.0, back_zeta=0.65, back_ads_scale=1.1),
+    accuracy=AccuracyData(stand=0.6, walk=1.3, sprint=0.03, air=3.0, crouch_multiplier=0.8, ads=0.15, ads_move=0.4),
+    # G14 High Ready: the same rule as the other guns (receiver back to where the hands rest, 3 cm lower and 4 cm closer); the model sits 0.55 m farther out than the M4's, hence its own shift (solved like tests/test_weaponcol.py does)
+    sway=SwayData(wall_pose=(0.0, -0.229, 0.051, 65.0, 0.0, 0.0)),
+    reload=ReloadData(speed=1.6, view_pose=(0.07, 0.10, -0.02, 0.0, 0.0, 2.5)),
+    shake=ShakeData(fire_bias=(0.0, 0.0, -0.006, 2.4, 0.0, 0.0), fire_spread=(0.0025, 0.0025, 0.0025, 0.5, 0.8, 3.0), heat_shots=10.0,
+                    reload_beats={'reload': ((21, 'seat'),), 'reload_alt': ((27, 'seat'),),
+                                  'reload_empty': tuple((f, 'seat') for f in (21, 48, 72, 96, 123, 147, 171)) + ((186, 'bolt'),)}),
+    flash=FlashData(life=0.075, light_power=2.4, world_power=5.0),
+    smoke=SmokeData(puffs=10, speed=10.0, size=0.06, growth=0.6, opacity=0.5, life=1.3, port_puffs=3, ejection_port=(0.066, -0.29, -0.10)),
+    shot_sound=('assets/sounds/m1014_shot_0.wav',),
+    shot_volume=0.9,
+    shot_pool=5,                                         # the shot is ~0.85 s long and shots come at most 0.25 s apart: a copy comes round again after 5 x 0.25 s
+    shot_pitch_variation=0.02,
+    # measured with tools/measure/m1014_measure.py (camera frame = the eye joint 'pose_controller_00', hip_offset NOT included): the bore axis is x 0.0217; the rear point is the ghost ring, the front
+    # point the top of the front post (y -0.2498); first estimate, refined against screenshots of the aimed view
+    ads_sights=((0.0228, -0.2597, -0.3475), (0.0208, -0.2597, 0.2325)),
+    muzzle=(0.0217, -0.298, 0.278),
+    hip_offset=(0.046, 0.23, 0.55),          # moves the model from the pack's eye (0.7 m behind the stock's front, 25 cm above the gun) to where an eye sits: the ghost ring 20 cm ahead and 2 cm below it
+)
+
+GUNS = {'m4': M4, 'glock': GLOCK, 'm1014': M1014}
 
 
 @dataclass

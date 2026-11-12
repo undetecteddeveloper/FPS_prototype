@@ -25,9 +25,10 @@ MAX_BULLET_STEP = 1.0 / 120.0      # s: largest hit-test step of a bullet (chord
 
 
 class Bullet:
-    __slots__ = ('origin', 'pos', 'vel', 'age', 'alive', 'end_pos')
+    __slots__ = ('origin', 'pos', 'vel', 'age', 'alive', 'end_pos', 'quiet')
 
-    def __init__(self, origin, vel):
+    def __init__(self, origin, vel, quiet: bool = False):
+        self.quiet = quiet               # a pellet after the first of a shotgun shot: it still makes its hole, but the impact sound is the first pellet's only
         self.origin = origin
         self.pos = origin
         self.vel = vel
@@ -119,6 +120,10 @@ class Combat:
         sprinting = r.sprint_cancels and self.player.sprint_amount > 0
         if h.phase is Phase.RELOAD and sprinting:
             h.cancel()
+        # a tube-magazine gun: a fresh click while the shells go in stops the reload and fires with the rounds already loaded (a click where the trigger is locked does nothing)
+        elif (h.phase is Phase.RELOAD and self.gun.shell_reload and r.interrupt_fire and mouse_ok and self.pressed and self.weapon.mag > 0
+              and not self.underwater and not self.wall_blocked):
+            h.cancel()
         wants = self.reload_requested or (mouse_ok and (trigger or self.pressed) and self.weapon.mag == 0)
         self.reload_requested = False
         if wants and not sprinting:                    # no reload while sprinting: a sprint pose not yet fully lowered still counts as sprinting
@@ -187,14 +192,24 @@ class Combat:
         return self.static_boxes
 
     def _fire(self, origin, direction, age: float):
-        speed = self.gun.muzzle_velocity
-        bullet = Bullet(origin, tuple(c * speed for c in direction))
+        """One shot: `pellets` projectiles (1 for a rifle / pistol). The pattern is random within `pellet_spread` around `direction`; the first pellet drives the muzzle flash, the smoke and the
+        sound, the next `pellet_tracers - 1` only get a tracer streak."""
+        g = self.gun
+        speed = g.muzzle_velocity
+        count = max(1, g.pellets)
         self.shots_fired += 1
-        if self.fx:
-            self.fx.on_shot(bullet, self.player.ads_amount)
-        # the bullet is spawned at time (end of frame - age) and then advances itself to the end of the frame
-        if self._advance(bullet, age, self._boxes()):
-            self.bullets.append(bullet)
+        boxes = self._boxes()
+        for i in range(count):
+            d = direction if count == 1 else random_in_cone(direction, g.pellet_spread, self.rng, g.pellet_center_bias)
+            bullet = Bullet(origin, tuple(c * speed for c in d), quiet=i > 0)
+            if self.fx:
+                if i == 0:
+                    self.fx.on_shot(bullet, self.player.ads_amount)
+                elif i < g.pellet_tracers:
+                    self.fx.on_pellet(bullet)
+            # the bullet is spawned at time (end of frame - age) and then advances itself to the end of the frame
+            if self._advance(bullet, age, boxes):
+                self.bullets.append(bullet)
 
     def _step_bullets(self, dt: float):
         if not self.bullets:
@@ -210,7 +225,7 @@ class Combat:
         steps = max(1, math.ceil(dt / MAX_BULLET_STEP - 1e-9))
         step = dt / steps
         for _ in range(steps):
-            new_pos, new_vel = advance(bullet.pos, bullet.vel, self.gun.bullet_gravity, step)
+            new_pos, new_vel = advance(bullet.pos, bullet.vel, self.gun.bullet_gravity, step, self.gun.bullet_drag)
             hit = first_hit(bullet.pos, new_pos, boxes, ground_y=None)       # the ground is a finite slab among `boxes`, not an infinite plane
             if hit:
                 bullet.alive, bullet.end_pos = False, hit.point
@@ -230,6 +245,6 @@ class Combat:
         if getattr(hit.owner, 'is_water', False):
             hit.owner.splash(hit.point, distance)        # water: a ring spreads (and a splash sound if it has one); no bullet hole, no dust sound
             return
-        if self.foley:
+        if self.foley and not bullet.quiet:
             self.foley.on_impact(distance)
         self.decals.add(hit.point, hit.normal, distance, tint=DUST_TINT)
