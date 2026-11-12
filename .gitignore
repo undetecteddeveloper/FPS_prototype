@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 assets/guns/animated_fps_hands_rifle_animation_pack.glb
+assets/guns/fps_benelli_m4_animations.glb
 shots/
 user_params*.json
 

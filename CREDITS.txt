@@ -18,6 +18,13 @@ Glock 17 (gói animation FPS)   [ĐANG DÙNG: assets\guns\glock17.glb, 2,9 MB]
   Thay đổi:  nạp qua bản vá gltf_patch (gộp 2 skin dùng chung xương, gốc xương ở nút chung của mọi nút có animation), vẽ bằng shader viewmodel.*,
              tư thế đứng / ngắm / chạy / sway tự viết bằng mã.
 
+Benelli M1014 (FPS Benelli M4 Animations)   [ĐANG DÙNG: assets\guns\benelli_m1014.glb, 14,7 MB; nguồn gốc assets\guns\fps_benelli_m4_animations.glb 66 MB, không đưa lên git]
+  Tác giả:   Cransh (https://sketchfab.com/ccransh)
+  Nguồn:     https://sketchfab.com/3d-models/fps-benelli-m4-animations-225a62190f6043ca975eaa2798ab7e2c
+  Giấy phép: CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/) - được dùng và sửa, bắt buộc ghi công tác giả (đã ghi trong game: GunData.credit, hiện ở góc bảng F1)
+  Thay đổi:  dựng lại bằng tools\build\prep_benelli_glb.py (mesh súng thu nhỏ 0,0122 lần vì to gấp ~82 lần so với tay, texture 4096 -> 2048 / 1024, bỏ KHR_texture_transform bằng cách xoay ảnh),
+             nạp qua gltf_patch, vẽ bằng shader viewmodel.*, rút / cất súng, tư thế đứng / ngắm / chạy / sway, nạp từng viên, đạn chì: tự viết bằng mã.
+
 Animated FPS hands (rifle animation pack)   [CHƯA DÙNG: assets\guns\animated_fps_hands_rifle_animation_pack.glb, 109 MB, không đưa lên git]
   Tác giả:   Cransh (https://sketchfab.com/ccransh)
   Giấy phép: CC BY 4.0. File có trong thư mục assets\guns nhưng game chưa nạp nó. Nếu sau này dùng thì phải ghi công ở đây VÀ trong game.
@@ -37,7 +44,9 @@ Các tiếng súng M4 cũ, tiếng thay đạn / bước chân gỗ của chủ 
 
 Tiếng người dùng cung cấp 8/11/2026 (ĐANG DÙNG): tiếng bắn Glock 17 và hai file nạp đạn (assets\sounds\source\glock\*.wav, dựng bằng tools\build\prep_glock_audio.py),
 bước chân giày trên gạch "tatical_boot_footstep_on_brick" và tiếng nền "Tranquil_indoor_swim_narrow" (assets\sounds\source\pool\*.wav, dựng bằng tools\build\prep_pool_audio.py);
-file "Tranquil_indoor_swim_wide" chưa dùng. Tác giả / nguồn / giấy phép: CHƯA RÕ, CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây).
+file "Tranquil_indoor_swim_wide" chưa dùng.
+Tiếng người dùng cung cấp 9/11/2026 (ĐANG DÙNG): tiếng bắn Benelli M1014 và tiếng nạp đạn (chỉ beat đầu tiên) (assets\sounds\source\m1014\*.wav, dựng bằng tools\build\prep_m1014_audio.py). Tác giả / nguồn / giấy phép: CHƯA RÕ, CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây).
+Hai file glb băng đạn (M4, Glock) do người dùng đưa 9/11/2026 tạo bằng AI (tên file có "Meshy" và "Hunyuan_3D"): CHƯA DÙNG, nằm ở assets\review\ (không đưa lên git). Tác giả / nguồn / giấy phép: CHƯA RÕ, CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây).
 
 === Chữ ===
 
