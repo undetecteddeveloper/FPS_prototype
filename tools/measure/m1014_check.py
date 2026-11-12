@@ -124,29 +124,41 @@ class Script(Entity):
         check('a pellet loses speed in flight (drag)', 0.70 < v1 / v0 < 0.80, f'{v1:.0f} / {v0:.0f} m/s after 0.15 s')
         combat.bullets.clear()
 
-        # --- reload, one shell at a time ---
-        reset_ammo(2, 20)
+        # --- one shot fired (7 left): ONE shell with ReloadOne_type2 (the user's rule) ---
+        reset_ammo(7, 20)
         foley = game.foley
         shell_before = foley.counts['m1014_shell']
+        combat.request_reload()
+        yield
+        check('7 rounds left: the one-shell clip (ReloadOne_type2)', combat.handling.key == 'reload' and vm.gun.clips['reload'].anim.endswith('ReloadOne_type2'), str(combat.handling.key))
+        shown = [n for n in vm.reload_props if not n.is_hidden()]
+        check('the hand-held shell is drawn during a reload', len(shown) == len(vm.reload_props) > 0, f'{len(shown)} / {len(vm.reload_props)}')
+        yield from wait_ready(10)
+        yield from wait(0.5)
+        check('one shell: 7 -> 8, the reserve 20 -> 19, one shell sound', w.mag == 8 and w.reserve == 19 and foley.counts['m1014_shell'] - shell_before == 1, f'{w.mag}+{w.reserve}, {foley.counts["m1014_shell"] - shell_before} sounds')
+        check('the hand-held shell is hidden again afterwards', all(n.is_hidden() for n in vm.reload_props))
+
+        # --- fired more (3 left): the long clip ReloadFull_type1, 5 shells, then it jumps to the closing of the bolt ---
+        reset_ammo(3, 20)
+        foley = game.foley
+        shell_before = foley.counts['m1014_shell']
+        slider_before = foley.counts['m1014_slider']
         glance = []
         combat.request_reload()
         t0 = pytime.time()
         yield
-        check('the reload starts with the one-shell clip while the tube is not empty', combat.handling.key == 'reload', str(combat.handling.key))
-        shown = [n for n in vm.reload_props if not n.is_hidden()]
-        check('the hand-held shell is drawn during a reload', len(shown) == len(vm.reload_props) > 0, f'{len(shown)} / {len(vm.reload_props)}')
+        check('3 rounds left: the long clip (ReloadFull_type1)', combat.handling.key == 'reload_empty' and vm.gun.clips['reload_empty'].anim.endswith('ReloadFull_type1'), str(combat.handling.key))
         while combat.handling.busy and pytime.time() - t0 < 20:
             if 0.9 < pytime.time() - t0:
                 glance.append(game.head.glance)
             yield
         took = pytime.time() - t0
         yield from wait(0.5)
-        check('six shells loaded: 2 -> 8 rounds, the reserve 20 -> 14', w.mag == 8 and w.reserve == 14, f'{w.mag}+{w.reserve}')
-        check('the reload took about 6 s (6 cycles of ~1 s)', 4.0 < took < 9.0, f'{took:.1f} s')
-        check('the reload sound plays once per shell', foley.counts['m1014_shell'] - shell_before == 6, f'{foley.counts["m1014_shell"] - shell_before} sounds')
-        check('the hand-held shell is hidden again afterwards', all(n.is_hidden() for n in vm.reload_props))
+        check('five shells loaded: 3 -> 8 rounds, the reserve 20 -> 15', w.mag == 8 and w.reserve == 15, f'{w.mag}+{w.reserve}')
+        check('the long clip is cut short when the gun is full (about 3.3 s, not the 4.2 s of the empty reload)', 2.0 < took < 3.9, f'{took:.1f} s')
+        check('the reload sound plays once per shell (5) and the slider sound once', foley.counts['m1014_shell'] - shell_before == 5 and foley.counts['m1014_slider'] - slider_before == 1, f'{foley.counts["m1014_shell"] - shell_before} shells, {foley.counts["m1014_slider"] - slider_before} slider')
         mid = glance[int(len(glance) * 0.15):int(len(glance) * 0.6)]
-        check('the head stays down between the cycles (glance does not dip)', len(mid) > 20 and min(mid) > 0.6, f'min over the middle {min(mid) if mid else 0:.2f} of {len(glance)} samples')
+        check('the head stays down through the clip (glance does not dip)', len(mid) > 20 and min(mid) > 0.6, f'min over the middle {min(mid) if mid else 0:.2f} of {len(glance)} samples')
 
         # --- interrupt by a click: keeps what is in, fires ---
         reset_ammo(3, 20)
@@ -191,7 +203,7 @@ class Script(Entity):
         yield from wait(0.5)
         combat.request_reload()
         yield
-        check('with 3 shells in reserve the one-shell clip is used (not the long clip)', combat.handling.key == 'reload', str(combat.handling.key))
+        check('with 3 shells in reserve the long clip still runs (it stops after the 3 shells)', combat.handling.key == 'reload_empty', str(combat.handling.key))
         yield from wait_ready(15)
         yield from wait(0.5)
         check('the 3 shells go in, the reserve is 0', w.mag == 3 and w.reserve == 0, f'{w.mag}+{w.reserve}')
@@ -211,8 +223,15 @@ class Script(Entity):
         yield from wait_ready(25)
         yield from wait(0.3)
 
-        # --- the procedural draw: switch away and back, watch the gun lift ---
+        # --- no aiming: the aim button does nothing ---
         reset_ammo(8, 32)
+        held_keys['right mouse'] = 1
+        yield from wait(0.6)
+        check('the aim button does nothing (a shotgun is fired from the hip)', player.ads_amount == 0.0 and not player.ads, f'ads {player.ads_amount}')
+        held_keys['right mouse'] = 0
+
+        # --- the procedural draw: switch away and back, watch the gun lift (no draw / holster sounds) ---
+        draw_before = (foley.counts['draw_a'], foley.counts['draw_b'])
         game.request_gun('glock')
         yield from wait(2.5)
         check('switched to the Glock', game.gun_name == 'glock', game.gun_name)
@@ -225,21 +244,23 @@ class Script(Entity):
         low = game.viewmodel._swap
         yield from wait(1.5)
         check('switching back: the M1014 is in hand and the draw is over', game.gun_name == 'm1014' and not combat.handling.busy and game.viewmodel._swap == 0.0, f'{game.gun_name}, swap {game.viewmodel._swap:.2f}')
+        check('no draw / holster sound is played for the M1014', (game.foley.counts['draw_a'], game.foley.counts['draw_b']) == draw_before, f'{draw_before} -> {(game.foley.counts["draw_a"], game.foley.counts["draw_b"])}')
         check('during the draw the gun starts lowered (procedural pose)', low > 0.3, f'swap amount 3 frames after the draw starts: {low:.2f}')
 
-        # --- the F1 panel has its own Shotgun tab ---
+        # --- the F1 panel: the shotgun numbers sit in the shared tabs (Bắn, Nạp đạn), no tab of its own ---
         game.debug.toggle()
         for _ in range(5):
             yield
-        game.debug.select_group('shotgun')
+        game.debug.select_group('fire')
         for _ in range(3):
             yield
         store = game.params_store
-        check('F1: a "Shotgun" tab of its own with the 6 shotgun numbers, next to the other tabs', game.debug.is_open and len(game.debug.tabs) == len(store.groups) and 'shotgun' in [g.key for g in store.groups] and
-              game.debug.group_title.text == 'Shotgun' and len(store.group_by_key['shotgun'].specs) == 6, f'{len(game.debug.tabs)} tabs, title "{game.debug.group_title.text}"')
+        ids = [sp.id for sp in store.group_by_key['fire'].specs]
+        check('F1: no Shotgun tab; the pellet numbers are in the "Bắn" tab and the interrupt switch in "Nạp đạn"', 'shotgun' not in [g.key for g in store.groups] and all(i in ids for i in ('gun.pellets', 'gun.pellet_spread', 'gun.pellet_center_bias', 'gun.pellet_tracers', 'gun.bullet_drag'))
+              and store.by_id['gun.reload.interrupt_fire'].group == 'reload', f'{len(game.debug.tabs)} tabs')
         shots = ROOT / 'shots'
         shots.mkdir(exist_ok=True)
-        application.base.win.save_screenshot(Filename.from_os_specific(str(shots / 'm1014_f1_shotgun_tab.png')))
+        application.base.win.save_screenshot(Filename.from_os_specific(str(shots / 'm1014_f1_fire_tab.png')))
         game.debug.hide()
         yield
 

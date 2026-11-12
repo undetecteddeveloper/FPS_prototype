@@ -5,6 +5,8 @@ r"""Builds the Benelli M1014 sounds the user supplied (9/11/2026) from assets/so
                                               GunData.shot_pitch_variation keeps a string of shots from sounding like a loop.
   Beneli_M1014_reload_sound.wav      ->  assets/sounds/foley/m1014_shell_0.wav   (mono). ONLY THE FIRST BEAT of the recording (the user's instruction): the shell pushed into the loading port,
                                               a soft click (0.46 s) and the main clack (0.58 s). The second beat (1.17 .. 1.5 s) is dropped. The game plays this one sound once per shell.
+  Benelli_M1014_slider.wav           ->  assets/sounds/foley/m1014_slider_0.wav  (mono, 9/11/2026): the slider (bolt) closing at the end of the long reload: a soft latch click (~0.2 s), the loud slam (~0.5 s) and its tail;
+                                              the file starts SLIDER_LEAD frames before the slam, the little extra sound at 1.75 s is cut off. Played once, where the bolt closes (frame 187 of ReloadFull).
   every foley file also gets a muffled twin in assets/sounds/foley_under (same filter as tools/build/prep_underwater.py).
 
 SYNC: the shell file starts exactly `LEAD` whole animation frames (1/30 s) before its main clack (first sample >= ANCHOR_LEVEL x the beat's peak, so the soft click before it does not count),
@@ -47,6 +49,9 @@ TAIL_LEVEL = 0.001                     # fraction of the beat's peak: the beat e
 BEAT_FADE_IN = 0.001                   # s
 BEAT_FADE_OUT = 0.040                  # s
 BEAT_PEAK = 0.90
+SLIDER_SRC = 'Benelli_M1014_slider.wav'
+SLIDER_WINDOW = (0.10, 1.20)           # the click, the slam and the tail; the quiet extra sound at 1.75 s lies outside
+SLIDER_LEAD = 10                       # whole frames from the start of the file to the slam
 
 
 def read_wav(path: Path) -> tuple:
@@ -86,13 +91,13 @@ def build_shot(src: np.ndarray, rate: int) -> np.ndarray:
     return y * (SHOT_PEAK / np.abs(y).max())
 
 
-def build_shell(src: np.ndarray, rate: int) -> np.ndarray:
-    """The first beat as a MONO clip: starts LEAD frames before the clack, ends when the beat has died away."""
-    t0, t1 = BEAT_WINDOW
+def build_shell(src: np.ndarray, rate: int, window: tuple = BEAT_WINDOW, lead: int = LEAD) -> np.ndarray:
+    """One beat as a MONO clip: starts `lead` frames before its main clack, ends when the beat has died away."""
+    t0, t1 = window
     mono = src.mean(axis=1, keepdims=True)
     seg = mono[int(t0 * rate):int(t1 * rate)]
     anchor = anchor_time(seg, rate) + t0
-    start = int(round((anchor - LEAD / FPS) * rate))
+    start = int(round((anchor - lead / FPS) * rate))
     win = int(0.01 * rate)
     rms = np.sqrt(np.convolve(seg[:, 0] ** 2, np.ones(win) / win, mode='same'))
     live = np.nonzero(rms >= TAIL_LEVEL * np.abs(seg).max())[0]
@@ -110,6 +115,8 @@ def jobs() -> list:
     out = [(SOUNDS / 'm1014_shot_0.wav', rate, build_shot(shot, rate))]
     rate, reload_ = read_wav(SOURCE / RELOAD_SRC)
     out.append((FOLEY / 'm1014_shell_0.wav', rate, build_shell(reload_, rate)))
+    rate, slider = read_wav(SOURCE / SLIDER_SRC)
+    out.append((FOLEY / 'm1014_slider_0.wav', rate, build_shell(slider, rate, SLIDER_WINDOW, SLIDER_LEAD)))
     return out
 
 

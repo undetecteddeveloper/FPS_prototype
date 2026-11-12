@@ -61,7 +61,7 @@ META = {
     'gun.muzzle_velocity': p('Tốc độ đạn', 'm/s; chậm thì đạn tới bia muộn và rơi nhiều', 100, 1200, 10),
     'gun.bullet_gravity': p('Độ rơi của đạn', 'm/s²; 0 = bay thẳng, 9,81 = như thật', 0, 30, 0.1),
     'gun.bullet_lifetime': p('Đạn sống tối đa', 'giây; quá hạn thì đạn biến mất', 0.5, 10, 0.5, 'A'),
-    # ---------------- Shotgun (M1014; M4 / Glock bắn 1 viên nên các số này không đổi gì ở hai súng đó) ----------------
+    # ---------------- Đạn chì và nạp từng viên (M1014; M4 / Glock bắn 1 viên nên các số này không đổi gì ở hai súng đó) ----------------
     'gun.pellets': p('Số viên chì mỗi phát', 'viên; 9 = đạn 00 buck ngoài đời; 1 = một viên đạn như súng khác', 1, 20, 1),
     'gun.pellet_spread': p('Độ loe của chùm chì', 'độ nửa góc; ngoài đời nòng không thắt ~0,8, game để 2 cho dễ thấy', 0, 8, 0.1),
     'gun.pellet_center_bias': p('Chì dồn vào giữa chùm', '0 = rải đều trên cả hình tròn; lớn = dày ở tâm, thưa ở rìa', 0, 3, 0.05),
@@ -565,11 +565,8 @@ GROUPS = (
     ('fire', 'Bắn', (
         ('Nhịp bắn và đạn', ('gun.rpm', 'gun.muzzle_velocity', 'gun.bullet_gravity', 'gun.bullet_lifetime')),
         ('Băng đạn', ('gun.magazine', 'gun.reserve')),
+        ('Đạn chì (shotgun)', ('gun.pellets', 'gun.pellet_spread', 'gun.pellet_center_bias', 'gun.pellet_tracers', 'gun.bullet_drag')),
         ('Lỗ đạn', ('feedback.hole_base_size', 'feedback.hole_size_per_meter', 'feedback.hole_life', 'feedback.hole_fade')),
-    )),
-    ('shotgun', 'Shotgun', (
-        ('Chùm đạn chì mỗi phát', ('gun.pellets', 'gun.pellet_spread', 'gun.pellet_center_bias', 'gun.pellet_tracers', 'gun.bullet_drag')),
-        ('Nạp từng viên (băng ống)', ('gun.reload.interrupt_fire',)),
     )),
     ('recoil', 'Giật', (
         ('Cú giật sinh ngẫu nhiên', ('gun.recoil.up', 'gun.recoil.up_noise', 'gun.recoil.right_bias', 'gun.recoil.right_noise',
@@ -665,6 +662,7 @@ GROUPS = (
     ('reload', 'Nạp đạn', (
         ('Tốc độ và huỷ', ('gun.reload.speed', 'gun.reload.draw_speed', 'gun.reload.sprint_cancels', 'gun.reload.cancel_blend',
                            'gun.reload.bolt_lock_blend', 'gun.reload.ready_lead')),
+        ('Nạp từng viên (shotgun)', ('gun.reload.interrupt_fire',)),
         ('Góc nhìn khi nạp', ('gun.reload.view_fov', 'gun.reload.view_blend', 'gun.reload.view_pose')),
     )),
     ('look', 'Ánh sáng', (
@@ -724,6 +722,8 @@ EXCLUDED = {
     'gun.full_auto': 'phím B đổi lúc chạy',
     'gun.ready_pose': 'tên clip + khung của tư thế sẵn sàng trong glb', 'gun.locked_pose': 'tên clip + khung của tư thế slide khoá mở trong glb',
     'gun.mag_nodes': 'tên nút Panda của hai băng đạn',
+    'gun.can_ads': 'tính chất cố định của súng: shotgun bắn từ hông, không ngắm', 'gun.reload_full_max': 'ngưỡng chọn clip nạp dài, cố định theo súng',
+    'gun.flat_normal': 'tên vật liệu vẽ không dùng normal map, đặt lúc dựng',
     'gun.shell_reload': 'tính chất cố định của súng: băng ống nạp từng viên', 'gun.selective_fire': 'tính chất cố định của súng: chỉ bắn từng phát',
     'gun.model_hpr': 'hướng của mô hình trong file glb, đặt lúc dựng', 'gun.hand_joint': 'chữ', 'gun.reload_props': 'tên nút Panda của viên đạn cầm tay',
     'gun.procedural_swap': 'rút / cất súng bằng mã vì file glb không có clip, đặt lúc dựng', 'gun.fire_clips': 'khoá clip bắn trong GunData.clips', 'gun.fire_clip_speed': 'tốc độ phát clip bắn, chọn theo nhịp bắn khi dựng súng',

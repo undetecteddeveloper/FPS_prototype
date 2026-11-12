@@ -72,6 +72,9 @@ def _moving(spring: Spring) -> bool:
     return any(x or v for x, v in zip(spring.x, spring.v))
 
 
+SEEK_FRAMES = 12.0        # a step of the reload clip bigger than this many frames in one call is a jump of the clip, not playback
+
+
 class Shake:
     def __init__(self, data: ShakeData, seed: int = None):
         self.d = data
@@ -129,6 +132,8 @@ class Shake:
         if key != self._reload_key:
             self._reload_key, self._reload_prev = key, None
         prev = self._reload_prev
+        if prev is not None and frame - prev > SEEK_FRAMES:          # a seek of the long tube-gun clip (skipped shells): its beats were not reached
+            prev = frame
         for f, kind in self.d.reload_beats.get(key, ()):
             if (prev is None or f > prev) and f <= frame:
                 self.on_beat(kind, (frame - f) / frames_per_second)

@@ -45,7 +45,7 @@ Các tiếng súng M4 cũ, tiếng thay đạn / bước chân gỗ của chủ 
 Tiếng người dùng cung cấp 8/11/2026 (ĐANG DÙNG): tiếng bắn Glock 17 và hai file nạp đạn (assets\sounds\source\glock\*.wav, dựng bằng tools\build\prep_glock_audio.py),
 bước chân giày trên gạch "tatical_boot_footstep_on_brick" và tiếng nền "Tranquil_indoor_swim_narrow" (assets\sounds\source\pool\*.wav, dựng bằng tools\build\prep_pool_audio.py);
 file "Tranquil_indoor_swim_wide" chưa dùng.
-Tiếng người dùng cung cấp 9/11/2026 (ĐANG DÙNG): tiếng bắn Benelli M1014 và tiếng nạp đạn (chỉ beat đầu tiên) (assets\sounds\source\m1014\*.wav, dựng bằng tools\build\prep_m1014_audio.py). Tác giả / nguồn / giấy phép: CHƯA RÕ, CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây).
+Tiếng người dùng cung cấp 9/11/2026 (ĐANG DÙNG): tiếng bắn Benelli M1014, tiếng nạp đạn (chỉ beat đầu tiên) và tiếng thanh trượt (12/11/2026) (assets\sounds\source\m1014\*.wav, dựng bằng tools\build\prep_m1014_audio.py). Tác giả / nguồn / giấy phép: CHƯA RÕ, CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây).
 Hai file glb băng đạn (M4, Glock) do người dùng đưa 9/11/2026 tạo bằng AI (tên file có "Meshy" và "Hunyuan_3D"): CHƯA DÙNG, nằm ở assets\review\ (không đưa lên git). Tác giả / nguồn / giấy phép: CHƯA RÕ, CẦN XÁC MINH TRƯỚC KHI PHÁT HÀNH (chủ dự án điền vào đây).
 
 === Chữ ===

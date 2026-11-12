@@ -129,7 +129,7 @@ class Viewmodel:
         self.normal_maps = read_normal_maps(self.project_root / self.gun.glb)
         for name, nodes in self.material_nodes.items():
             tex = self.normal_maps.get(name)
-            if tex is not None:
+            if tex is not None and name not in self.gun.flat_normal:
                 for np_ in nodes:
                     np_.set_shader_input('vm_normal_tex', tex)
         self.apply_light()
@@ -369,6 +369,11 @@ class Viewmodel:
             self.reveal()                                # the first clip after `hide_until_draw` is the draw: poses its first frame below, so the gun appears already in motion
             self._more = len(event) > 3 and bool(event[3])
             self._play(event[1], event[2])
+        elif name == 'seek':                             # a tube gun's long clip jumps ahead (the gun is full): play on from that frame at the same rate
+            clip = self.gun.clips[event[1]]
+            rate = self.actor.getPlayRate(clip.anim)
+            self.actor.play(clip.anim, fromFrame=event[2], toFrame=clip.end)
+            self.actor.setPlayRate(rate, clip.anim)
         elif name == 'done':
             self.hold_ready_pose()
         elif name == 'ready':

@@ -7,6 +7,7 @@ so a later sound does not cut off the previous one), and changes pitch / volume 
 Hooked into `Game.update` (no separate update): `on_handling_event(event)` for each Handling event, then `update(dt)` once per frame.
 Muted (`--mute`, `create_game(sound=False)`) means Game does not create this object.
 """
+import dataclasses
 import math
 import random
 from collections import Counter, deque
@@ -155,6 +156,11 @@ class Foley:
         if kind == 'start':
             key, speed = event[1], event[2]
             self.schedule.start(self.audio.cues.get(key, ()), self.gun.clips[key], speed)
+        elif kind == 'seek':                      # the clip jumped to `frame`: only the cues from there on are still to play (a copy of the clip that starts at that frame)
+            key, frame = event[1], event[2]
+            clip = self.gun.clips[key]
+            speed = max(self.gun.reload.speed, 1e-3)
+            self.schedule.start([c for c in self.audio.cues.get(key, ()) if c.frame >= frame], dataclasses.replace(clip, start=frame), speed)
         elif kind in ('done', 'ready', 'chain'):          # 'ready': the clip's sounds all lie before it (the tail is only the hands settling); anything left plays now. 'chain': a tube gun's cycle ended, the next starts at once
             self._play_cues(self.schedule.flush())
         elif kind == 'cancel':

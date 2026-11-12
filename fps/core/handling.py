@@ -11,6 +11,7 @@ is counted at its own frame (`Weapon.load_shell`), so cancelling keeps what went
 
 The visual part (playing the clip, blending the pose on cancel) is in `game/viewmodel.py`, which receives the events through `drain()`:
   ('start', key, speed)   start playing clip `key` (key of GunData.clips). Tube guns add a 4th item: True when another cycle will follow this one
+  ('seek', key, frame)    tube guns: the gun is full before the long clip's last round: the clip goes on from `frame` (the rounds not needed are skipped)
   ('chain', key)          tube guns: the cycle `key` ended and the next one starts at once (a 'start' follows); no 'ready' / 'done' in between, the gun never counts as ready
   ('swap', key)           new magazine seated / one more shell in (rounds updated)
   ('done', key)           clip finished
@@ -111,14 +112,13 @@ class Handling:
         return True
 
     def _first_reload_key(self) -> str:
-        """Magazine guns: the empty clip when the magazine is empty. Tube guns: the long empty clip (bolt locked open, every round loaded in one go) only when the reserve can fill the gun;
-        otherwise the one-round cycle (with a short reserve the long clip would show shells that are not there)."""
+        """Magazine guns: the empty clip when the magazine is empty. Tube guns: the long clip (bolt open, the rounds loaded in one go) while the gun holds at most `reload_full_max` rounds,
+        else the one-round cycle."""
         w, clips = self.weapon, self.gun.clips
-        if w.mag != 0:
-            return 'reload'
         if self.gun.shell_reload and 'reload_empty' in clips:
-            return 'reload_empty' if w.reserve >= len(clips['reload_empty'].swap_times) else 'reload'
-        return 'reload_empty'
+            full_max = self.gun.reload_full_max if self.gun.reload_full_max is not None else 0
+            return 'reload_empty' if w.mag <= full_max else 'reload'          # the long clip stops early (`Clip.tail`) when the gun is full or the reserve runs out
+        return 'reload_empty' if w.mag == 0 else 'reload'
 
     def _more_after(self, key: str) -> bool:
         """Tube guns: will another cycle follow clip `key` (assuming nobody interrupts)? True while the gun would still not be full and the reserve not empty after this clip's rounds."""
@@ -186,6 +186,12 @@ class Handling:
                 self.loaded = self.weapon.load_shell()
                 self.events.append(('swap', self.key))
             self.swapped = self._swaps_done >= len(times)
+            tail = clip.tail
+            if tail is not None and not self.weapon.can_reload and self._swaps_done and self.t < (tail - clip.start) / FPS and self._swaps_done < len(times):
+                # full (or out of reserve) before the clip's last round: skip the shells that are not needed and go on from `tail` (the viewmodel and the sounds follow the 'seek')
+                self.t = (tail - clip.start) / FPS
+                self._swaps_done = max(self._swaps_done, sum(1 for x in times if x < self.t))
+                self.events.append(('seek', self.key, tail))
         elif not self.swapped and clip.swap is not None and self.t >= clip.swap_time:
             self.swapped = True
             self.loaded = self.weapon.load_magazine()

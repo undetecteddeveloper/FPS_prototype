@@ -16,15 +16,21 @@ from fps.core.handling import Handling, Phase
 from fps.core.headcam import ReloadState, glance_weight
 from fps.core.spread import angle_between, random_in_cone
 from fps.core.weapon import Weapon
-from fps.weapon_data import GUNS, M1014, M4, AudioData, HeadCamData, ReloadData, SoundCue, is_reload_key
+from fps.weapon_data import GLOCK, GUNS, M1014, M4, AudioData, Clip, HeadCamData, ReloadData, SoundCue, is_reload_key
 
 ROOT = Path(__file__).resolve().parent.parent
 GLB = ROOT / M1014.glb
 FPS = 30.0
 
 
-def make(mag=2, reserve=20, **reload_kw):
-    gun = dataclasses.replace(M1014, reload=ReloadData(**reload_kw)) if reload_kw else M1014
+# the engine still supports a tube gun that chains one-shell cycles and alternates two hand paths (the M1014 itself now uses the long clip for 6 rounds or fewer and ONE cycle for 7):
+# this variant is the old setup, so the chain logic stays tested
+CHAIN = dataclasses.replace(M1014, reload_full_max=-1, clips={**M1014.clips, 'reload_alt': Clip('Rig|M4_ReloadOne_type1', 0, 44, swap=21, settle=41)})
+
+
+def make(mag=2, reserve=20, gun=None, **reload_kw):
+    gun = gun or M1014
+    gun = dataclasses.replace(gun, reload=ReloadData(**reload_kw)) if reload_kw else gun
     w = Weapon(gun)
     w.mag, w.reserve = mag, reserve
     return Handling(gun, w), w
@@ -53,7 +59,9 @@ def test_every_clip_is_inside_its_animation_and_every_swap_frame_inside_its_clip
         frames = clip.swaps or (() if clip.swap is None else (clip.swap,))
         assert all(clip.start < f <= (clip.settle or clip.end) for f in frames), key            # a round goes in before the hands are back
     assert M1014.clips['reload_empty'].swaps and len(M1014.clips['reload_empty'].swaps) == M1014.magazine
-    assert M1014.clips['reload'].swap and M1014.clips['reload_alt'].swap
+    assert M1014.clips['reload'].swap and 'reload_alt' not in M1014.clips and M1014.clips['reload'].anim.endswith('ReloadOne_type2') and M1014.clips['reload_empty'].anim.endswith('ReloadFull_type1')
+    tail = M1014.clips['reload_empty'].tail
+    assert tail and M1014.clips['reload_empty'].swaps[-2] < tail < M1014.clips['reload_empty'].swaps[-1]       # the jump lands after the last shell and before the bolt closes
     assert sorted(M1014.clips['reload_empty'].swaps) == list(M1014.clips['reload_empty'].swaps)
 
 
@@ -69,11 +77,13 @@ def test_the_cue_table_follows_the_clips_and_every_sound_has_a_file_and_an_under
             found = sorted((ROOT / AudioData.folder).glob(f'{group}_*.wav'))
             assert found, f'{c.sound}: no file {group}_*.wav'
             assert (ROOT / 'assets' / 'sounds' / 'foley_under' / found[0].name).exists(), found[0].name
-    assert set(M1014.sound_cues) >= {'reload', 'reload_alt', 'reload_empty', 'draw', 'holster'}
+    assert set(M1014.sound_cues) == {'reload', 'reload_empty'}                                    # no draw / holster sounds (user, 9/11/2026)
+    slider = [c for c in M1014.sound_cues['reload_empty'] if c.sound == 'm1014_slider']
+    assert len(slider) == 1 and slider[0].frame >= M1014.clips['reload_empty'].tail      # not skipped by the jump
 
 
 def test_shake_beats_land_on_the_shell_frames():
-    for key in ('reload', 'reload_alt', 'reload_empty'):
+    for key in ('reload', 'reload_empty'):
         clip = M1014.clips[key]
         frames = [f for f, kind in M1014.shake.reload_beats[key] if kind == 'seat']
         assert frames == list(clip.swaps or (clip.swap,))[:len(frames)], key
@@ -110,7 +120,7 @@ def test_the_shell_sound_is_the_first_beat_only_and_its_clack_sits_where_the_cue
 
 
 def test_each_shell_cue_lands_the_clack_one_frame_before_the_shell_seats():
-    for key in ('reload', 'reload_alt', 'reload_empty'):
+    for key in ('reload', 'reload_empty'):
         clip = M1014.clips[key]
         swaps = list(clip.swaps or (clip.swap,))
         shell_cues = [c.frame for c in M1014.sound_cues[key] if c.sound == 'm1014_shell']
@@ -118,6 +128,18 @@ def test_each_shell_cue_lands_the_clack_one_frame_before_the_shell_seats():
         assert shell_cues == expect, key
         for c in shell_cues:
             assert c + 4 + 1 in swaps                                        # the file's clack (4 frames in) + 1 frame = the shell is seated
+
+
+def test_the_slider_sound_is_the_users_file_cut_to_the_slam_and_lands_when_the_bolt_closes():
+    rate, x = read(ROOT / 'assets' / 'sounds' / 'foley' / 'm1014_slider_0.wav')
+    src_rate, src = read(SOURCE / 'Benelli_M1014_slider.wav')
+    assert rate == src_rate and x.shape[1] == 1 and 0.4 < x.shape[0] / rate < 0.8       # the click, the slam and the tail; the extra sound at 1.75 s is not in it
+    m = np.abs(x[:, 0])
+    assert m.max() == pytest.approx(0.90, abs=0.01) and m[-1] < 0.01
+    slam = float(np.argmax(m >= 0.40 * m.max())) / rate
+    assert slam * FPS == pytest.approx(10.0, abs=0.1)
+    cue = next(c for c in M1014.sound_cues['reload_empty'] if c.sound == 'm1014_slider')
+    assert cue.frame + 10 == 187                                                      # the slider is home at frame 187 of ReloadFull (-0.8 at 186, -0.3 at 189)
 
 
 def test_the_gunshot_starts_on_the_blast_and_keeps_its_tail():
@@ -154,7 +176,7 @@ def test_the_b_key_does_nothing_on_a_semi_only_gun_and_still_toggles_on_the_othe
 
 
 def test_reload_chains_one_shell_cycles_until_the_tube_is_full():
-    h, w = make(mag=2, reserve=20)
+    h, w = make(mag=2, reserve=20, gun=CHAIN)
     assert h.start_reload() and h.key == 'reload'
     run(h, 20.0)
     events = h.drain()
@@ -169,26 +191,26 @@ def test_reload_chains_one_shell_cycles_until_the_tube_is_full():
 
 
 def test_the_first_and_last_cycle_flags_follow_the_chain():
-    h, w = make(mag=5, reserve=20, speed=1.0)
+    h, w = make(mag=5, reserve=20, gun=CHAIN, speed=1.0)
     h.start_reload()
     assert h.first and not h.last                                            # 5 -> 8 needs three cycles
     run(h, M1014.clips['reload'].settle_time + 0.05)                         # the second cycle has begun
     assert h.cycle == 1 and not h.first and not h.last
     run(h, 12.0)
     assert not h.busy
-    h2, _ = make(mag=7, reserve=20)
+    h2, _ = make(mag=7, reserve=20, gun=CHAIN)
     h2.start_reload()
     assert h2.first and h2.last                                              # a single shell: both
 
 
 def test_each_round_counts_at_its_own_frame_and_cancelling_keeps_the_ones_already_in():
-    h, w = make(mag=1, reserve=20, speed=1.0)
+    h, w = make(mag=7, reserve=20, speed=1.0)
     h.start_reload()
     run(h, M1014.clips['reload'].swap_time - 0.05)
-    assert w.mag == 1                                                        # the shell has not gone in yet
+    assert w.mag == 7                                                        # the shell has not gone in yet
     run(h, 0.1)
-    assert w.mag == 2 and w.reserve == 19
-    assert h.cancel() and w.mag == 2 and not h.busy                          # the round that is in stays
+    assert w.mag == 8 and w.reserve == 19
+    assert h.cancel() and w.mag == 8 and not h.busy                          # the round that is in stays
 
 
 def test_an_empty_gun_with_a_full_reserve_plays_the_long_clip_and_loads_all_eight():
@@ -200,12 +222,51 @@ def test_an_empty_gun_with_a_full_reserve_plays_the_long_clip_and_loads_all_eigh
     assert w.mag == 8 and w.reserve == 24 and kinds.count('swap') == 8 and kinds[-1] == 'ready' and 'chain' not in kinds
 
 
-def test_an_empty_gun_with_a_short_reserve_uses_the_one_shell_cycles():
-    h, w = make(mag=0, reserve=3)
+def test_the_clip_is_chosen_by_the_rounds_left_seven_uses_type2_six_or_fewer_the_long_clip():
+    """The user's rule (9/11/2026): one shot fired (7 left) -> ReloadOne_type2; more shots fired (6 or fewer) or empty -> ReloadFull_type1."""
+    for mag, key in ((7, 'reload'), (6, 'reload_empty'), (5, 'reload_empty'), (3, 'reload_empty'), (1, 'reload_empty'), (0, 'reload_empty')):
+        h, _ = make(mag=mag, reserve=20)
+        assert h.start_reload() and h.key == key, mag
+    h, w = make(mag=7, reserve=20)
     h.start_reload()
-    assert h.key == 'reload'
     run(h, 20.0)
-    assert (w.mag, w.reserve) == (3, 0) and not h.busy
+    kinds = [e[0] for e in h.drain()]
+    assert w.mag == 8 and kinds == ['start', 'swap', 'ready']               # one shell, one clip, no chain
+
+
+def test_a_partly_empty_gun_stops_the_long_clip_when_it_is_full_and_skips_the_shells_it_does_not_need():
+    h, w = make(mag=3, reserve=20, speed=1.0)
+    h.start_reload()
+    run(h, 30.0)
+    events = h.drain()
+    kinds = [e[0] for e in events]
+    assert (w.mag, w.reserve) == (8, 15) and not h.busy                      # 5 shells needed
+    seek = next(e for e in events if e[0] == 'seek')
+    assert seek[1] == 'reload_empty' and seek[2] == M1014.clips['reload_empty'].tail
+    assert kinds.count('seek') == 1 and kinds[-1] == 'ready'
+    clip = M1014.clips['reload_empty']
+    # the reload took 5 shells + the closing of the bolt, not the whole 7: it ended well before the full clip's length
+    full, _ = make(mag=0, reserve=20, speed=1.0)
+    full.start_reload()
+    t_full = t_part = 0.0
+    while full.busy and t_full < 30:
+        full.update(1 / 60)
+        t_full += 1 / 60
+    h2, _ = make(mag=3, reserve=20, speed=1.0)
+    h2.start_reload()
+    while h2.busy and t_part < 30:
+        h2.update(1 / 60)
+        t_part += 1 / 60
+    assert t_part < t_full - 1.5, (t_part, t_full)
+
+
+def test_an_empty_gun_with_a_short_reserve_loads_what_there_is_and_closes_the_bolt():
+    h, w = make(mag=0, reserve=3, speed=1.0)
+    h.start_reload()
+    assert h.key == 'reload_empty'
+    run(h, 30.0)
+    kinds = [e[0] for e in h.drain()]
+    assert (w.mag, w.reserve) == (3, 0) and not h.busy and 'seek' in kinds
 
 
 def test_a_full_gun_or_an_empty_reserve_does_not_start_a_reload():
@@ -272,19 +333,24 @@ def test_drag_slows_the_pellet_like_exp_and_does_not_depend_on_the_frame_rate():
 
 
 # --- the F1 panel ---
-def test_the_shotgun_group_is_on_the_panel_with_its_own_numbers():
+def test_the_shotgun_numbers_sit_in_the_shared_tabs_not_a_tab_of_their_own():
     from fps.core.params import ParamStore
     from fps.weapon_data import GameParams
     store = ParamStore(GameParams(gun=dataclasses.replace(M1014)), gun_key='m1014')
-    g = store.group_by_key['shotgun']
-    assert g.title == 'Shotgun'
-    ids = {s.id for s in g.specs}
-    assert ids == {'gun.pellets', 'gun.pellet_spread', 'gun.pellet_center_bias', 'gun.pellet_tracers', 'gun.bullet_drag', 'gun.reload.interrupt_fire'}
+    assert 'shotgun' not in store.group_by_key                                # the user wanted the same tabs as the M4 and the Glock (9/11/2026)
+    for sid in ('gun.pellets', 'gun.pellet_spread', 'gun.pellet_center_bias', 'gun.pellet_tracers', 'gun.bullet_drag'):
+        assert store.by_id[sid].group == 'fire', sid
+    assert store.by_id['gun.reload.interrupt_fire'].group == 'reload'
     assert store.get(store.by_id['gun.pellets']) == 9 and store.get(store.by_id['gun.pellet_spread']) == M1014.pellet_spread
     assert store.is_default(store.by_id['gun.pellets'])
     store.set(store.by_id['gun.pellets'], 12)
     assert store.get(store.by_id['gun.pellets']) == 12 and not store.is_default(store.by_id['gun.pellets'])
     assert store.reset(store.by_id['gun.pellets']) and store.get(store.by_id['gun.pellets']) == 9
+
+
+def test_a_shotgun_has_no_aim_and_the_m4_hands_are_drawn_without_the_pack_normal_maps():
+    assert not M1014.can_ads and M4.can_ads and GLOCK.can_ads
+    assert set(M4.flat_normal) == {'Hand_D', 'Glove_D'} and not GLOCK.flat_normal and not M1014.flat_normal
 
 
 # --- the converted model (tools/build/prep_benelli_glb.py) ---

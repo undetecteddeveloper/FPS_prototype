@@ -43,6 +43,7 @@ class Clip:
     swap: int = None   # frame where the new magazine seats (measured with tools/measure/g5_reload_probe.py); reload clips only
     settle: int = None  # frame where the gun, magazine and bolt are back in place: the rest of the clip is only the hand re-folding its fingers (the reload view is switched off at this frame).
                         # Draw clips: the gun is up and still (measured: joints move < 0.5 cm per frame after it); firing / aiming are allowed from here while the tail plays on
+    tail: int = None    # tube guns, a clip that loads several rounds: the frame to jump to when the gun is full (or the reserve is out) before the clip's last round: the remaining shell cycles are skipped
     swaps: tuple = ()   # tube-magazine guns (GunData.shell_reload): the frames at which ONE round goes in. A clip that loads several rounds ('reload_empty' of the M1014) lists them all; a one-round
                         # cycle may use `swap` instead. The last round in a clip that ends a reload may be the bolt closing on the chamber (the M1014's empty reload: 7 shells + the chambered round)
 
@@ -539,6 +540,9 @@ class GunData:
     pellet_center_bias: float = 0.0       # 0 = pellets spread evenly over the disc of the pattern; larger = more of them near the middle (a real pattern is dense in the centre)
     pellet_tracers: int = 1               # how many pellets of one shot get a tracer streak (the first one also drives the muzzle flash and the smoke; 0 = none)
     bullet_drag: float = 0.0              # 1/s: air drag on the projectile (speed decays like exp(-drag t); light buckshot loses about a quarter of its speed in 50 m, a rifle bullet is left at 0)
+    reload_full_max: int = None           # tube guns with a long 'reload_empty' clip: it is used while the gun holds at most this many rounds (None = only when empty); above that the one-round 'reload' cycle
+    can_ads: bool = True                  # False: the aim button does nothing (a shotgun gains nothing from sights: it is fired from the hip, the pattern does the aiming)
+    flat_normal: tuple = ()               # material names drawn WITHOUT the glb's normal map (the M4 pack's glove / skin normal maps make a wrinkled relief the Glock's hands do not have)
     shell_reload: bool = False            # tube magazine: a reload loads one round per clip cycle (Clip.swap / Clip.swaps) and chains cycles until full; firing (ReloadData.interrupt_fire) or sprinting stops it, the rounds loaded so far stay
     selective_fire: bool = True           # False: the B key does nothing (a gun that only fires semi-auto)
     model_hpr: tuple = (0.0, 0.0, 0.0)    # extra rotation of the model inside the rig (heading, pitch, roll), degrees: for a file whose forward / up axes are not the M4's
@@ -562,6 +566,7 @@ M4 = GunData(
     # measured from the model's peaks (tools/measure/g4_ads_align.py): center of the rear aperture and top of the front post
     ads_sights=((0.0678, -0.0074, 0.1556), (0.0678, -0.0069, 0.5622)),
     muzzle=(0.0677, -0.0752, 0.7326),
+    flat_normal=('Hand_D', 'Glove_D'),     # 9/11/2026 (user): the M4's hands showed a wrinkled relief (normal maps in the pack) that the Glock's do not have
     shot_sound=('assets/sounds/m4_shot_new.wav',),
     shot_pool=24,                          # the new shot is 2.56 s long (reverb tail): a copy comes round again after 24 x 80 ms = 1.9 s
 )
@@ -932,22 +937,20 @@ GLOCK = GunData(
 M1014_SOUND_CUES = {
     # the user's reload recording (assets/sounds/source/m1014/Beneli_M1014_reload_sound.wav): ONLY its first beat is used, once per shell (tools/build/prep_m1014_audio.py); the file starts
     # `lead` = 4 frames before the clack, so cue frame = frame the shell seats - 4 - 1 (the shell is pushed in during the last frames before it settles)
-    'reload': (SoundCue(16, 'm1014_shell', 1.0),),
-    'reload_alt': (SoundCue(22, 'm1014_shell', 1.0),),
-    'reload_empty': tuple(SoundCue(f - 5, 'm1014_shell', 1.0) for f in (21, 48, 72, 96, 123, 147, 171)) + (SoundCue(186, 'bolt_release', 1.0),),
-    'draw': (SoundCue(1, 'draw_a', 0.8), SoundCue(14, 'draw_b', 0.6)),
-    'holster': (SoundCue(32, 'draw_b', 0.5),),
+    # (no draw / holster sounds: the user asked for none, 9/11/2026)
+    'reload': (SoundCue(22, 'm1014_shell', 1.0),),
+    'reload_empty': tuple(SoundCue(f - 5, 'm1014_shell', 1.0) for f in (21, 48, 72, 96, 123, 147, 171)) + (SoundCue(177, 'm1014_slider', 1.0),),     # the slider file starts 10 frames before its slam: the bolt is home at 187
 }
-M1014_SOUND_FILES = {'m1014_shell': 'm1014_shell'}
+M1014_SOUND_FILES = {'m1014_shell': 'm1014_shell', 'm1014_slider': 'm1014_slider'}
 
 M1014 = GunData(
     name='Benelli M1014',
     glb='assets/guns/benelli_m1014.glb',
     credit='M1014: FPS Benelli M4 Animations by Cransh (CC BY 4.0)',
     clips={
-        'reload': Clip('Rig|M4_ReloadOne_type1', 0, 44, swap=21, settle=41),                       # one shell: fetch 0-12, push in 12-21, hold, hands back 36-42
-        'reload_alt': Clip('Rig|M4_ReloadOne_type2', 0, 48, swap=27, settle=45),                   # the same with another hand path (the chain alternates the two)
-        'reload_empty': Clip('Rig|M4_ReloadFull_type1', 0, 211, swaps=(21, 48, 72, 96, 123, 147, 171, 186), settle=203),   # bolt locked open: 7 shells, then the bolt closes on the chamber (the 8th round)
+        # the user's rule (9/11/2026): 7 rounds (one shot fired) -> the one-shell clip ReloadOne_type2; 6 or fewer, or empty -> the long clip ReloadFull_type1 (GunData.reload_full_max)
+        'reload': Clip('Rig|M4_ReloadOne_type2', 0, 48, swap=27, settle=45),                       # one shell: fetch 0-18, push in by 27, hold, hands back 39-48
+        'reload_empty': Clip('Rig|M4_ReloadFull_type1', 0, 211, swaps=(21, 48, 72, 96, 123, 147, 171, 186), settle=203, tail=172),   # bolt open: up to 7 shells, then the bolt closes (the 8th round when empty); a full gun jumps to `tail`
         'fire': Clip('Rig|M4_Fire', 0, 19),                                                         # the bolt cycles back and forward within frames 0-6
         'fire_last': Clip('Rig|M4_Fire_LastRoundCheck', 0, 64),                                     # the last round: the bolt stays back, the hand checks the chamber
         'draw': Clip('Rig|M4_Idle', 0, 21, settle=19),                                              # idle frames only; the gun rises from the sprint pose (procedural_swap)
@@ -957,6 +960,8 @@ M1014 = GunData(
     locked_pose=('Rig|M4_Fire_LastRoundCheck', 64),
     fire_clips=('fire', 'fire_last'),
     fire_clip_speed=2.0,
+    reload_full_max=6,
+    can_ads=False,
     eye_joint='pose_controller_00',
     hand_joint='hand_L_05',
     model_hpr=(0.0, -90.0, 0.0),
@@ -981,7 +986,7 @@ M1014 = GunData(
     sway=SwayData(wall_pose=(0.0, -0.229, 0.051, 65.0, 0.0, 0.0)),
     reload=ReloadData(speed=1.6, view_pose=(0.07, 0.10, -0.02, 0.0, 0.0, 2.5)),
     shake=ShakeData(fire_bias=(0.0, 0.0, -0.006, 2.4, 0.0, 0.0), fire_spread=(0.0025, 0.0025, 0.0025, 0.5, 0.8, 3.0), heat_shots=10.0,
-                    reload_beats={'reload': ((21, 'seat'),), 'reload_alt': ((27, 'seat'),),
+                    reload_beats={'reload': ((27, 'seat'),),
                                   'reload_empty': tuple((f, 'seat') for f in (21, 48, 72, 96, 123, 147, 171)) + ((186, 'bolt'),)}),
     flash=FlashData(life=0.075, light_power=2.4, world_power=5.0),
     smoke=SmokeData(puffs=10, speed=10.0, size=0.06, growth=0.6, opacity=0.5, life=1.3, port_puffs=3, ejection_port=(0.066, -0.29, -0.10)),

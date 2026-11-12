@@ -78,7 +78,7 @@ class Player(Entity):
             sprint=bool(held_keys['shift']),
             crouch=bool(held_keys['control'] or held_keys['c']),
             jump=bool(held_keys['space']),
-            ads=bool(held_keys['right mouse']) and not self.ads_blocked and not self.wall_blocked and free,
+            ads=bool(held_keys['right mouse']) and not self.ads_blocked and not self.wall_blocked and free and self.gun.can_ads,
             fire=bool(held_keys['left mouse']) and free,
         )
 

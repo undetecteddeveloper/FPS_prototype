@@ -13,7 +13,7 @@ Trả lời, commit, tài liệu bằng tiếng Việt thường. Cách làm vi�
 - Độ ổn định (G16): `tools\measure\chaos_check.py [--seconds 60]` (phá game thật bằng đầu vào ngẫu nhiên, khựng, thu nhỏ cửa sổ; cổng cho mọi sửa đụng vòng lặp game), `tools\measure\launch_check.py [--runs 10]` (mở / đóng như Alt+F4). Lỗi Python giờ hiện hộp thoại + ghi `logs\crash.log`; tiêu chí: `docs/sessions/G16.md`, skill `game-stability-qa`.
 - Công cụ đo/dựng: `tools\measure\`, `tools\build\` (dựng WAV). Danh mục + công tắc tắt để đo (`free_aim=False`, `lens=False`...): `docs/notes/tools.md`.
 - Đóng gói exe demo (G15): `.venv\Scripts\python.exe -X utf8 tools\build\build_exe.py` -> `build\FPS_prototype_demo_<ngày>.zip` (skill `pyinstaller-packaging`). Thêm thư mục tài nguyên / gói Python mà game đọc lúc chạy thì thêm vào script đó.
-- Súng: phím **1** M4, **2** Glock 17, **3** Benelli M1014 (shotgun; `--gun m4|glock|m1014` chọn súng lúc mở). Kiểm M1014: `tools\measure\m1014_check.py` (game thật, 30 mục); camera không tự trôi: `tools\measure\camera_drift_check.py`.
+- Súng: phím **1** M4, **2** Glock 17, **3** Benelli M1014 (shotgun; `--gun m4|glock|m1014` chọn súng lúc mở). Kiểm M1014: `tools\measure\m1014_check.py` (game thật, 34 mục); camera không tự trôi: `tools\measure\camera_drift_check.py`.
 - Cài lại môi trường: `py -3.13 -m venv .venv` rồi `.venv\Scripts\pip install -r requirements.txt` (KHÔNG dùng Python 3.15).
 
 ## Cấu trúc
@@ -69,7 +69,8 @@ tests/  tools/ (selftests, measure, build, with_game_lock.py)  docs/ (WORKFLOW.m
 
 ## Benelli M1014 (G17, 9/11/2026; `docs/notes/m1014.md`)
 - ĐỪNG nạp thẳng `fps_benelli_m4_animations.glb`: mesh súng to gấp ~82 lần tay, texture 4096, có `KHR_texture_transform`. Game dùng `assets/guns/benelli_m1014.glb` dựng bằng `tools/build/prep_benelli_glb.py`. Sau `gltf_patch` trục của gói là tới trước -Z, lên -Y: `GunData.model_hpr=(0,-90,0)`, `model_scale` 0,25 (súng dài ~1 m).
-- Shotgun: `GunData.pellets / pellet_spread / pellet_center_bias / bullet_drag` (F1 tab Shotgun); băng ống nạp từng viên (`shell_reload`, `Clip.swap` / `Clip.swaps`, `Handling` nối các lượt, sự kiện `chain`, `Handling.first / last`); `selective_fire=False` (B vô tác dụng); gói không có clip rút / cất nên `procedural_swap` (nâng / hạ bằng tư thế chạy). Tiếng nạp chỉ dùng beat đầu của file người dùng.
+- Shotgun: `GunData.pellets / pellet_spread / pellet_center_bias / bullet_drag` (F1 tab Bắn, KHÔNG có tab riêng); băng ống nạp từng viên (`shell_reload`, `Clip.swap` / `Clip.swaps` / `Clip.tail`): còn 7 viên → clip `ReloadOne_type2`, ≤ 6 hoặc rỗng → `ReloadFull_type1` (`reload_full_max`), đầy sớm thì nhảy (`seek`); `selective_fire=False` (B vô tác dụng); `can_ads=False` (không ngắm); gói không có clip rút / cất nên `procedural_swap`, và không có tiếng rút / cất. Tiếng nạp = beat đầu của file người dùng, tiếng thanh trượt chỉ khi đóng nòng.
+- `GunData.flat_normal`: vật liệu vẽ không có normal map của glb (M4: `Hand_D`, `Glove_D`: nếp nhăn tay mà Glock không có).
 
 ## Ursina/Windows
 - `Ursina(vsync=False)` KHÔNG tắt vsync; muốn đo FPS thật: `loadPrcFileData('', 'sync-video 0')` trước `Ursina()`. Game thật chạy vsync (60 Hz).
