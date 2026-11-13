@@ -509,3 +509,80 @@ def bake_lights(pm: PoolMap, look: LookData, lights: list, shown: float, probes:
     ambient = ambient_grid(pm, occ, look, lookup, grids1, rng, sky=no_sky, fill=fill, albedo=bounce_albedo,
                            direct=lambda pts, n: direct_lights(occ, pts, n, lights))
     return BakeResult(encode(image, d.lightmap_max), d.lightmap_max, atlas, faces, list(probes), {'rays': int(rays_cast), 'texels': int(atlas.width * atlas.height)}, ambient)
+
+
+def _hit_light(g: Gather, lookup, grids: list, albedo_by_box: np.ndarray) -> np.ndarray:
+    """(m, 3) mean light the rays of `g` bring back from the baked grids (0 for rays that escaped or hit a spot with no baked piece)."""
+    e, found = lookup(g, grids)
+    out = np.zeros((g.box.shape[0], 3))
+    hit = ~g.escaped & found
+    out[hit] = albedo_by_box[g.box[hit]] * e[hit]
+    return out.reshape(g.m, g.rays, 3).mean(axis=1)
+
+
+def bake_mixed(pm: PoolMap, look: LookData, lights: list, shown: float, probes: list = (), progress=None) -> BakeResult:
+    """G19: the sun through the windows AND light panels (the pool hall with its stair corridor up to the Backrooms). Same passes as `bake`; the panels add their
+    direct light (`direct_lights`) to every texel, and to what a gathering ray finds where it hits (looked up in the coarse panel grids)."""
+    d = pm.data
+    faces = pm.exposed_faces()
+    atlas = pack_atlas(faces, d.texel, n_probes=len(probes))
+    occ = Occluders(pm)
+    rng = np.random.default_rng(12345)
+    emit_box = np.array([b.emit is not None for b in pm.boxes])
+    alb = occ.albedo_by_box.copy()
+    alb[emit_box] = 0.0
+    total = len(faces)
+    fine_direct, gathers, coarse_dims, sun_c, lamp_c = [], [], [], [], []
+    rays_cast = 0
+    for fi, f in enumerate(faces):
+        nu, nv = face_texels(f, d.texel)
+        cu = max(1, math.ceil((f.u1 - f.u0) / d.coarse - 1e-9))
+        cv = max(1, math.ceil((f.v1 - f.v0) / d.coarse - 1e-9))
+        coarse_dims.append((cv, cu))
+        if emit_box[f.box]:
+            fine_direct.append(None)
+            gathers.append(None)
+            sun_c.append(np.zeros((cv, cu, 3)))
+            lamp_c.append(np.zeros((cv, cu, 3)))
+        else:
+            normal = np.array(f.normal)
+            fine = texel_positions(f, nu, nv).reshape(-1, 3)
+            fine_direct.append((direct_light(occ, fine, normal, look, d) + direct_lights(occ, fine, normal, lights)).reshape(nv, nu, 3))
+            cpts = texel_positions(f, cu, cv).reshape(-1, 3)
+            gathers.append(gather(occ, cpts, normal, look, d, rng))
+            sun_c.append(direct_light(occ, cpts, normal, look, d).reshape(cv, cu, 3))
+            lamp_c.append(direct_lights(occ, cpts, normal, lights).reshape(cv, cu, 3))
+            rays_cast += cpts.shape[0] * d.bounce_rays * 2 + fine.shape[0] * d.sun_samples
+        if progress:
+            progress(fi + 1, 3 * total)
+    lookup = SurfaceLookup(faces)
+    grids1 = []
+    for fi in range(total):                                                       # light after one bounce: sun at the hit + panels at the hit
+        g = gathers[fi]
+        cv, cu = coarse_dims[fi]
+        b1 = np.zeros((cv, cu, 3)) if g is None else (resolve(g, look, alb) + _hit_light(g, lookup, lamp_c, alb)).reshape(cv, cu, 3)
+        grids1.append(sun_c[fi] + lamp_c[fi] + b1)
+        if progress:
+            progress(total + fi + 1, 3 * total)
+    sky = np.asarray(look.sky_irradiance, dtype=np.float64)
+    fill = d.fill * sky / max(sky.mean(), 1e-6)
+    image = np.zeros((atlas.height, atlas.width, 3), dtype=np.float64)
+    for fi, (f, place) in enumerate(zip(faces, atlas.faces)):
+        nu, nv = face_texels(f, d.texel)
+        cv, cu = coarse_dims[fi]
+        if fine_direct[fi] is None:
+            e = np.full((nv, nu, 3), float(shown))
+        else:
+            second = _smooth(resolve(gathers[fi], look, alb, lookup, grids1).reshape(cv, cu, 3)) * d.bounce_gain
+            gathers[fi] = None
+            e = fine_direct[fi] + _stretch(second, nu, nv) + fill
+        image[place.y - 1:place.y + nv + 1, place.x - 1:place.x + nu + 1] = np.pad(e, ((1, 1), (1, 1), (0, 0)), mode='edge')
+        if progress:
+            progress(2 * total + fi + 1, 3 * total)
+    for (pos, normal), place in zip(probes, atlas.probes):
+        pos, normal = np.asarray(pos, dtype=np.float64)[None, :], unit(normal)
+        g = gather(occ, pos, normal, look, d, rng)
+        e = direct_light(occ, pos, normal, look, d) + direct_lights(occ, pos, normal, lights) + resolve(g, look, alb, lookup, grids1) * d.bounce_gain + fill
+        image[place.y - 1:place.y + 3, place.x - 1:place.x + 3] = e[0]
+    ambient = ambient_grid(pm, occ, look, lookup, grids1, rng, albedo=alb, direct=lambda pts, n: direct_lights(occ, pts, n, lights))
+    return BakeResult(encode(image, d.lightmap_max), d.lightmap_max, atlas, faces, list(probes), {'rays': int(rays_cast), 'texels': int(atlas.width * atlas.height)}, ambient)

@@ -487,7 +487,8 @@ def pool_terrain(pm: PoolMap, radius: float):
     """The walkable map for the player: box tops, the sloping pool bottom (down to the 2 m deep end, G12) and the room walls (minus his radius)."""
     from fps.core.terrain import Terrain
     x0, x1, z0, z1 = plan_bounds(pm)                       # the room interior (G18: a Backrooms floor adds its corridors)
-    return Terrain(walk_tops(pm), solid_boxes(pm), (x0 + radius, x1 - radius, z0 + radius, z1 - radius), ramps=[pm.ramp] if pm.ramp else [])
+    ramps = ([pm.ramp] if pm.ramp else []) + list(getattr(pm, 'extra_ramps', ()))       # G19: the stair flights of the Backrooms floors
+    return Terrain(walk_tops(pm), solid_boxes(pm), (x0 + radius, x1 - radius, z0 + radius, z1 - radius), ramps=ramps)
 
 
 def solid_boxes(pm: PoolMap) -> list:

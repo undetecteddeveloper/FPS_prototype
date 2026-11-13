@@ -1,7 +1,7 @@
 r"""Chaos check (G16): drive the REAL game with random input and abuse for a while and check it never breaks (docs/sessions/G16.md, skill game-stability-qa).
 
 What it does, with a fixed random seed (a failure can be replayed):
-- presses / releases keys and mouse buttons through Ursina's own input path (WASD, Shift, Ctrl, C, Space, R, B, 1, 2, Esc, F1, F2, left / right mouse),
+- presses / releases keys and mouse buttons through Ursina's own input path (WASD, Shift, Ctrl, C, Space, R, B, 1, 2, Esc (opens / closes the graphics panel), F1, left / right mouse),
   turns the view, switches guns in the middle of reloads, opens and closes the panels;
 - every ~20 s freezes one frame for 0.3-2 s (a hitch: window drag, antivirus, a slow disk);
 - every ~25 s minimises the window for real (WinAPI) and brings it back (Alt+Tab / minimise, G16 D1).
@@ -105,8 +105,10 @@ class Chaos:
         g = self.g
         panel = g.debug.is_open or g.gfx_panel.is_open
         if panel:
-            if self.panel_close_at is not None and self.t >= self.panel_close_at:
-                self.tap('f2' if g.gfx_panel.is_open else 'f1')
+            if self.panel_close_at is None:                       # G20: Esc opens the graphics panel too (also from the random Esc taps below): always schedule its closing
+                self.panel_close_at = self.t + r.uniform(0.3, 2.0)
+            elif self.t >= self.panel_close_at:
+                self.tap('escape' if g.gfx_panel.is_open else 'f1')
                 self.panel_close_at = None
             return
         for k in HOLD_KEYS:
@@ -128,7 +130,7 @@ class Chaos:
         if r.random() < 0.0015:
             for k in list(self.down):
                 self.release(k)
-            self.tap(r.choice(('f1', 'f2')))
+            self.tap(r.choice(('f1', 'escape')))
             self.panel_close_at = self.t + r.uniform(0.3, 2.0)
             self.counts['panels'] += 1
         elif r.random() < 0.001 or (not mouse.locked and r.random() < 0.05):

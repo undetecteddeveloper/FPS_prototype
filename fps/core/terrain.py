@@ -15,8 +15,16 @@ QUERY_PAD = 1.0          # m added around a move's swept rectangle when picking 
 
 def ramp_y(ramp: tuple, z: float) -> float:
     """Height of a ramp (x0, x1, z0, z1, y0, y1) at z: y0 at z0, y1 at z1, linear between."""
-    _, _, z0, z1, y0, y1 = ramp
+    _, _, z0, z1, y0, y1 = ramp[:6]
     return y0 + (y1 - y0) * (z - z0) / (z1 - z0)
+
+
+def ramp_at(ramp: tuple, x: float, z: float) -> float:
+    """G19: a ramp may slope along x: (x0, x1, z0, z1, y0, y1, 'x') is y0 at x0 and y1 at x1 (the stairs of the Backrooms floors walk as ramps)."""
+    if len(ramp) > 6 and ramp[6] == 'x':
+        x0, x1, _, _, y0, y1 = ramp[:6]
+        return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return ramp_y(ramp, z)
 
 
 class Terrain:
@@ -50,7 +58,7 @@ class Terrain:
                 yield top
         for r in self.ramps:
             if r[0] <= x <= r[1] and r[2] <= z <= r[3]:
-                yield ramp_y(r, z)
+                yield ramp_at(r, x, z)
 
     def floor_at(self, x: float, z: float, y_limit: float):
         """Highest walkable top at (x, z) that is <= y_limit, or None."""

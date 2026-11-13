@@ -1203,7 +1203,11 @@ class GameParams:
     health: HealthData = field(default_factory=HealthData)
 
 
-# ---------------------------------------------------------------- G18: Backrooms - Pool rooms (core/backrooms.py builds the floors; NOT on the F1 panel: any change re-bakes that floor)
+# ---------------------------------------------------------------- G18 / G19: Backrooms - Pool rooms (core/backrooms.py builds the floors; NOT on the F1 panel: any change re-bakes that floor)
+# G19 layout (user 12/11/2026, skill `poolrooms-level-design`): per floor ONE big pool hall (the full water) + 4-5 rooms around it carved out of solid tile: corridors, a raised
+# gallery or mezzanine reached by stairs (several heights), set pieces (vault beams, a diving board, pillar forests, high windows over the pool), a dark or red room.
+# Floors are joined by elevator cabins (`Cabin`): the cabin frame (door centre x, floor y, z of the wall face on the room side) must be a multiple of 1.2 m on every axis,
+# so the tiles of the two cabins of a ride line up and the floor swap during the ride cannot be seen. A cabin always sits NORTH of its room (door facing -z).
 def _backrooms_hall(**kw) -> MapData:
     """A Poolrooms hall: white tiles, no windows (no sun: the light comes from the ceiling panels), the pool centred like the pool hall's."""
     base = dict(window_z=(), column_z=(), stair_count=0, north_steps=False,
@@ -1214,55 +1218,117 @@ def _backrooms_hall(**kw) -> MapData:
 
 
 @dataclass(frozen=True)
+class Room:
+    """A room carved out of the solid around the hall. Plan rectangle (x0, z0) - (x1, z1), floor height, ceiling height above that floor, light kind:
+    'lit' (as bright as the floor-1 hall), 'dim', 'dark' (a few weak panels), 'red' (37.1-style red panels)."""
+    x0: float
+    z0: float
+    x1: float
+    z1: float
+    floor: float = 0.0
+    ceiling: float = 3.2
+    light: str = 'lit'
+    gain: float = 1.0               # multiplies the panels' radiance (a long narrow gallery under a high ceiling: 'lit' burns, 'dim' leaves dark gaps between the panels)
+
+
+@dataclass(frozen=True)
+class Cabin:
+    """An elevator cabin north of a room: door centre x, floor y, z of the wall face on the room side (all multiples of 1.2 m)."""
+    x: float
+    y: float
+    z: float
+
+
+@dataclass(frozen=True)
 class FloorSpec:
-    """One floor of the Backrooms level. Lengths in metres, local coordinates of the floor (the pool is centred on the origin, deck top y = 0)."""
+    """One floor. Lengths in metres, floor coordinates (the pool is centred on the origin, deck top y = 0)."""
     name: str
     hall: MapData
-    pillars: tuple = ()               # (x, z, size): square pillars, full height
-    walls: tuple = ()                 # (x0, z0, x1, z1, height): tiled partition walls standing on the deck (height >= ceiling: up to the ceiling)
-    lights: tuple = ()                # (x, z, size_x, size_z): ceiling light panels
-    exit_x: float = 0.0               # x of the door in the NORTH wall (to the stairs up)
-    arrive_x: float = 0.0             # x of the door in the SOUTH wall (from the stairs below)
+    hall_light: str = 'lit'
+    rooms: tuple = ()                 # Room
+    openings: tuple = ()              # (x0, z0, x1, z1, y0, y1): air cut through walls (doorways, arches, high windows)
+    pillars: tuple = ()               # (x, z, size): square tiled pillars from the floor under them to the ceiling over them
+    blocks: tuple = ()                # (x0, z0, x1, z1, y0, y1, kind): extra boxes; kind 'floor' = walkable (mezzanine, plank), 'wall' = solid (half walls, vault beams)
+    stairs: tuple = ()                # (x0, z0, x1, z1, y_low, y_high, dir): a flight rising toward dir 'n' (+z), 's', 'e' (+x), 'w' (steps of ~0.171 m)
+    arrive_x: float = None            # floor 1 only: x of the door in the hall's south wall (the stairs from the pool hall)
+    arrive: Cabin = None              # floors 2-5: the cabin the player arrives in
+    exit: Cabin = None                # the cabin to the next floor (the last floor's ride ends the run)
     enemies: tuple = (8, 0, 0)        # how many (normal, runner, brute)
     seed: int = 1                     # spawn places
 
 
-def _grid_lights(xs, zs, size=(1.2, 0.6), skip=()) -> tuple:
-    return tuple((x, z, *size) for x in xs for z in zs if (x, z) not in skip)
+def _ring(xs, zs, size) -> tuple:
+    return tuple((x, z, size) for x in xs for z in zs)
 
 
 BACKROOMS = (
-    FloorSpec('Sảnh đầu', _backrooms_hall(room_x=22.0, room_z=28.0, ceiling=3.6, pool_x=8.0, pool_z=14.0, slope_z=(-2.0, 3.0), pool_deep=-1.92),
-              pillars=tuple((x, z, 0.8) for x in (-7.5, 7.5) for z in (-9.0, -3.0, 3.0, 9.0)),
-              walls=((-11.0, 4.5, -8.5, 4.8, 1.1), (8.5, -5.0, 11.0, -4.7, 1.1)),
-              lights=_grid_lights((-4.5, 4.5), (-11.0, -6.0, -1.0, 4.0, 9.0), skip=((4.5, -1.0),)) + ((-9.5, 0.0, 1.2, 0.6), (9.5, 0.0, 1.2, 0.6)),
-              exit_x=5.0, arrive_x=-5.0, enemies=(8, 0, 0), seed=11),
-    FloorSpec('Hàng cột', _backrooms_hall(room_x=26.0, room_z=26.0, ceiling=3.2, pool_x=10.0, pool_z=10.0, slope_z=(-1.0, 3.0), pool_deep=-1.62),
-              pillars=tuple((x, z, 0.7) for x in (-10.0, -7.0, 7.0, 10.0) for z in (-10.0, -6.0, -2.0, 2.0, 6.0, 10.0))
-              + tuple((x, z, 0.7) for x in (-3.0, 3.0) for z in (-9.0, 9.0)),
-              lights=_grid_lights((-8.5, -1.5, 1.5, 8.5), (-11.0, -7.5, -4.0, 0.0, 4.0, 7.5, 11.0), skip=((-8.5, 4.0), (8.5, -7.5), (1.5, 11.0))),
-              exit_x=-1.0, arrive_x=1.0, enemies=(8, 2, 0), seed=23),
-    FloorSpec('Sảnh cao', _backrooms_hall(room_x=24.0, room_z=34.0, ceiling=6.0, pool_x=10.0, pool_z=22.0, slope_z=(-4.0, 6.0), pool_deep=-2.12),
-              walls=((-12.0, -12.5, -8.0, -12.2, 6.0), (-8.3, -12.5, -8.0, -5.0, 6.0), (-8.3, -1.5, -8.0, 6.0, 6.0), (-8.3, 9.5, -8.0, 12.5, 6.0),
-                     (8.0, -12.5, 8.3, -9.0, 6.0), (8.0, -5.5, 8.3, 2.0, 6.0), (8.0, 5.5, 8.3, 12.5, 6.0), (8.0, 12.2, 12.0, 12.5, 6.0)),
-              pillars=((-6.5, -14.0, 1.0), (6.5, -14.0, 1.0), (-6.5, 14.0, 1.0), (6.5, 14.0, 1.0)),
-              lights=_grid_lights((-3.5, 3.5), (-14.0, -9.0, -4.0, 1.0, 6.0, 11.0, 15.0), size=(1.6, 0.8))
-              + _grid_lights((-10.0, 10.0), (-8.0, 0.0, 8.0), size=(1.0, 1.0), skip=((10.0, 0.0),)),
-              exit_x=-3.0, arrive_x=3.0, enemies=(8, 3, 1), seed=37),
-    FloorSpec('Mê cung', _backrooms_hall(room_x=28.0, room_z=28.0, ceiling=3.4, pool_x=6.0, pool_z=10.0, slope_z=(-1.0, 3.0), pool_deep=-1.62),
-              walls=((-14.0, -8.0, -7.0, -7.7, 3.4), (-4.0, -8.0, 4.0, -7.7, 3.4), (7.0, -8.0, 14.0, -7.7, 3.4),
-                     (-14.0, 8.0, -9.0, 8.3, 3.4), (-6.0, 8.0, 6.0, 8.3, 3.4), (9.0, 8.0, 14.0, 8.3, 3.4),
-                     (-7.0, -4.0, -6.7, 4.0, 3.4), (6.7, -4.0, 7.0, 4.0, 3.4), (-11.0, -3.0, -10.7, 3.0, 1.2), (10.7, -3.0, 11.0, 3.0, 1.2),
-                     (-11.0, 11.0, -10.7, 14.0, 3.4), (10.7, -14.0, 11.0, -11.0, 3.4)),
-              lights=((-10.0, -11.0, 1.2, 0.6), (0.0, -11.5, 1.2, 0.6), (10.0, -11.0, 1.2, 0.6), (-10.0, 0.0, 1.2, 0.6), (0.0, -5.0, 1.2, 0.6), (0.0, 5.0, 1.2, 0.6),
-                      (10.0, 0.0, 1.2, 0.6), (-10.0, 11.0, 1.2, 0.6), (3.0, 11.5, 1.2, 0.6), (12.0, 11.0, 1.2, 0.6), (-4.0, 0.0, 0.6, 1.2)),
-              exit_x=-4.0, arrive_x=4.5, enemies=(8, 4, 2), seed=41),
-    FloorSpec('Hồ lớn', _backrooms_hall(room_x=32.0, room_z=32.0, ceiling=5.0, pool_x=16.0, pool_z=18.0, slope_z=(-3.0, 5.0), pool_deep=-2.12),
-              pillars=((-11.0, -11.0, 1.6), (11.0, -11.0, 1.6), (-11.0, 11.0, 1.6), (11.0, 11.0, 1.6), (-12.0, 0.0, 1.0), (12.0, 0.0, 1.0)),
-              walls=((-16.0, -4.0, -14.0, -3.7, 1.1), (14.0, 3.7, 16.0, 4.0, 1.1)),
-              lights=_grid_lights((-12.0, -6.0, 0.0, 6.0, 12.0), (-13.0, -6.5, 0.0, 6.5, 13.0), size=(1.4, 0.7), skip=((0.0, 0.0), (-12.0, 13.0), (12.0, -13.0))),
-              exit_x=0.0, arrive_x=0.0, enemies=(8, 4, 3), seed=53),
+    FloorSpec('Sảnh đầu', _backrooms_hall(room_x=18.0, room_z=24.0, ceiling=3.6, pool_x=7.0, pool_z=12.0, slope_z=(-2.0, 3.0), pool_deep=-1.92),
+              hall_light='dim',                                                  # G19: a small hall with a low ceiling bounces more light: at 'lit' density its median irradiance was 0.40 vs the 0.28 reference (burnt 14% of the frame)
+              rooms=(Room(9.4, -12.0, 15.4, 12.0, 0.0, 3.2, 'dim'),             # east: vaulted corridor
+                     Room(-15.4, -4.8, -9.4, 8.0, 0.0, 3.0, 'dark'),            # west: dark room
+                     Room(-9.0, 12.4, 4.8, 20.4, 0.0, 4.0, 'lit')),             # north: mezzanine hall (the lift up)
+              openings=((9.0, -6.0, 9.4, -2.0, 0.0, 2.8), (9.0, 4.0, 9.4, 6.0, 0.0, 2.4), (-9.4, 2.0, -9.0, 4.0, 0.0, 2.4),
+                        (-6.0, 12.0, -2.0, 12.4, 0.0, 2.8), (2.0, 12.0, 4.0, 12.4, 0.0, 2.4)),
+              pillars=_ring((-6.6, 6.6), (-9.6, -4.8, 0.0, 4.8, 9.6), 0.7) + _ring((11.4, 13.4), (-9.6, -2.4, 2.4, 9.6), 0.5),
+              blocks=((9.4, -4.3, 15.4, -3.7, 2.6, 3.2, 'wall'), (9.4, 3.7, 15.4, 4.3, 2.6, 3.2, 'wall'), (9.4, -10.3, 15.4, -9.7, 2.6, 3.2, 'wall'), (9.4, 9.7, 15.4, 10.3, 2.6, 3.2, 'wall'),     # vault beams: between the panels (z = -8, 0, 8), not under them
+                      (-9.0, 16.4, 4.8, 20.4, 0.0, 1.2, 'floor'),                # mezzanine
+                      (-0.35, 6.4, 0.35, 6.9, 0.0, 0.55, 'wall'), (-0.3, 4.4, 0.3, 6.4, 0.45, 0.55, 'floor'),    # diving board over the deep end
+                      (-15.4, 1.6, -12.4, 1.9, 0.0, 1.1, 'wall')),
+              stairs=((-1.2, 14.16, 1.2, 16.4, 0.0, 1.2, 'n'),),
+              arrive_x=-4.8, exit=Cabin(-3.6, 1.2, 20.4), enemies=(8, 0, 0), seed=11),
+    FloorSpec('Rừng cột', _backrooms_hall(room_x=24.0, room_z=20.0, ceiling=3.2, pool_x=10.0, pool_z=10.0, slope_z=(-1.0, 3.0), pool_deep=-1.62),
+              hall_light='dim',                                                  # median irradiance 0.37 at 'lit' (low ceiling): too bright
+              rooms=(Room(-20.4, -6.0, -12.4, 2.4, 0.0, 3.0, 'lit'),             # west: lift lobby
+                     Room(12.4, -10.0, 14.4, 10.4, 0.0, 2.4, 'dim'),            # east: low tunnel
+                     Room(12.4, 10.8, 22.0, 18.0, 0.0, 4.0, 'lit'),             # north-east: mezzanine (the lift up)
+                     Room(-8.0, 10.4, 4.0, 16.4, 0.0, 3.0, 'red')),             # north: red room
+              openings=((-12.4, -3.0, -12.0, -1.0, 0.0, 2.4), (12.0, -8.0, 12.4, -6.0, 0.0, 2.4), (12.0, 6.0, 12.4, 8.0, 0.0, 2.4),
+                        (12.4, 10.4, 14.4, 10.8, 0.0, 2.4), (-3.0, 10.0, -1.0, 10.4, 0.0, 2.4)),
+              pillars=_ring((-9.6, -7.2, 7.2, 9.6), (-8.4, -6.0, -3.6, -1.2, 1.2, 3.6, 6.0, 8.4), 0.6) + _ring((-2.4, 0.0, 2.4), (-7.6, 7.6), 0.6)
+              + _ring((-5.0, -2.0, 1.0), (12.6, 14.2), 0.5),
+              blocks=((16.4, 10.8, 22.0, 18.0, 0.0, 1.2, 'floor'),),
+              stairs=((14.16, 12.0, 16.4, 14.0, 0.0, 1.2, 'e'),),
+              arrive=Cabin(-16.8, 0.0, 2.4), exit=Cabin(19.2, 1.2, 18.0), enemies=(8, 2, 0), seed=23),
+    FloorSpec('Sảnh cao', _backrooms_hall(room_x=20.0, room_z=30.0, ceiling=6.0, pool_x=10.0, pool_z=20.0, slope_z=(-4.0, 6.0), pool_deep=-2.12),
+              rooms=(Room(10.4, -14.0, 14.4, 14.4, 0.0, 5.4, 'lit', 0.75),       # east: high gallery over the pool (the lift up)
+                     Room(-16.4, -6.0, -10.4, 6.0, 0.0, 3.2, 'dark'),           # west: dark room
+                     Room(10.4, -22.8, 18.4, -15.6, 0.0, 3.2, 'lit')),          # south-east: lift lobby
+              openings=((10.0, -13.5, 10.4, -11.5, 0.0, 2.6), (10.0, -6.0, 10.4, 6.0, 3.4, 5.0),     # hall -> gallery foot; high windows over the pool
+                        (12.4, -15.6, 14.4, -14.0, 0.0, 2.4), (-10.4, -1.0, -10.0, 1.0, 0.0, 2.4)),
+              pillars=_ring((-7.5, 7.5), (-12.0, -4.0, 4.0, 12.0), 1.0),
+              blocks=((10.4, -9.4, 14.4, 14.4, 0.0, 2.4, 'floor'), (-16.4, -2.2, -13.4, -1.9, 0.0, 1.1, 'wall'), (-13.4, 2.0, -10.4, 2.3, 0.0, 1.1, 'wall')),
+              stairs=((12.4, -13.88, 14.4, -9.4, 0.0, 2.4, 'n'),),
+              arrive=Cabin(16.8, 0.0, -15.6), exit=Cabin(12.0, 2.4, 14.4), enemies=(8, 3, 1), seed=37),
+    FloorSpec('Mê cung', _backrooms_hall(room_x=16.0, room_z=16.0, ceiling=3.4, pool_x=6.0, pool_z=10.0, slope_z=(-1.0, 3.0), pool_deep=-1.62),
+              rooms=(Room(-14.0, -12.0, 14.0, -8.4, 0.0, 2.8, 'dim'),            # south corridor
+                     Room(8.4, -8.4, 12.0, 12.0, 0.0, 2.8, 'lit'),              # east corridor
+                     Room(-12.0, -8.4, -8.4, 12.0, 0.0, 2.8, 'dark'),           # west corridor
+                     Room(-12.0, 12.0, 12.0, 16.8, 0.0, 3.2, 'red')),           # north: red hall with both lifts
+              openings=((-1.0, -8.4, 1.0, -8.0, 0.0, 2.4), (8.0, 2.0, 8.4, 4.0, 0.0, 2.4), (-8.4, -4.0, -8.0, -2.0, 0.0, 2.4)),
+              blocks=((-6.0, -10.5, -5.7, -8.4, 0.0, 1.2, 'wall'), (4.0, -12.0, 4.3, -9.9, 0.0, 1.2, 'wall'), (9.6, 3.0, 12.0, 3.3, 0.0, 1.2, 'wall'),
+                      (-12.0, 6.0, -9.9, 6.3, 0.0, 1.2, 'wall'), (-4.0, 13.2, 4.0, 13.5, 0.0, 1.2, 'wall'), (-14.0, -12.0, -12.0, -8.4, 2.2, 2.8, 'wall'),
+                      (-3.6, 14.4, 3.6, 16.8, 0.0, 1.2, 'floor')),               # a raised stage along the north wall, between the two lifts
+              stairs=((-5.84, 14.4, -3.6, 16.8, 0.0, 1.2, 'e'), (3.6, 14.4, 5.84, 16.8, 0.0, 1.2, 'w')),
+              pillars=_ring((-10.2, 10.2), (-4.8, 0.0, 4.8), 0.5),
+              arrive=Cabin(-7.2, 0.0, 16.8), exit=Cabin(7.2, 0.0, 16.8), enemies=(8, 4, 2), seed=41),
+    FloorSpec('Hồ lớn', _backrooms_hall(room_x=24.0, room_z=28.0, ceiling=5.0, pool_x=14.0, pool_z=18.0, slope_z=(-3.0, 5.0), pool_deep=-2.12),
+              rooms=(Room(12.4, -14.0, 18.4, 14.0, 0.0, 5.0, 'dim'),             # east: balcony over the pool
+                     Room(-18.4, -6.0, -12.4, 6.0, 0.0, 3.2, 'red'),            # west: red room
+                     Room(-6.0, 14.4, 6.0, 20.4, 0.0, 3.6, 'dim')),             # north: lift hall
+              openings=((12.0, -13.5, 12.4, -11.5, 0.0, 2.6), (12.0, -6.0, 12.4, 10.0, 2.2, 4.2), (-12.4, -1.0, -12.0, 1.0, 0.0, 2.4),
+                        (-2.0, 14.0, 2.0, 14.4, 0.0, 2.8)),
+              pillars=_ring((-9.6, 9.6), (-10.8, 0.0, 10.8), 1.0),
+              blocks=((12.4, -8.8, 18.4, 14.0, 0.0, 1.2, 'floor'), (-18.4, -2.2, -15.4, -1.9, 0.0, 1.1, 'wall'), (-15.4, 2.0, -12.4, 2.3, 0.0, 1.1, 'wall')),
+              stairs=((12.4, -11.04, 18.4, -8.8, 0.0, 1.2, 'n'),),
+              arrive=Cabin(-2.4, 0.0, 20.4), exit=Cabin(3.6, 0.0, 20.4), enemies=(8, 4, 3), seed=53),
 )
 BACKROOMS_LIGHT = (7.5, 7.3, 6.6)     # radiance of a ceiling panel (linear; slightly warm fluorescent)
-BACKROOMS_CORRIDOR_LIGHT = (2.3, 2.25, 2.05)   # the two panels of a stair corridor: a narrow white shaft bounces its light many times (at hall strength it burnt out white)
+BACKROOMS_CORRIDOR_LIGHT = (2.3, 2.25, 2.05)   # the two panels of a stair corridor / the lift cabin panel: a narrow white shaft bounces its light many times (at hall strength it burnt out white)
+BACKROOMS_RED_LIGHT = (6.5, 0.55, 0.35)        # 37.1-style red panels
 BACKROOMS_LIGHT_SHOWN = 3.6           # lightmap value written on the panels themselves (they glow in the picture; <= MapData.lightmap_max)
+# G19: panels per room are placed by DENSITY (panel area / floor area): floor 1's hall (14 x 1.2 x 0.6 m panels over 22 x 28 m) was the user's reference (no glare);
+# floor 2 had 25 panels under a 3.2 m ceiling (1.7x the density) and burnt white.
+BACKROOMS_DENSITY = {'lit': 0.0165, 'dim': 0.008, 'dark': 0.0035, 'red': 0.010}
+# a room always gets at least one panel, so a small 'dark' room was as bright as a lit one (median 0.20 vs the 0.28 reference): its panels shine at this share
+BACKROOMS_KIND_GAIN = {'lit': 1.0, 'dim': 1.0, 'dark': 0.4, 'red': 1.0}
+POOL_STAGE_DOOR_X = 7.0               # G19: the pool hall's north-bank stairs lead through a door in the north wall to the stairs up to floor 1

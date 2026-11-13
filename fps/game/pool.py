@@ -55,17 +55,29 @@ class _BakeScreen:
 
     def __init__(self, label: str = 'phòng hồ bơi'):
         from ursina import application, window
+        from fps.game import boot
         self.label = label
         from fps.game.hud import UiText
         self.base = getattr(application, 'base', None)
         self.text = None
-        if self.base is not None and getattr(self.base, 'win', None):
+        self.boot = boot.ACTIVE                            # G20: the boot splash shows the bake as a line of its own log (no second text on top of it)
+        if self.boot is None and self.base is not None and getattr(self.base, 'win', None):
             window.update_aspect_ratio()       # the UI lens gets its size from this event, which Ursina only fires in its first frame: before it, UI text is ~20x too big
             self.text = UiText('', (0.0, 0.0), origin=(0, 0), scale=1.1)
         self.last = 0.0
         self.show(0.0)
 
+    @staticmethod
+    def english_name(label: str) -> str:
+        """'tầng 3 / 5 của Backrooms' -> 'FLOOR 3'; anything else (the pool hall) -> 'POOL HALL'."""
+        import re
+        m = re.search(r'\d+', label) if 'tầng' in label else None
+        return f'FLOOR {m.group()}' if m else 'POOL HALL'
+
     def show(self, share: float):
+        if self.boot is not None:
+            self.boot.bake(self.english_name(self.label), share)
+            return
         now = time.time()
         if self.text is None or (now - self.last < self.INTERVAL and share > 0.0):
             return
@@ -108,6 +120,9 @@ def bake_map(pm: PoolMap, look, probes: list, progress=None):
     from fps.core.backrooms import emitters
     from fps.weapon_data import BACKROOMS_LIGHT_SHOWN
     lights = emitters(pm)
+    if lights and pm.data.window_z:                       # G19: the pool hall with its stair corridor: sun AND panels
+        from fps.core.lightbake import bake_mixed
+        return bake_mixed(pm, look, lights, BACKROOMS_LIGHT_SHOWN, probes=probes, progress=progress)
     if lights:
         from fps.core.lightbake import bake_lights
         return bake_lights(pm, look, lights, BACKROOMS_LIGHT_SHOWN, probes=probes, progress=progress)

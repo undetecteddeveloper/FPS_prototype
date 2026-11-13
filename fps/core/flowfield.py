@@ -23,13 +23,15 @@ def circle_hits_rect(x: float, z: float, r: float, x0: float, x1: float, z0: flo
 
 class NavGrid:
     def __init__(self, terrain, rect: tuple, cell: float, radius: float, step_up: float, height: float = 1.8,
-                 water: tuple = None, deep_cost: float = 6.0, knee: float = 0.5):
+                 water: tuple = None, deep_cost: float = 6.0, knee: float = 0.5, climb: float = 0.36):
+        """climb: largest height difference between two linked cells (G19: a stair ramp rises ~0.27 m per 0.5 m cell; the pool edge, 0.62 m, stays a cliff)."""
         """rect (x0, x1, z0, z1): the area enemies live in. water (x0, x1, z0, z1, surface y) or None."""
         self.x0, self.z0 = rect[0], rect[2]
         self.cell = cell
         self.nx = max(1, int(math.ceil((rect[1] - rect[0]) / cell)))
         self.nz = max(1, int(math.ceil((rect[3] - rect[2]) / cell)))
         self.step_up = step_up
+        self.climb = max(climb, step_up)
         n = self.nx * self.nz
         self.height = [None] * n
         self.cost = [1.0] * n
@@ -76,7 +78,7 @@ class NavGrid:
 
     def _link_ok(self, i: int, j: int) -> bool:
         hi, hj = self.height[i], self.height[j]
-        return hi is not None and hj is not None and abs(hi - hj) <= self.step_up + 1e-6
+        return hi is not None and hj is not None and abs(hi - hj) <= self.climb + 1e-6
 
     def center(self, i: int) -> tuple:
         return self.x0 + (i % self.nx + 0.5) * self.cell, self.z0 + (i // self.nx + 0.5) * self.cell

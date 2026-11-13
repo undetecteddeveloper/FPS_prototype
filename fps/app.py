@@ -32,6 +32,8 @@ from fps.game.foley import Foley  # noqa: E402
 from fps.game.frame_light import FrameLight  # noqa: E402
 from fps.game.gun_audio import GunAudio  # noqa: E402
 from fps.game.hud import Hud, Notice, setup_fonts  # noqa: E402
+from fps.game.boot import BootScreen  # noqa: E402
+from fps.game.ui_audio import UiAudio  # noqa: E402
 from fps.core.graphics import GraphicsSettings, clamp_level, from_json, preset_of, resolve, settings_for, to_json  # noqa: E402
 from fps.game.graphics_panel import GraphicsPanel  # noqa: E402
 from fps.core.safeio import write_text_atomic_background  # noqa: E402
@@ -95,8 +97,11 @@ class Game(Entity):
     def __init__(self, params: GameParams, quit_after: float = 0.0, sound: bool = True, draw: bool = True,
                  effects: bool = True, look: bool = True, shake: bool = True,
                  user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True, gun_name: str = 'm4',
-                 map_name: str = 'pool', rebake: bool = False, low_memory: bool = False):
+                 map_name: str = 'pool', rebake: bool = False, low_memory: bool = False, boot=None, ui_audio=None):
         super().__init__()
+        self.boot = boot                              # G20: the boot splash (game/boot.py) while it holds the game; None = no splash (tools, --no-splash)
+        self._boot_handed = False                     # the hand-over from the splash to the game happened (ambience started)
+        self.ui_audio = ui_audio if ui_audio is not None else UiAudio(ROOT, enabled=sound)      # G20: sounds of the splash and the graphics panel
         self.params = params
         self.low_memory = low_memory                  # the machine is short of virtual memory (fps/core/memplan.py): no MSAA, the second gun is built on the first switch
         self._aa_cap = 0 if low_memory else None      # MSAA samples allowed while the user has not touched the anti-aliasing row himself (None = no cap)
@@ -124,22 +129,22 @@ class Game(Entity):
         self._draw_pending = draw         # draw the gun on the first frame (not during build: loading the model makes the first frame very long)
         self.pool = None
         self.shake = None                             # (built below; the Backrooms level reads it when a strike lands)
-        if map_name == 'backrooms':
-            self.level = Level(self, sound=sound, rebake=rebake)
+        self._stage('LOAD ENVIRONMENT MAP', 0.10)
+        if map_name in ('pool', 'backrooms'):
+            # G19: one run: the pool hall (stage 0, the default map) -> its north-bank stairs -> the Backrooms floors; --map backrooms starts at floor 1
+            self.level = Level(self, sound=sound, rebake=rebake, start=0 if map_name == 'pool' else 1)
             self.pool = self.level.hall
             self.world = self.pool.world
+            self._stage('INIT PLAYER / PHYSICS', 0.40)
             sx, sy, sz, syaw = self.level.start_pose()
             self.player = Player(params.player, WALK_BOUNDS, params.gun, self.level.current.terrain, (sx, sy, sz))
             self.player.yaw = syaw
             self.player._apply_view()
-        elif map_name == 'pool':
-            self.pool = PoolHall(params, ROOT, force_bake=rebake)
-            self.world = self.pool.world
-            self.player = Player(params.player, WALK_BOUNDS, params.gun, self.pool.terrain(params.player.radius), self.pool.spawn)
         else:
             self.world = build_ground(params.look.ground_color)
             self.player = Player(params.player, WALK_BOUNDS, params.gun)
         self._sun_share = 1.0                         # smoothed share of the sun reaching the player (lights the gun); 1 on the open slab
+        self._stage('INIT AUDIO SUBSYSTEM', 0.45)
         self.audio = GunAudio(params.gun, ROOT) if sound and params.gun.shot_sound else None
         self.foley = Foley(params.audio, params.gun, self.player, ROOT) if sound else None    # reload, footsteps (off with the sound flag / --mute)
         if not free_aim:
@@ -156,13 +161,15 @@ class Game(Entity):
                 self.ambience = application.base.loader.load_sfx(Filename.from_os_specific(str(amb)))
                 self.ambience.set_loop(True)
                 self.ambience.set_volume(params.audio.ambience_volume)
-                self.ambience.play()
+                if self.boot is None:                 # G20: with the splash up the room tone starts when the game does (`_start_ambience`)
+                    self.ambience.play()
         if self.pool:
             x0, x1, z0, z1, wy = self.pool.pm.water
             self.player.water = (x0, x1, z0, z1, wy, self.pool.data.wade_depth)
             self.player.splash = params.splash
             if effects:
                 self.pool.attach_splash(WaterSplash(params.splash, self.light, wy))
+        self._stage('LOAD WEAPON SYSTEMS', 0.58)
         self.viewmodel = Viewmodel(params.gun, ROOT, self.light)
         if draw:
             self.viewmodel.hide_until_draw()          # the first frames (window opening, shader warm-up) show no gun; it appears with the draw clip
@@ -195,6 +202,7 @@ class Game(Entity):
         self.underwater = Underwater(params.underwater, params.water, self.pool, self.light) if self.pool else None   # G12: the camera at / under the surface
         self._dust_under = False                                              # dust motes hidden because the eye is under the water
         self.under_audio = UnderwaterAudio(params.audio, ROOT, self.ambience) if self.underwater and sound else None
+        self._stage('INIT RENDER PIPELINE', 0.72)
         self.lens = Lens(params.lens, self.viewmodel, samples=self._capped_aa(self.gfx.aa), light=self.light, scale=resolve(self.gfx).render_scale) if lens else None
         self.sway = Sway(params.gun.sway, ads_target_for(params.gun))
         self.hud = Hud(params.gun.credit) if hud else None                    # Bodycam style: nothing on screen; only the selftest turns it on to read numbers
@@ -209,11 +217,21 @@ class Game(Entity):
         self.focus = FocusGuard()                                             # G16: Alt+Tab / minimise -> free the mouse, let go of keys, mute
         if self.level is not None:
             self.level.current.view.update(self.level.current.swarm, self.pool.local_ambient)     # the capsules exist before the shader warm-up draws a frame
-            self.notice.show(self.level.floor_title(), 3.5)
+            if self.level.floor_title():
+                self.notice.show(self.level.floor_title(), 3.5)
         self._muted = None                                                    # [(AudioManager, volume before)] while the window is in the background
         self.apply_graphics(self.gfx)
 
-    # --- graphics (G10): the F2 panel edits `self.gfx`; switching changes uniforms and buffers only (no shader recompiles); anti-aliasing rebuilds the lens buffer ---
+    def _stage(self, label: str, progress: float = None):
+        """G20: announce a real load step to the boot splash (it draws one frame); nothing without a splash."""
+        if self.boot is not None:
+            self.boot.stage(label, progress)
+
+    def _start_ambience(self):
+        if self.ambience is not None:
+            self.ambience.play()
+
+    # --- graphics (G10): the graphics panel (Esc, G20) edits `self.gfx`; switching changes uniforms and buffers only (no shader recompiles); anti-aliasing rebuilds the lens buffer ---
     def apply_graphics(self, s: GraphicsSettings, announce: bool = False):
         if self._aa_cap is not None and s.aa != self.gfx.aa:      # the user chose an anti-aliasing level himself: that wins over the low-memory cap
             self._aa_cap = None
@@ -463,6 +481,8 @@ class Game(Entity):
         self.apply_graphics(self.gfx)
         self._refill_ammo()
         new.view.update(new.swarm, hall.local_ambient)
+        if self.look is not None and new.k >= 1:
+            self.look.sky.entity.hide()                       # the sky quads stand behind the pool hall's windows: nothing to see through on a floor
         self.notice.show(lvl.floor_title(), 3.5)
 
     def _refill_ammo(self):
@@ -574,6 +594,18 @@ class Game(Entity):
         # fixed order: player (look/move) -> wall probe (High Ready, G14) -> fire + reload (uses the view direction just updated) -> hand animation -> sway -> head + shake (-> lens frame) -> gun -> light, lens
         dt = time.dt
         self._update_focus(dt)
+        if self.boot is not None:                        # G20: the boot splash holds the game (hold / off), then fades out over the running game (fade)
+            state = self.boot.update(dt)
+            if state in ('fade', 'gone') and not self._boot_handed:
+                self._boot_handed = True
+                self._start_ambience()
+            if state == 'gone':
+                self.boot = None
+            elif self.boot.holding:
+                self._age += dt
+                if self.quit_after and self._age >= self.quit_after:
+                    application.quit()
+                return
         self.player.tick()
         self._update_wall(dt)
         if self.level is not None:                       # G18: doors, the swarm, health, progress (after the player moved, before the shots of this frame)
@@ -657,6 +689,8 @@ class Game(Entity):
             self.hud.update(dt, self.combat)
         self.notice.update(dt)
         self.notice_low.update(dt)
+        if self.gfx_panel.visible:                       # G20: the graphics panel animates (open / close), reads the pointer, shows the FPS
+            self.gfx_panel.update(dt)
         if self.debug.is_open:
             self.debug.update(dt)
         self._age += time.dt
@@ -664,7 +698,10 @@ class Game(Entity):
             application.quit()
 
     def input(self, key):
-        if key == 'f2' and not self.debug.is_open:
+        if self.boot is not None and self.boot.holding:     # G20: while the splash runs every key / click only skips its ending
+            self.boot.on_input(key)
+            return
+        if key == 'escape' and not self.debug.is_open:      # G20: Esc opens / closes the graphics panel (it frees / captures the mouse itself; F1's own Esc closes F1)
             self.gfx_panel.toggle()
         elif self.gfx_panel.is_open:              # graphics panel open: keys and the mouse belong to it
             self.gfx_panel.on_input(key)
@@ -675,11 +712,11 @@ class Game(Entity):
                 self.debug.hide()
             else:
                 self.debug.on_input(key)
-        elif key == 'escape':
-            mouse.locked = not mouse.locked
         elif key == 'enter' and self.level is not None and self.level.state.phase == WON:
             self.notice.show('', 0.01)
             self._restart_level()
+        elif key == 'e' and self.level is not None:          # G19: the lift button
+            self.level.press_e = True
         elif key == 'left mouse down':
             if not self.focus.guarding:                  # the click that brought the window back to the front is not a shot (G16)
                 self.combat.pressed = True
@@ -718,8 +755,9 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
                 sound: bool = True, draw: bool = True, effects: bool = True, look: bool = True, shake: bool = True,
                 user_params: bool = False, hud: bool = False, lens: bool = True, free_aim: bool = True,
                 borderless: bool = False, gun: str = 'm4', map_name: str = 'pool', rebake: bool = False, low_memory: bool = False,
-                frame_cap: float = 0.0, hidden: bool = None) -> Game:
-    """`hidden`: None = no window unless the tool was started with --show (see SHOW_WINDOW); False = a real window; True = never."""
+                frame_cap: float = 0.0, hidden: bool = None, splash: bool = False) -> Game:
+    """`hidden`: None = no window unless the tool was started with --show (see SHOW_WINDOW); False = a real window; True = never.
+    `splash`: G20 boot splash (game/boot.py) over the build and a fixed ending; only main() turns it on (the tools never see it)."""
     if hidden is None:
         hidden = not SHOW_WINDOW
     # Ursina(vsync=False) alone does not turn vsync off; the Panda config must be set directly
@@ -751,16 +789,29 @@ def create_game(vsync: bool = True, size=(1280, 720), fullscreen: bool = False, 
     # mouse.x / mouse.y themselves. `update_step` is compared with a counter that is never reset, so a huge value skips the picking for good (mouse movement is still read).
     mouse.update_step = 1 << 62
     setup_fonts()
+    ui_audio = UiAudio(ROOT, enabled=sound)
+    boot = None
+    if splash:                                       # G20: the splash is the first thing on screen; the build below reports each real step to it
+        boot = BootScreen(ROOT, sound=sound, audio=ui_audio, quiet=hidden)
+        boot.stage(f'OPEN DISPLAY  {boot.W}x{boot.H}  {api.upper()}', 0.04)
     # a copy of the gun: the debug panel writes straight into the gun data, so the shared GunData must not be dirtied (tests, measuring tools)
     game = Game(GameParams(gun=copy.deepcopy(GUNS[gun])), quit_after, sound, draw, effects, look, shake=shake,
-                user_params=user_params, hud=hud, lens=lens, free_aim=free_aim, gun_name=gun, map_name=map_name, rebake=rebake, low_memory=low_memory)
+                user_params=user_params, hud=hud, lens=lens, free_aim=free_aim, gun_name=gun, map_name=map_name, rebake=rebake, low_memory=low_memory,
+                boot=boot, ui_audio=ui_audio)
     game.app = app
     prune_scene_entities()
     # dry-run renders at build time: compiling shaders (lens, gun) and uploading normal maps to the GPU do not land in the game's first frame. Without it the first frame takes ~1 s and the 1 s draw clip is skipped entirely
+    game._stage('COMPILE SHADERS', 0.80)
     game.viewmodel.prewarm()
     if not low_memory:              # (low memory: built on the first switch instead, `_apply_gun`: one long frame, but 0.12 GB less commit at start-up)
+        game._stage('PRELOAD WEAPON KITS', 0.86)
         game.preload_guns()         # the other gun too: a weapon switch then loads nothing (it used to freeze the game 0.5-1.7 s)
+    game._stage('WARM SHADER BUILDS', 0.94)
     game.warm_shader_builds()       # G13: every lite / view / dry build drawn once now, not in the middle of play
+    game._stage('BUILD INTERFACE', 0.97)
+    game.gfx_panel.prebuild()       # G20: ~40 text rows (0.8 s): built now, hidden, so the first Esc does not freeze the game
+    if boot is not None:
+        boot.load_done()            # the fixed ending starts now; Game.update runs it
     return game
 
 
@@ -812,7 +863,8 @@ def main(argv=None):
     ap.add_argument('--gun', default='m4', choices=sorted(GUNS), help='súng dùng khi khởi động (m4 / glock / m1014)')
     ap.add_argument('--defaults', action='store_true', help='bỏ qua user_params.json, chạy bằng thông số mặc định')
     ap.add_argument('--map', default='pool', choices=('pool', 'flat', 'backrooms'),
-                    help='pool = phòng hồ bơi (mặc định); flat = nền trắng phẳng cũ (để so FPS); backrooms = level 5 tầng Backrooms - Pool rooms có kẻ địch')
+                    help='pool = phòng hồ bơi, cầu thang bờ bắc lên Backrooms (mặc định); backrooms = vào thẳng tầng 1; flat = nền trắng phẳng cũ (để so FPS)')
+    ap.add_argument('--no-splash', action='store_true', help='bỏ màn splash mở đầu (G20) và vào thẳng game')
     ap.add_argument('--rebake', action='store_true', help='nướng lại ánh sáng và chụp lại phản chiếu của phòng hồ bơi (thường game tự làm khi cần)')
     ap.add_argument('--low-memory', action='store_true', help='ép chế độ giảm tải (tắt khử răng cưa, nạp súng thứ hai muộn); thường game tự chọn khi máy thiếu bộ nhớ ảo')
     args = ap.parse_args(argv)
@@ -829,7 +881,8 @@ def main(argv=None):
     try:
         cap = 0.0 if (args.vsync or args.novsync) else GraphicsData().frame_cap
         game = create_game(hidden=False, vsync=args.vsync, frame_cap=cap, size=size, borderless=not args.window,
-                           quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake, low_memory=mem.low_memory)
+                           quit_after=args.quit_after, sound=not args.mute, user_params=not args.defaults, gun=args.gun, map_name=args.map, rebake=args.rebake, low_memory=mem.low_memory,
+                           splash=not args.no_splash)
     except Exception as e:                       # G16 (A3): a missing file, a GPU that cannot make a buffer, a shader that does not compile...
         sysmem.stop_watchdog()
         if _window_closed():                     # the player closed the window while it was loading: the build then fails on the missing window; that is a quit

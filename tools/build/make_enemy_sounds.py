@@ -6,6 +6,9 @@ r"""G18: synthesise the sounds of the Backrooms enemies with numpy (no AI asset,
   hurt    a short wet thump (a bullet hits a capsule)
   die     a falling groan ending in a thud
   player_hurt  a muffled low knock with a short ring (the player is hit; heard 'inside the head')
+  lift_hum     G19: the lift motor during a ride (4.2 s: hum, whine, rumble)
+  lift_ding    G19: the arrival chime
+  door_slide   G19: a door / lift leaf sliding
 
 Deterministic (fixed seeds): running it again gives the same files. Run: .venv\Scripts\python.exe -X utf8 tools\build\make_enemy_sounds.py
 """
@@ -103,6 +106,21 @@ def main():
     t = np.arange(n) / SR
     ring = np.sin(2 * np.pi * 1850.0 * t) * np.exp(-t * 9.0) * 0.12
     write('player_hurt', normalise(lowpass(thud(0.45, 60.0, 9, click=0.2), 600.0) + ring, 0.8))
+    # G19 the lift
+    n = int(4.2 * SR)
+    t = np.arange(n) / SR
+    rng = np.random.default_rng(10)
+    hum = 0.5 * np.sin(2 * np.pi * 50.0 * t) + 0.3 * np.sin(2 * np.pi * 100.0 * t) + 0.12 * np.sin(2 * np.pi * (182.0 + 6.0 * np.sin(2 * np.pi * 0.7 * t)) * t)
+    rumble = lowpass(rng.standard_normal(n), 140.0) * 1.5
+    write('lift_hum', normalise((hum + rumble) * env(n, 0.6, 0.9, 1.5), 0.7))
+    n = int(1.6 * SR)
+    t = np.arange(n) / SR
+    bell = lambda f, t0: np.where(t >= t0, (np.sin(2 * np.pi * f * (t - t0)) + 0.35 * np.sin(2 * np.pi * 2.76 * f * (t - t0))) * np.exp(-(t - t0) * 2.8), 0.0)
+    write('lift_ding', normalise(bell(1318.5, 0.0) + 0.9 * bell(1046.5, 0.32), 0.6))
+    n = int(0.75 * SR)
+    t = np.arange(n) / SR
+    swish = lowpass(np.random.default_rng(11).standard_normal(n), 700.0) * env(n, 0.08, 0.25, 1.0)
+    write('door_slide', normalise(swish, 0.6))
 
 
 if __name__ == '__main__':
