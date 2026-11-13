@@ -38,10 +38,10 @@ def test_presets_roundtrip_through_settings():
 def test_panel_cycling_changes_one_row_and_custom_is_detected():
     from fps.core.graphics import GraphicsSettings, choice_text, cycle, preset_of, resolve
     s = GraphicsSettings()                                         # = Cao
-    assert choice_text(s, 'preset') == 'Cao'
+    assert choice_text(s, 'preset') == 'HIGH'
     s2 = cycle(s, 'dust', 1)
     assert s2.dust is False and s.dust is True                    # a copy; the original is untouched
-    assert preset_of(s2) is None and choice_text(s2, 'preset') == 'Tuỳ chỉnh' and resolve(s2).name == 'Tuỳ chỉnh'
+    assert preset_of(s2) is None and choice_text(s2, 'preset') == 'CUSTOM' and resolve(s2).name == 'Tuỳ chỉnh'
     s3 = cycle(s2, 'preset', 1)                                    # from custom, right = Cao
     assert preset_of(s3) == 2
     a = cycle(s, 'aa', 1)

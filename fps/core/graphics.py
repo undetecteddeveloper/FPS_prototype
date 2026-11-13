@@ -1,4 +1,4 @@
-"""Graphics settings (pure Python; tests/test_graphics.py). The F2 panel (game/graphics_panel.py) edits a GraphicsSettings; `resolve` turns it into the GraphicsLevel every
+"""Graphics settings (pure Python; tests/test_graphics.py). The graphics panel (Esc, game/graphics_panel.py) edits a GraphicsSettings; `resolve` turns it into the GraphicsLevel every
 effect reads. The three presets are weapon_data.GRAPHICS_LEVELS (Thấp / Vừa / Cao); anti-aliasing and the FPS counter are independent of the preset.
 Switching changes uniforms and buffers only (no shader recompiles); anti-aliasing rebuilds the lens buffer (a few ms, only when it changes)."""
 import json
@@ -36,25 +36,27 @@ class GraphicsSettings:
 PRESET_FIELDS = ('sim', 'refraction', 'caustics', 'glint', 'shafts', 'splash', 'wet', 'gun_env', 'dust', 'under', 'scale', 'smoke', 'surface')
 G13_FIELDS = ('scale', 'smoke', 'surface')     # rows added after G12: a file saved before them keeps its preset whole (`from_json`)
 
-# (field, label, [(value, text)]) for the F2 panel; 'preset' is the row that applies a whole level
+# (field, label, [(value, text)]) for the graphics panel (Esc; G20: English, upper case, label <= 38 and value <= 8 characters so the panel columns never move);
+# 'preset' is the row that applies a whole level. The saved file keeps the values (not the texts): translating a text never breaks user_graphics.json.
 OPTIONS = (
-    ('preset', 'Mức chung', [(0, 'Thấp'), (1, 'Vừa'), (2, 'Cao')]),
-    ('aa', 'Khử răng cưa', [(0, 'Tắt'), (2, '2x'), (4, '4x')]),
-    ('scale', 'Độ phân giải 3D', [(0, '100%'), (1, '75%'), (2, '50%')]),
-    ('sim', 'Sóng nước mô phỏng', [(0, 'Tắt'), (1, 'Vừa'), (2, 'Cao')]),
-    ('refraction', 'Nước trong (thấy đáy)', [(False, 'Tắt'), (True, 'Bật')]),
-    ('caustics', 'Vệt sáng đáy hồ', [(0, 'Tắt'), (1, 'Vừa'), (2, 'Cao')]),
-    ('glint', 'Nắng lấp lánh trên nước', [(False, 'Tắt'), (True, 'Bật')]),
-    ('shafts', 'Tia nắng trong không khí', [(0, 'Tắt'), (1, 'Vừa'), (2, 'Cao')]),
-    ('dust', 'Bụi trong nắng', [(False, 'Tắt'), (True, 'Bật')]),
-    ('splash', 'Giọt nước bắn', [(0, 'Tắt'), (1, 'Ít'), (2, 'Nhiều')]),
-    ('wet', 'Sàn ướt, vết chân', [(False, 'Tắt'), (True, 'Bật')]),
-    ('gun_env', 'Súng phản chiếu căn phòng', [(False, 'Tắt'), (True, 'Bật')]),
-    ('under', 'Dưới nước', [(0, 'Đơn giản'), (1, 'Đầy đủ')]),
-    ('smoke', 'Khói súng', [(False, 'Đơn giản'), (True, 'Đầy đủ')]),
-    ('surface', 'Chi tiết bề mặt (gạch, lỗ đạn)', [(0, 'Phẳng'), (1, 'Vừa'), (2, 'Cao')]),
-    ('show_fps', 'Hiện FPS', [(False, 'Tắt'), (True, 'Bật')]),
+    ('preset', 'GRAPHICS PRESET', [(0, 'LOW'), (1, 'MED'), (2, 'HIGH')]),
+    ('aa', 'ANTI-ALIASING (MSAA)', [(0, 'OFF'), (2, '2X'), (4, '4X')]),
+    ('scale', 'RENDER RESOLUTION', [(0, '100%'), (1, '75%'), (2, '50%')]),
+    ('sim', 'WATER WAVE SIMULATION', [(0, 'OFF'), (1, 'MED'), (2, 'HIGH')]),
+    ('refraction', 'WATER REFRACTION (SEE BOTTOM)', [(False, 'OFF'), (True, 'ON')]),
+    ('caustics', 'POOL FLOOR CAUSTICS', [(0, 'OFF'), (1, 'MED'), (2, 'HIGH')]),
+    ('glint', 'WATER SUN GLINT', [(False, 'OFF'), (True, 'ON')]),
+    ('shafts', 'VOLUMETRIC SUN SHAFTS', [(0, 'OFF'), (1, 'MED'), (2, 'HIGH')]),
+    ('dust', 'AIRBORNE DUST', [(False, 'OFF'), (True, 'ON')]),
+    ('splash', 'WATER SPLASH DROPLETS', [(0, 'OFF'), (1, 'FEW'), (2, 'MANY')]),
+    ('wet', 'WET DECK / FOOTPRINTS', [(False, 'OFF'), (True, 'ON')]),
+    ('gun_env', 'WEAPON ROOM REFLECTION', [(False, 'OFF'), (True, 'ON')]),
+    ('under', 'UNDERWATER EFFECTS', [(0, 'SIMPLE'), (1, 'FULL')]),
+    ('smoke', 'GUN SMOKE', [(False, 'SIMPLE'), (True, 'FULL')]),
+    ('surface', 'SURFACE DETAIL (TILES, IMPACTS)', [(0, 'FLAT'), (1, 'MED'), (2, 'HIGH')]),
+    ('show_fps', 'FPS COUNTER', [(False, 'OFF'), (True, 'ON')]),
 )
+CUSTOM_TEXT = 'CUSTOM'                  # the preset row when the settings match no preset
 
 
 def clamp_level(i: int) -> int:
@@ -137,7 +139,7 @@ def choice_text(s: GraphicsSettings, field: str) -> str:
     choices = next(c for f, _, c in OPTIONS if f == field)
     if field == 'preset':
         p = preset_of(s)
-        return choices[p][1] if p is not None else 'Tuỳ chỉnh'
+        return choices[p][1] if p is not None else CUSTOM_TEXT
     v = getattr(s, field)
     return next((t for val, t in choices if val == v), str(v))
 

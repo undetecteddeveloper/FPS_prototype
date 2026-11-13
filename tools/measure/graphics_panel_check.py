@@ -1,4 +1,4 @@
-r"""G10: the F2 graphics panel in the real game: opens and frees the mouse, anti-aliasing 2x / 4x rebuilds the lens with REAL multisample buffers (the gun moves to the new buffer),
+r"""G10 / G20: the graphics panel in the real game (Esc opens and closes it): opens and frees the mouse, anti-aliasing 2x / 4x rebuilds the lens with REAL multisample buffers (the gun moves to the new buffer),
 every row changes and cycles back, the preset row keeps the anti-aliasing, Esc closes and saves (to a temp file, not the user's). Screenshots shots\g10_panel.png, g10_aa_off/4x.png.
 
 Run: .venv\Scripts\python.exe -X utf8 tools\with_game_lock.py .venv\Scripts\python.exe -X utf8 tools\measure\graphics_panel_check.py      (exit code = number of failures)
@@ -58,10 +58,10 @@ class S(Entity):
         p._apply_view()
         yield from self.frames(20)
         snap('aa_off')
-        game.input('f2')
-        yield from self.frames(10)
+        game.input('escape')
+        yield from self.frames(30)                                # the panel opens from a line in 0.16 s
         panel = game.gfx_panel
-        check('F2 opens the panel and frees the mouse', panel.is_open and p.ui_open and not __import__('ursina').mouse.locked)
+        check('Esc opens the panel and frees the mouse', panel.is_open and p.ui_open and not __import__('ursina').mouse.locked)
         snap('panel')
         # anti-aliasing: Off -> 2x -> 4x, with real multisample buffers
         for want in (2, 4):
@@ -76,10 +76,10 @@ class S(Entity):
                   f'mẫu {got}, đổi {ms:.0f} ms, khung chậm nhất sau đó {max(self.dts) * 1000:.0f} ms')
             vm = game.viewmodel
             check(f'... the gun draws into the new buffer ({want}x)', vm.output == buf and vm.region.is_active())
-        game.input('f2')
-        yield from self.frames(20)
+        game.input('escape')
+        yield from self.frames(30)
         snap('aa_4x')
-        game.input('f2')
+        game.input('escape')
         yield from self.frames(5)
         # every other row changes and comes back
         for i, (field, label, choices) in enumerate(OPTIONS):
@@ -95,7 +95,7 @@ class S(Entity):
             check(f'row "{label}" changes and cycles back', after != before and getattr(game.gfx, field) == before)
         panel.change(1, row=0)                                    # preset: Cao -> Thấp
         yield from self.frames(5)
-        check('row "Mức chung" applies a preset (keeps anti-aliasing)', game.graphics_level == 0 and game.gfx.aa == 4, f'level {game.graphics_level}, aa {game.gfx.aa}')
+        check('row "GRAPHICS PRESET" applies a preset (keeps anti-aliasing)', game.graphics_level == 0 and game.gfx.aa == 4, f'level {game.graphics_level}, aa {game.gfx.aa}')
         panel.change(1, row=0)
         panel.change(1, row=0)
         game.input('escape')
