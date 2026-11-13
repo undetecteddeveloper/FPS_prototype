@@ -31,24 +31,30 @@ EXCLUDE_MODULES = ('pytest', '_pytest', 'tkinter', 'IPython', 'matplotlib', 'pyg
 
 
 def check_bake() -> list:
-    """Problems that would make a friend's first start slow or broken (empty = fine)."""
+    """Problems that would make a friend's first start slow or broken (empty = fine). G19: the run has 6 stages (the pool hall + 5 Backrooms floors): each needs its stored
+    lightmap AND reflection to match the code, or the game bakes for a minute at start-up / freezes ~6 s at a floor swap to capture the reflection."""
     import json
-    from fps.core.poolmap import bake_key, reflect_key
-    from fps.weapon_data import GUNS, GameParams, MapData
+    from fps.core.backrooms import build_stage, floor_key, stage_count
+    from fps.core.poolmap import reflect_key
+    from fps.game.backrooms import stage_dir
+    from fps.weapon_data import GUNS, GameParams
     problems = []
-    p, d = GameParams(), MapData()
-    meta_path = ROOT / 'assets' / 'maps' / 'pool' / 'meta.json'
-    try:
-        meta = json.loads(meta_path.read_text(encoding='utf-8'))
-    except (OSError, ValueError) as e:
-        return [f'không đọc được {meta_path}: {e}']
-    if meta.get('key') != bake_key(d, p.look):
-        problems.append('ánh sáng nướng không khớp thông số mặc định (chạy game một lần với --defaults --rebake rồi dựng lại)')
-    if meta.get('reflect') != reflect_key(d, p.look, p.lens):
-        problems.append('ảnh phản chiếu không khớp thông số mặc định (chạy game một lần với --defaults --rebake rồi dựng lại)')
-    for f in ('lightmap.png', 'reflect.png', 'ambient.json'):
-        if not (meta_path.parent / f).exists():
-            problems.append(f'thiếu assets/maps/pool/{f}')
+    p = GameParams()
+    for k in range(stage_count()):
+        fm = build_stage(k)
+        folder = ROOT / stage_dir(k)
+        try:
+            meta = json.loads((folder / 'meta.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError) as e:
+            problems.append(f'không đọc được {folder / "meta.json"}: {e}')
+            continue
+        if meta.get('key') != floor_key(fm, p.look):
+            problems.append(f'màn {k}: ánh sáng nướng không khớp mã (chạy tools/build/bake_backrooms.py rồi dựng lại)')
+        if meta.get('reflect') != reflect_key(fm.data, p.look, p.lens):
+            problems.append(f'màn {k}: ảnh phản chiếu không khớp mã (chạy tools/measure/backrooms_check.py một lần rồi dựng lại)')
+        for f in ('lightmap.png', 'reflect.png', 'ambient.json'):
+            if not (folder / f).exists():
+                problems.append(f'thiếu {stage_dir(k)}/{f}')
     for key, gun in GUNS.items():
         if not (ROOT / gun.glb).exists():
             problems.append(f'thiếu model súng {key}: {gun.glb}')
